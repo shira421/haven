@@ -53,21 +53,47 @@ function paint(app) {
   for (const a of app.world.animals.values()) {
     const el = els.get(a.id);
     if (!el || drag?.id === a.id) continue;
-    const at = project(side, a.u, a.v, a.lift);
-    el.style.left = at.left.toFixed(2) + '%';
-    el.style.top = at.top.toFixed(2) + '%';
-    el.style.zIndex = project(side, a.u, a.v).depth;
-    el.classList.toggle('moving', a.moving);
-    el.classList.toggle('flip', a.face < 0);
-    el.classList.toggle('asleep', a.state === 'sleep');
-    el.classList.toggle('aloft', a.lift > 0.2);
+    // The element stays on the ground under the animal; the drawing inside is what leaves it.
+    const at = project(side, a.u, a.v), over = a.over && app.world.things.get(a.over);
+    const depth = over ? Math.max(at.depth, project(side, over.u, over.v).depth + 1) : at.depth;
+    const k = el._k ??= Number(el.style.getPropertyValue('--k')) || 50;
+    const look = `${at.left.toFixed(2)}|${at.top.toFixed(2)}|${depth}|${((a.lift + a.wob) * k).toFixed(1)}|${a.tilt.toFixed(0)}|${a.act}|${a.face}|${a.air ? 1 : 0}|${a.state === 'sleep' ? 1 : 0}`;
+    if (el._look !== look) {
+      el._look = look;
+      el.style.left = at.left.toFixed(2) + '%';
+      el.style.top = at.top.toFixed(2) + '%';
+      el.style.zIndex = depth;
+      el.style.setProperty('--lift', ((a.lift + a.wob) * k).toFixed(1));
+      el.style.setProperty('--tilt', a.tilt.toFixed(0) + 'deg');
+      if (el.dataset.act !== a.act) el.dataset.act = a.act;
+      el.classList.toggle('flip', a.face < 0);
+      el.classList.toggle('air', a.air);
+      el.classList.toggle('asleep', a.state === 'sleep');
+    }
     const emote = el.lastElementChild;
     if (emote && emote.dataset.kind !== (a.emote || '')) emote.dataset.kind = a.emote || '';
   }
   for (const event of app.world.events.splice(0)) {
-    const el = root.querySelector(`.ent[data-ent="${event.id}"]`);
-    if (el && event.type === 'rustle') { el.classList.remove('rustle'); void el.offsetWidth; el.classList.add('rustle'); }
+    if (calm()) continue;
+    const el = event.id ? root.querySelector(`.ent[data-ent="${event.id}"]`) : null;
+    if (event.type === 'rustle' && el) again(el, 'rustle');
+    else if (event.type === 'land') { if (el) again(el, 'landed'); if (!event.soft) effect(side, 'puff', event.u, event.v); }
+    else if (event.type === 'splash') effect(side, 'splash', event.u, event.v);
+    else if (event.type === 'leaves') for (let i = 0; i < 3; i++) effect(side, 'leaf', event.u, event.v, event.lift * (0.75 + i * 0.1), i);
   }
+}
+
+/** Play a one-off animation on an element again from the start. */
+function again(el, cls) { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
+
+/** A short-lived effect on the land: a puff of dust, a splash, a falling leaf. It removes itself. */
+function effect(side, kind, u, v, lift = 0, i = 0) {
+  if (!root || root.querySelectorAll('.fx').length > 24) return;
+  const at = project(side, u, v, lift), fx = document.createElement('i');
+  fx.className = `fx ${kind}`;
+  fx.style.cssText = `left:${at.left.toFixed(2)}%;top:${at.top.toFixed(2)}%;z-index:${project(side, u, v).depth + 2};--i:${i}`;
+  fx.addEventListener('animationend', () => fx.remove());
+  root.append(fx);
 }
 
 /** The point on the land under a pointer. */
@@ -108,7 +134,14 @@ export function wire(app) {
   document.addEventListener('pointercancel', finish);
   document.addEventListener('click', event => {
     const world = event.target.closest?.('.world.interactive');
-    if (!world || !app.ui.edit.on || !app.ui.edit.item || event.target.closest('.ent')) return;
+    if (!world || event.target.closest('.ent')) return;
+    // Outside arranging, a tap on the ground calls whoever is near.
+    if (!app.ui.edit.on) {
+      const box = root.getBoundingClientRect(), side = app.store.side(), p = unproject(side, (event.clientX - box.left) / box.width, (event.clientY - box.top) / box.height);
+      if (p.u >= 0 && p.v >= 0 && p.u <= side && p.v <= side) app.world?.attract(p.u, p.v);
+      return;
+    }
+    if (!app.ui.edit.item) return;
     const [u, v] = landPoint(app, event), id = app.ui.edit.item;
     const r = app.store.place(id, u, v);
     if (!r.ok) return toast(r.error);
@@ -236,6 +269,7 @@ export const actions = {
   feed(app, d) {
     const item = app.store.item(d.id), r = app.store.feed(d.id);
     if (!r.ok) return toast(r.error);
+    app.world?.react(d.id, 'eat');
     app.world?.emote(d.id, 'heart', 3);
     careToast(app, '', `${app.store.nameOf(item)} ate.`, r);
     if (d.list) careList(app); else careDialog(app, d.id);
@@ -243,7 +277,7 @@ export const actions = {
   'feed-all'(app) {
     const r = app.store.feedAll();
     if (!r.ok) return toast('You have no treats. Every finished session earns some.');
-    for (const id of r.fed) app.world?.emote(id, 'heart', 3);
+    for (const id of r.fed) { app.world?.react(id, 'eat'); app.world?.emote(id, 'heart', 3); }
     const coins = r.bonds.reduce((n, b) => n + b.coins, 0);
     app.announce(r.achievements, `Fed ${r.fed.length} ${r.fed.length === 1 ? 'animal' : 'animals'}.${r.left ? ` ${r.left} still waiting: no treats left.` : ''}${coins ? ` Bonds grew. +${coins} coins.` : ''}`);
     careList(app);
@@ -251,6 +285,7 @@ export const actions = {
   pet(app, d) {
     const item = app.store.item(d.id), r = app.store.pet(d.id);
     if (!r.ok) return;
+    app.world?.react(d.id, 'joy');
     app.world?.emote(d.id, 'heart', 2.5);
     if (r.counted) { careToast(app, '', `${app.store.nameOf(item)} liked that.`, r); careDialog(app, d.id); }
     else toast(`${app.store.nameOf(item)} liked that. Pats count toward the bond once an hour.`);

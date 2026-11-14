@@ -134,8 +134,19 @@ try {
   let roamed = false;
   for (let i = 0; i < 12 && !roamed; i++) { await ana.clock.runFor(2500); roamed = (await where()) !== start; }
   assert.ok(roamed, 'the rabbit left the spot it arrived at');
+  // It is drawn in parts that move, and it hops: off the ground, then down again.
+  const rig = await ana.locator(`.ent[data-ent="${rabbit}"]`).evaluate(el => ['.rig.quad', '.leg.fl', '.leg.hl', '.head', '.ear', '.tail', '.eye', '.shade'].every(q => el.querySelector(q)));
+  assert.ok(rig, 'the rabbit has legs, a head, ears and a tail of its own');
+  let hopped = false, highest = 0;
+  for (let i = 0; i < 400 && !(hopped && highest > 5); i++) {
+    await ana.clock.runFor(50);
+    const now = await ana.locator(`.ent[data-ent="${rabbit}"]`).evaluate(el => [el.dataset.act, Number(el.style.getPropertyValue('--lift'))]);
+    if (now[0] === 'hop') hopped = true;
+    highest = Math.max(highest, now[1]);
+  }
+  assert.ok(hopped && highest > 5, `the rabbit hops (${highest})`);
   await shot(ana, 'haven');
-  ok('an animal moves in and roams the haven');
+  ok('an animal moves in, roams the haven and hops as it goes');
 
   // Seven hours later the rabbit is peckish.
   await ana.evaluate(id => { const s = window.__haven.app.store; s.item(id).fed -= 7 * 3600000; s.commit('care'); }, rabbit);
@@ -145,6 +156,7 @@ try {
   const coinsThen = Number(await ana.locator('#coins').textContent());
   await ana.click('#dialog [data-action="feed"]');
   await toastSays(ana, /Rabbit ate\. Earned: First meal\. \+50 coins\./);
+  assert.equal(await ana.evaluate(id => window.__haven.app.world.animals.get(id).doing, rabbit), 'eat', 'the rabbit in the haven stops to eat');
   assert.equal(Number(await ana.locator('#coins').textContent()), coinsThen + 50);
   assert.match(await ana.locator('#dialog .facts').textContent(), /HungerFull/);
   assert.equal(await ana.locator('#dialog [data-action="feed"]').count(), 0, 'a full animal is not offered food');

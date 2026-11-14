@@ -27,6 +27,12 @@ jobs:
           retention-days: 3
       - name: Browser test (two people, headless Chrome, the real friends server run locally)
         run: npm run test:browser
+      - name: The animals' moving parts, measured in Chrome
+        run: npm run test:rig
+      - name: The same in WebKit, the engine inside the iOS app
+        run: |
+          npx playwright-core install --with-deps webkit
+          node tests/rig.mjs webkit
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

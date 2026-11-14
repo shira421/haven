@@ -37,20 +37,20 @@ test('animals greet each other', () => {
   assert.ok(closest < 1, `they were side by side when it happened (${closest.toFixed(2)})`);
 });
 
-test('animals visit what they like: a frog goes into the pond, a rabbit stops beside its burrow', () => {
+test('animals visit what they like: a frog goes into the pond, a rabbit goes down its burrow', () => {
   const world = new World({ side: 6, random: seeded(5) });
   world.sync([thing('frog', 'frog', 1, 1), thing('rab', 'rabbit', 5, 5), thing('pond', 'pond', 4, 2), thing('hole', 'burrow', 2, 4), thing('oak', 'oak', 3, 3)]);
   let inPond = false, byBurrow = false, drank = false;
   const rustled = new Set();
   run(world, 300, {}, w => {
     const f = w.animals.get('frog'), r = w.animals.get('rab');
-    if (f.state === 'enjoy' && f.thing === 'pond' && Math.hypot(f.u - 4, f.v - 2) < 0.2) inPond = true;
+    if (f.state === 'enjoy' && f.thing === 'pond' && f.wet && f.act === 'swim' && f.over === 'pond') inPond = true;
     if (f.emote === 'drop') drank = true;
-    if (r.state === 'enjoy' && r.thing === 'hole') { const d = Math.hypot(r.u - 2, r.v - 4); if (d > 0.3 && d < 0.7) byBurrow = true; }
+    if (r.state === 'enjoy' && r.thing === 'hole' && r.act === 'hide' && Math.hypot(r.u - 2, r.v - 4) < 0.1) byBurrow = true;
     for (const e of w.events.splice(0)) rustled.add(e.id);
   });
   assert.ok(inPond && drank, 'the frog swam in the pond');
-  assert.ok(byBurrow, 'the rabbit sat by the burrow');
+  assert.ok(byBurrow, 'the rabbit went down the burrow');
   assert.ok(rustled.has('pond') && rustled.has('hole'), 'the things they visited reacted');
   assert.equal(rustled.has('oak'), false, 'nobody here cares for the oak');
 });
@@ -58,9 +58,10 @@ test('animals visit what they like: a frog goes into the pond, a rabbit stops be
 test('birds fly, and perch up in trees', () => {
   const world = new World({ side: 6, random: seeded(8) });
   world.sync([thing('bird', 'robin', 1, 1), thing('oak', 'oak', 4, 4)]);
-  let flew = false, perched = false;
-  run(world, 200, {}, w => { const b = w.animals.get('bird'); if (b.moving && b.lift > 0.8) flew = true; if (b.state === 'enjoy' && b.lift > 1.2 && Math.hypot(b.u - 4, b.v - 4) < 0.2) perched = true; });
-  assert.ok(flew && perched);
+  let flew = false, perched = false, walked = false;
+  run(world, 900, {}, w => { const b = w.animals.get('bird'); if (b.act === 'fly' && b.lift > 0.8) flew = true; if (b.act === 'perch' && b.lift > 1 && b.over === 'oak' && Math.hypot(b.u - 4, b.v - 4) < 0.3) perched = true; if (b.act === 'walk' && b.lift === 0) walked = true; });
+  assert.ok(flew && perched, 'it flew to the oak and sat in it');
+  assert.ok(walked, 'short trips are made on foot');
 });
 
 test('at night day animals sleep where they are and night animals carry on', () => {
@@ -123,4 +124,70 @@ test('a crowded haven stays lively and nobody ends up on top of anyone', () => {
   for (const what of ['idle', 'walk', 'enjoy', 'greet', 'chase', 'heart', 'note', 'drop']) assert.ok(seen.has(what), `saw ${what}`);
   const still = [...world.animals.values()].filter(a => !a.moving && a.lift < 0.3);
   for (let i = 0; i < still.length; i++) for (let j = 0; j < i; j++) assert.ok(world.near(still[i], still[j]) > 0.1, 'standing animals are apart');
+});
+
+test('animals move with weight: hops rise and fall, walkers gather speed, and nobody walks through a boulder or the pond', () => {
+  const world = new World({ side: 8, random: seeded(4) });
+  world.sync([thing('r', 'rabbit', 1, 1), thing('d', 'shiba', 1, 6), thing('rock', 'boulder', 4, 4), thing('pond', 'pond', 6, 3)]);
+  const r = world.animals.get('r'), d = world.animals.get('d');
+  let peak = 0, landed = 0, top = 0, nearest = 9, waded = false;
+  const speeds = [];
+  for (let i = 0; i < 4000; i++) {
+    const before = [d.u, d.v];
+    world.step(0.05);
+    peak = Math.max(peak, r.lift);
+    if (r.act === 'hop') top = Math.max(top, Math.abs(r.tilt));
+    for (const e of world.events.splice(0)) if (e.type === 'land' && e.id === 'r') landed++;
+    if (d.act === 'walk' || d.act === 'run') speeds.push(Math.hypot(d.u - before[0], d.v - before[1]) / 0.05);
+    nearest = Math.min(nearest, Math.hypot(d.u - 4, d.v - 4));
+    if (d.wet) waded = true;
+  }
+  assert.ok(peak > 0.15 && peak < 0.3, `the rabbit leaves the ground when it hops (${peak.toFixed(2)})`);
+  assert.ok(landed > 20 && top > 10, 'each hop lands, and the body tips up and down through it');
+  assert.equal(r.lift >= 0, true);
+  assert.ok(Math.min(...speeds) < 0.5 && Math.max(...speeds) <= 1.1 * 1.5 + 0.01, 'the dog eases in and out of a walk');
+  assert.ok(nearest > 0.25, `the dog went round the boulder (${nearest.toFixed(2)})`);
+  assert.equal(waded, false, 'and round the pond');
+});
+
+test('animals do the right thing in the right place', () => {
+  const seen = {};
+  const watch = (species, extra, seconds = 400, seed = 6) => {
+    const world = new World({ side: 6, random: seeded(seed) });
+    world.sync([thing('a', species, 3, 3), ...extra]);
+    const a = world.animals.get('a'), acts = new Set(), events = new Set();
+    run(world, seconds, {}, w => { acts.add(a.act); for (const e of w.events.splice(0)) events.add(e.type); });
+    seen[species] = acts;
+    return { acts, events, a };
+  };
+  const duck = watch('duck', [thing('p', 'pond', 4, 4)]);
+  assert.ok(duck.acts.has('swim') && duck.events.has('splash'), 'a duck splashes in and swims');
+  const deer = watch('deer', [thing('p', 'pond', 4, 4), thing('c', 'clover', 1, 4)]);
+  assert.ok(deer.acts.has('drink') && deer.acts.has('eat') && !deer.acts.has('swim'), 'a deer drinks at the bank and grazes, and stays out of the water');
+  assert.ok(deer.events.has('rustle'));
+  const cat = watch('cat', [thing('f', 'campfire', 2, 2)]);
+  assert.ok(cat.acts.has('sit'), 'a cat sits by the fire');
+  const bee = watch('bee', [thing('s', 'sunflower', 2, 4)]);
+  assert.deepEqual([...bee.acts], ['fly'], 'a bee is always on the wing');
+  const squirrel = watch('squirrel', [thing('o', 'oak', 2, 4)]);
+  assert.ok(squirrel.acts.has('perch') && squirrel.acts.has('hop') && squirrel.events.has('leaves'), 'a squirrel bounds to the oak and climbs it');
+});
+
+test('animals answer the person: they come when the ground is tapped, eat when fed and jump when petted', () => {
+  const world = new World({ side: 6, random: seeded(9) });
+  world.sync([thing('a', 'shiba', 1, 1), thing('z', 'snail', 5, 5)]);
+  assert.equal(world.attract(2, 2), 1, 'only the dog is near enough');
+  const a = world.animals.get('a');
+  let ran = false;
+  run(world, 1.5, {}, () => { if (a.act === 'run') ran = true; });
+  assert.ok(ran && Math.hypot(a.u - 2, a.v - 2) < 0.6, 'the dog ran over');
+  world.react('a', 'eat');
+  world.step(0.1);
+  assert.equal(a.act, 'eat');
+  world.react('a', 'joy');
+  let jumped = 0;
+  run(world, 1, {}, () => { jumped = Math.max(jumped, a.lift); });
+  assert.ok(jumped > 0.1, 'a jump for joy');
+  run(world, 3);
+  assert.equal(a.lift, 0);
 });

@@ -1,6 +1,6 @@
 {
   "name": "haven",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "type": "module",
   "description": "Haven: a focus timer that grows a sanctuary of plants and animals, with live friends.",
@@ -10,6 +10,7 @@
     "pretest": "npm run build",
     "test": "node --test tests/core.test.mjs tests/store.test.mjs tests/catalog.test.mjs tests/world.test.mjs tests/timer.test.mjs tests/hub.test.mjs",
     "test:browser": "node tests/browser.mjs",
+    "test:rig": "node tests/rig.mjs",
     "icons": "node scripts/make-icons.mjs",
     "media": "MEDIA=1 node tests/browser.mjs"
   },

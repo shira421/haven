@@ -202,7 +202,6 @@ button.clock { border-radius: var(--r-card); padding: 0 var(--s3); }
 button.ent { cursor: pointer; }
 .ent .sprite { display: block; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .ent.flip .sprite { transform: scaleX(-1); }
-.ent.aloft .sprite { filter: drop-shadow(0 6px 3px rgba(20, 21, 43, .12)); }
 .ent:focus-visible { outline: 3px solid var(--ring); outline-offset: -6px; }
 .ent.picked { outline: 3px solid var(--sun); outline-offset: -4px; }
 .ent.sprouting::before { content: ""; position: absolute; left: 6%; right: 6%; bottom: 0; height: 26%; border-radius: 50%; border: 2px dashed var(--knob); opacity: .8; }
@@ -213,22 +212,148 @@ button.ent { cursor: pointer; }
 .alive { transform-box: fill-box; transform-origin: 50% 90%; }
 @keyframes pop { from { transform: scale(.7); } to { transform: scale(1); } }
 @keyframes sway { from { transform: rotate(-1.4deg); } to { transform: rotate(1.4deg); } }
-@keyframes bob { from { transform: translateY(0); } to { transform: translateY(-2.5%); } }
-@keyframes hop { from { transform: translateY(0) rotate(-2deg); } to { transform: translateY(-9%) rotate(2deg); } }
 @keyframes rustle { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-5deg); } 60% { transform: rotate(4deg); } }
 @keyframes flicker { from { transform: scale(1, .94); } to { transform: scale(.96, 1.06); } }
 @media (prefers-reduced-motion: no-preference) {
   .ent.plant .alive { animation: sway 5s ease-in-out var(--delay, 0s) infinite alternate; }
-  .ent.animal .alive { animation: bob 2.6s ease-in-out var(--delay, 0s) infinite alternate; }
-  .ent.animal.moving .alive { animation: hop .19s ease-in-out infinite alternate; }
-  .ent.animal.asleep .alive { animation: none; }
   .ent.rustle .alive { animation: rustle .6s ease-in-out; }
   .ent.withered .alive { animation: none; }
   .flame { transform-box: fill-box; transform-origin: 50% 100%; animation: flicker .42s ease-in-out infinite alternate; }
 }
-.ent.animal.asleep .alive { transform: scale(1.04, .9); }
 .scene.night .land, .scene.night .ent:not([data-species="campfire"]):not([data-species="lantern"]) .sprite { filter: brightness(.7) saturate(.8); }
 .scene.night .ent[data-species="campfire"]::after, .scene.night .ent[data-species="lantern"]::after { content: ""; position: absolute; inset: -55%; z-index: -1; border-radius: 50%; background: radial-gradient(closest-side, var(--sun-glow), transparent); pointer-events: none; }
+/* ——— Animals: one drawing, many moving parts ———
+   The drawing gives every part its pivot (see creatures.js). The simulation says what the animal
+   is doing (data-act), how far it is off the ground (--lift, in drawing units) and how it is
+   tipped (--tilt). Everything below turns that into poses and motion. */
+.ent.animal { container-type: inline-size; }
+/* Small animals keep a finger-sized place to tap. */
+button.ent.animal:not(.sprouting)::before { content: ""; position: absolute; left: 50%; top: 60%; width: max(100%, 44px); height: max(100%, 44px); transform: translate(-50%, -50%); }
+.ent.animal .alive { transform: none; }
+.ent.animal .sprite { transform-origin: 50% 90%; }
+.ent.animal .lifted { translate: 0 calc(var(--lift, 0) * -1px); }
+.ent.animal .rig { rotate: var(--tilt, 0deg); }
+.ent.animal .shade { scale: calc(1 - min(var(--lift, 0), 110) / 190); opacity: calc(.18 - min(var(--lift, 0), 110) * .001); }
+.ent.animal .emote { translate: 0 calc(var(--lift, 0) * -1cqw); }
+.lid { display: none; }
+.asleep .eye, [data-act="sleep"] .eye { display: none; }
+.asleep .lid, [data-act="sleep"] .lid { display: inline; }
+
+/* Poses that hold whether or not anything is moving. */
+[data-act="sleep"] .rig { translate: 0 calc(var(--legs, 0) * 1px); }
+[data-act="sleep"] .rig.quad .leg { scale: 1 .18; }
+/* A part that is also animated takes its pose through transform: the two do not mix otherwise. */
+.ent.animal[data-act="sleep"] .head { transform: rotate(calc(var(--dip, 30deg) * .55)); animation: none; }
+.ent.animal[data-act="sleep"] .ear { transform: rotate(14deg); animation: none; }
+.ent.animal[data-act="sleep"] .stalk { transform: scaleY(.35); animation: none; }
+.ent.animal[data-species="turtle"][data-act="sleep"] .head { transform: translate(-11px, 6px); }
+.m-fly[data-act="sleep"] .rig { translate: 0 6px; }
+.ent.animal[data-species="owl"][data-act="fly"] .rig { transform: rotate(38deg); }
+.ent.animal[data-species="deer"][data-act="sleep"] .head { transform: rotate(50deg); }
+.m-fly[data-act="sleep"] .leg { scale: 1 .3; }
+/* Resting: lying down with the legs folded under, head up. */
+:is([data-act="sit"], [data-act="perch"]) .rig.quad { translate: 0 calc(var(--legs, 0) * 1px); }
+:is([data-act="sit"], [data-act="perch"]) .rig.quad .leg { scale: 1 .18; }
+.ent.animal:is([data-act="eat"], [data-act="drink"]) .head { transform: rotate(var(--dip, 30deg)); animation: none; }
+[data-act="fly"] .wing.fly { display: inline; }
+[data-act="fly"] .wing.fold { display: none; }
+.m-fly[data-act="fly"] .leg { transform: rotate(62deg) scale(.7); }
+.ent.air .leg.hl { transform: rotate(38deg); }
+.ent.air .leg.fl { transform: rotate(-34deg); }
+.ent.animal.air .ear, .ent.animal[data-act="run"] .ear { transform: rotate(26deg); animation: none; }
+[data-species="frog"].air .leg.hl { transform: rotate(64deg) translate(-3px, 2px); }
+/* In the water: sunk to the belly, with whatever is under the surface cut away. */
+.ent.animal[data-act="swim"] .sprite { translate: 0 calc(var(--sink) * 1%); clip-path: inset(-200% -60% calc(var(--sink) * 1% + 10%) -60%); }
+/* Down the burrow: small, low, and only the top showing. */
+.ent.animal[data-act="hide"] .sprite { scale: .58; translate: 0 9%; clip-path: inset(-200% -60% 38% -60%); }
+.ent.animal[data-act="hide"] .emote { translate: 0 60cqw; }
+.ent.animal[data-act="swim"]::after { content: ""; position: absolute; z-index: -1; left: 8%; right: 8%; top: 82%; aspect-ratio: 3.2; border: 2px solid rgba(255, 255, 255, .75); border-radius: 50%; opacity: 0; }
+
+@keyframes blink { 0%, 93%, 100% { transform: scaleY(1); } 96% { transform: scaleY(.1); } }
+@keyframes breathe { from { transform: scale(1, 1); } to { transform: scale(1.012, 1.03); } }
+@keyframes wag { from { transform: rotate(-7deg); } to { transform: rotate(7deg); } }
+@keyframes twitch { 0%, 88%, 100% { transform: rotate(0); } 92% { transform: rotate(-14deg); } 96% { transform: rotate(6deg); } }
+@keyframes look { 0%, 100% { transform: rotate(-2deg); } 50% { transform: rotate(3deg); } }
+/* One stride: the foot swings forward off the ground, then pushes back along it. */
+@keyframes stride { 0% { transform: rotate(27deg); } 22% { transform: rotate(4deg) translateY(-2.4px); } 45% { transform: rotate(-27deg); } 100% { transform: rotate(27deg); } }
+@keyframes bound { 0% { transform: rotate(40deg); } 30% { transform: rotate(-6deg) translateY(-3px); } 50% { transform: rotate(-42deg); } 100% { transform: rotate(40deg); } }
+@keyframes tread { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.1px); } }
+@keyframes rock { from { transform: rotate(-3.5deg); } to { transform: rotate(3.5deg); } }
+@keyframes waddle { from { transform: rotate(-7deg); } to { transform: rotate(7deg); } }
+@keyframes flap { from { transform: scaleY(1) rotate(-10deg); } to { transform: scaleY(-.5) rotate(14deg); } }
+@keyframes buzz { from { transform: rotate(-26deg); } to { transform: rotate(22deg); } }
+@keyframes flutter { from { transform: scaleY(1); } to { transform: scaleY(.14) skewX(-8deg); } }
+@keyframes nibble { from { transform: rotate(var(--dip, 30deg)); } to { transform: rotate(calc(var(--dip, 30deg) - 8deg)); } }
+@keyframes peck { 0%, 55%, 100% { transform: rotate(0); } 78% { transform: rotate(var(--dip, 40deg)); } }
+@keyframes nod { from { transform: rotate(-6deg); } to { transform: rotate(7deg); } }
+@keyframes squash { 0% { transform: scale(1.1, .86); } 55% { transform: scale(.97, 1.05); } 100% { transform: scale(1, 1); } }
+@keyframes ooze { from { transform: scaleX(1); } to { transform: scaleX(1.07); } }
+@keyframes ride { from { transform: translateX(0); } to { transform: translateX(1.6px); } }
+@keyframes galumph { 0%, 100% { transform: scale(1.06, .93); } 50% { transform: scale(.95, 1.07) rotate(-4deg); } }
+@keyframes wriggle { from { transform: rotate(-3deg); } to { transform: rotate(3deg); } }
+@keyframes gulp { from { transform: scale(1, 1); } to { transform: scale(1.04, 1.22); } }
+@keyframes ripple { from { transform: scale(.45); opacity: .9; } to { transform: scale(1.25); opacity: 0; } }
+@keyframes puff { from { transform: translate(-50%, -50%) scale(.3); opacity: .75; } to { transform: translate(-50%, -90%) scale(1.25); opacity: 0; } }
+@keyframes splash { 0% { transform: translate(-50%, -60%) scale(.3); opacity: 1; } 60% { opacity: .9; } 100% { transform: translate(-50%, -60%) scale(1.3); opacity: 0; } }
+@keyframes leaf { from { transform: translate(-50%, 0) rotate(0); opacity: 1; } to { transform: translate(calc(-50% + var(--dx)), var(--fall)) rotate(260deg); opacity: 0; } }
+
+@media (prefers-reduced-motion: no-preference) {
+  :is(.ent.animal, .result-art) .eye { animation: blink 4.6s var(--delay, 0s) infinite; }
+  :is(.ent.animal, .result-art) .torso { animation: breathe 2.2s ease-in-out var(--delay, 0s) infinite alternate; }
+  :is(.ent.animal, .result-art) .tail { animation: wag 1.9s ease-in-out var(--delay, 0s) infinite alternate; }
+  :is(.ent.animal, .result-art) .ear { animation: twitch 5.3s var(--delay, 0s) infinite; }
+  :is(.ent.animal, .result-art) .head { animation: look 4.4s ease-in-out var(--delay, 0s) infinite; }
+  :is(.ent.animal, .result-art) .stalk { animation: wag 2.6s ease-in-out infinite alternate; }
+  :is(.ent.animal, .result-art) .throat { animation: gulp .9s ease-in-out infinite alternate; }
+  :is(.ent.animal, .result-art) .wing.buzz { animation: buzz .07s linear infinite alternate; }
+  :is(.ent.animal, .result-art) .wing.flap { animation: flutter .26s ease-in-out infinite alternate; }
+  :is(.ent.animal, .result-art) .wing.flap.far { animation-delay: -.05s; }
+  .ent.animal .lifted, .ent.animal .sprite { transition: translate .25s ease-out, scale .3s ease-out; }
+  .ent.animal:is(.air, [data-act="fly"], [data-act="hop"], [data-act="joy"]) .lifted { transition: none; }
+  .ent.animal .leg, .ent.animal .head, .ent.animal .ear, .ent.animal .rig { transition: transform .16s ease-out, rotate .3s ease-out, scale .3s ease-out, translate .3s ease-out; }
+
+  /* On foot: legs in diagonal pairs, the body riding up and down on them. */
+  .ent.animal:is([data-act="walk"], [data-act="run"]) .leg { animation: stride var(--gait, .5s) linear infinite; }
+  .ent.animal:is([data-act="walk"], [data-act="run"]) .leg:is(.hl:not(.far), .fl.far) { animation-delay: calc(var(--gait, .5s) * -.5); }
+  .ent.animal:is([data-act="walk"], [data-act="run"]) .torso { animation: tread calc(var(--gait, .5s) / 2) ease-in-out infinite; }
+  .ent.animal:is([data-act="walk"], [data-act="run"]) .head { animation: nod var(--gait, .5s) ease-in-out infinite alternate; }
+  .ent.animal:is([data-act="walk"], [data-act="run"]) .tail { animation-duration: calc(var(--gait, .5s) * .9); }
+  /* Running: front legs together, hind legs together, and the whole body rocking. */
+  .ent.animal[data-act="run"] .leg { animation: bound calc(var(--gait, .5s) * .62) linear infinite; }
+  .ent.animal[data-act="run"] .leg.fl.far { animation-delay: calc(var(--gait, .5s) * -.06); }
+  .ent.animal[data-act="run"] .leg.hl:not(.far) { animation-delay: calc(var(--gait, .5s) * -.31); }
+  .ent.animal[data-act="run"] .leg.hl.far { animation-delay: calc(var(--gait, .5s) * -.37); }
+  .ent.animal[data-act="run"] .rig.quad { animation: rock calc(var(--gait, .5s) * .31) ease-in-out infinite alternate; }
+  .ent.animal:is([data-species="penguin"], [data-species="duck"]):is([data-act="walk"], [data-act="run"]) .rig { animation: waddle calc(var(--gait, .5s) / 2) ease-in-out infinite alternate; }
+  .ent.animal[data-species="snail"][data-act="walk"] .foot { animation: ooze 1.2s ease-in-out infinite alternate; }
+  .ent.animal[data-species="snail"][data-act="walk"] .shell { animation: ride 1.2s ease-in-out infinite alternate; }
+  .ent.animal[data-species="seal"]:is([data-act="walk"], [data-act="run"]) .rig { animation: galumph .7s ease-in-out infinite; }
+  .ent.animal[data-species="lizard"]:is([data-act="walk"], [data-act="run"]) .torso { animation: wriggle .3s ease-in-out infinite alternate; }
+  .ent.animal[data-species="lizard"]:is([data-act="walk"], [data-act="run"]) .tail { animation: wag .3s ease-in-out infinite alternate; }
+
+  .ent.landed .rig { animation: squash .26s ease-out; }
+  .ent.animal[data-act="fly"] .wing.fly { animation: flap .13s ease-in-out infinite alternate; }
+  .ent.animal[data-act="fly"] .wing.fly.far { animation-delay: -.03s; }
+  .ent.animal[data-species="owl"][data-act="fly"] .wing.fly { animation-duration: .24s; }
+  .ent.animal[data-act="fly"] .tail, .ent.animal[data-act="fly"] .head { animation: none; }
+  .asleep .wing.buzz, .asleep .wing.flap { animation: none; }
+  .ent.animal[data-act="swim"] .rig { animation: rock 1.7s ease-in-out infinite alternate; }
+  .ent.animal[data-act="swim"]::after { animation: ripple 1.8s ease-out infinite; }
+  .ent.animal:is([data-act="eat"], [data-act="drink"]) .head { animation: nibble .5s ease-in-out infinite alternate; }
+  .ent.animal[data-act="drink"] .head { animation-duration: .9s; }
+  .ent.animal.m-fly[data-act="eat"] .head { animation: peck .7s ease-in-out infinite; }
+  .ent.animal:is([data-act="greet"], [data-act="joy"]) .tail { animation: wag .22s ease-in-out infinite alternate; }
+  .ent.animal:is([data-act="greet"], [data-act="joy"]) .head { animation: nod .5s ease-in-out infinite alternate; }
+  .ent.animal[data-act="sleep"] :is(.tail, .eye, .leg) { animation: none; }
+  .ent.animal[data-act="sleep"] .torso { animation-duration: 3.4s; }
+  .ent.animal[data-act="hide"] :is(.tail, .leg) { animation: none; }
+}
+
+/* Dust, splashes and falling leaves: drawn once, then gone. */
+.fx { position: absolute; pointer-events: none; }
+.fx.puff { width: 7%; aspect-ratio: 2.4; border-radius: 50%; background: radial-gradient(closest-side, rgba(246, 240, 222, .9), rgba(246, 240, 222, 0)); animation: puff .5s ease-out forwards; }
+.fx.splash { width: 9%; aspect-ratio: 2.6; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .9); box-shadow: 0 -10px 0 -5px rgba(255, 255, 255, .9), -9px -16px 0 -6px rgba(214, 240, 250, .9), 10px -15px 0 -6px rgba(214, 240, 250, .9); animation: splash .6s ease-out forwards; }
+.fx.leaf { --dx: calc((var(--i) - 1) * 18px); --fall: 54px; width: 7px; height: 4px; border-radius: 80% 10%; background: #6fae55; animation: leaf calc(1.1s + var(--i) * .25s) ease-in forwards; }
 /* Small signs over an animal: what it is feeling or doing. */
 .emote { position: absolute; left: 50%; top: -4%; width: clamp(16px, 30%, 24px); aspect-ratio: 1; transform: translate(-50%, 6px) scale(.6); border-radius: 50%; background: var(--knob) center / 62% no-repeat; box-shadow: 0 1px 4px rgba(20, 21, 43, .25); opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; }
 .emote:not([data-kind=""]):not(:not([data-kind])) { opacity: 1; transform: translate(-50%, 0) scale(1); }
