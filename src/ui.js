@@ -41,6 +41,8 @@ const ICONS = {
   play: 'M7 5v14l11-7Z',
   stop: 'M7 7h10v10H7z',
   door: 'M14 4h5v16h-5M10 12H3m4-4-4 4 4 4M14 4 9 6v12l5 2',
+  treat: 'M12 21a6 6 0 1 0 0-12 6 6 0 0 0 0 12ZM12 9c0-3 1.500-5 4-6M12 9c-2.500-.500-4-2-4.500-4.500C10 4.500 11.500 6 12 9Z',
+  heart: 'M12 20s-7-4.500-7-10a4 4 0 0 1 7-2.600A4 4 0 0 1 19 10c0 5.500-7 10-7 10Z',
 };
 export const icon = (name, cls = '') => `<svg class="icon${cls ? ' ' + cls : ''}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[name] || ICONS.info}"/></svg>`;
 

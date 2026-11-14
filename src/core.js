@@ -103,6 +103,40 @@ export function landSide(level) {
   return clamp(5 + Math.floor((level - 1) / 2), 5, 10);
 }
 export const levelReward = level => level * 50;
+/** Treats for a finished session: one, and one more for every 15 minutes. Treats feed animals. */
+export const treatsFor = minutes => 1 + Math.floor(Math.max(0, minutes) / 15);
+
+// ——— Caring for animals ———
+
+export const CARE = {
+  fullHours: 6, // an animal is full this long after eating
+  hungryHours: 20, // and hungry from here
+  petMinutes: 60, // petting counts again after this long
+  feedBond: 4, hungryBonus: 2, petBond: 1,
+  maxBond: 100, levels: 5,
+};
+/** 'full' | 'peckish' | 'hungry'. Animals never leave or come to harm; a hungry one is just slow and glum. */
+export function hungerOf(item, now) {
+  const hours = (now - (item.fed || item.at || 0)) / 3600000;
+  return hours < CARE.fullHours ? 'full' : hours < CARE.hungryHours ? 'peckish' : 'hungry';
+}
+/** Bond level 0 to 5 from bond points 0 to 100. */
+export const bondLevel = bond => Math.min(CARE.levels, Math.floor((bond || 0) / (CARE.maxBond / CARE.levels)));
+export const bondReward = level => level * 40;
+export const canPet = (item, now) => now - (item.pet || 0) >= CARE.petMinutes * 60000;
+/** How an animal is doing, in a word. */
+export function moodOf(item, now, night = false) {
+  const hunger = hungerOf(item, now);
+  if (hunger === 'hungry') return 'Hungry';
+  if (night) return 'Sleepy';
+  if (hunger === 'peckish') return 'Peckish';
+  return bondLevel(item.bond) >= 3 || now - (item.pet || 0) < 3 * 3600000 ? 'Happy' : 'Content';
+}
+/** Whether it is night where the person is. Animals sleep and lanterns light. */
+export function isNight(ts) {
+  const d = new Date(ts), h = d.getHours() + d.getMinutes() / 60;
+  return h < 6 || h >= 18.5;
+}
 
 // ——— Sessions ———
 
@@ -168,7 +202,10 @@ export function facts(state, now) {
     friends: state.social?.friends || 0,
     gifts: state.social?.giftsSent || 0,
     species: state.unlocked.length,
-    placed: Object.keys(state.haven.tiles).length,
+    placed: Object.keys(state.haven.spots).length,
+    feeds: state.care?.feeds || 0,
+    bestBond: state.items.reduce((n, i) => Math.max(n, bondLevel(i.bond)), 0),
+    nature: state.items.filter(i => speciesById(i.s)?.kind === 'nature').length,
   };
 }
 
@@ -211,6 +248,10 @@ export const ACHIEVEMENTS = [
   { id: 'collectAll', name: 'Every species', text: 'Unlock every plant and animal', coins: 2000, test: f => f.species >= SPECIES.length, of: f => [f.species, SPECIES.length] },
   { id: 'haven10', name: 'Settled in', text: 'Place 10 things in your haven', coins: 100, test: f => f.placed >= 10, of: f => [f.placed, 10] },
   { id: 'haven25', name: 'Full of life', text: 'Place 25 things in your haven', coins: 300, test: f => f.placed >= 25, of: f => [f.placed, 25] },
+  { id: 'feed1', name: 'First meal', text: 'Feed an animal', coins: 50, test: f => f.feeds >= 1 },
+  { id: 'feed25', name: 'Well fed', text: 'Feed animals 25 times', coins: 300, test: f => f.feeds >= 25, of: f => [f.feeds, 25] },
+  { id: 'bond5', name: 'Best friends', text: 'Reach the highest bond with an animal', coins: 500, test: f => f.bestBond >= 5, of: f => [f.bestBond, 5] },
+  { id: 'nature5', name: 'Landscaper', text: 'Build 5 nature items', coins: 300, test: f => f.nature >= 5, of: f => [f.nature, 5] },
 ];
 
 /** Achievements earned but not yet recorded. */

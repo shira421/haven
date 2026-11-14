@@ -1,20 +1,29 @@
-// The Focus screen: choose what to grow and for how long, then watch a day pass over it.
+// The home screen: your haven under the sky. Choose what to grow and for how long, then watch a
+// day pass over it while the plant grows where it was planted and the animals go about their lives.
 import { e, $, icon, segmented, openDialog, closeDialog, toast, field, switchRow, avatar, formError } from '../ui.js';
-import { LIMITS, formatClock, formatMinutes, progress, streaks, startOfDay, doneSessions, coinsFor } from '../core.js';
-import { speciesById, PLANTS, ANIMALS } from '../catalog.js';
+import { LIMITS, formatClock, formatMinutes, progress, streaks, startOfDay, doneSessions, coinsFor, treatsFor, sizeFor, isNight } from '../core.js';
+import { speciesById, KINDS, ofKind } from '../catalog.js';
 import { sprite, stageAt } from '../art.js';
-import { skyHTML, skyUpdate, skyNow, islandSVG } from '../scene.js';
+import { skyHTML, skyUpdate, skyNow, worldHTML, thingsFromStore } from '../scene.js';
+import { drawing } from '../art.js';
+import * as haven from './haven.js';
 import { bridge } from '../device.js';
 
 const MODES = [['timer', 'Timer'], ['stopwatch', 'Stopwatch'], ['pomodoro', 'Pomodoro']];
 const lower = s => s.name.toLowerCase();
 
-function plot(speciesId, stage, withered = false) {
-  return islandSVG({ side: 1, tiles: [{ r: 0, c: 0, species: speciesId, size: 3, stage, withered }], cls: 'plot-island' });
+/** The haven as it stands, plus whatever the running session is growing, where it was planted. */
+function world(app, stage = null) {
+  const { store } = app, active = store.state.active, side = store.side(), things = thingsFromStore(store);
+  if (active && stage !== null) {
+    const [u, v] = active.spot || [side / 2, side / 2];
+    things.push({ species: active.species, size: sizeFor(active.planned || 25), u, v, stage, cls: 'sprouting' });
+  }
+  return `<div class="world-wrap">${worldHTML({ side, things, interactive: true, label: 'Your haven' })}</div>`;
 }
 function awayText(settings, species) {
   if (!settings.deep) return 'Deep focus is off. You can use other apps while the timer runs.';
-  const what = species.kind === 'animal' ? `the ${lower(species)} leaves` : `the ${lower(species)} withers`;
+  const what = species.kind === 'animal' ? `the ${lower(species)} leaves` : species.kind === 'nature' ? `the ${lower(species)} is left unfinished` : `the ${lower(species)} withers`;
   const lock = bridge() ? ' Locking the phone is fine.' : '';
   return `Deep focus is on. Away from Haven for more than ${settings.allowance} s and ${what}.${lock}`;
 }
@@ -34,25 +43,27 @@ function idle(app) {
   const cycle = store.state.cycle;
   const length = s.mode === 'stopwatch' ? 'Open' : s.mode === 'pomodoro' ? `${s.pomodoro.rounds} × ${s.pomodoro.focus} min` : formatMinutes(s.minutes);
   const clock = s.mode === 'stopwatch' ? '00:00' : formatClock((s.mode === 'pomodoro' ? s.pomodoro.focus : s.minutes) * 60);
-  const room = social.data.room;
+  const room = social.data.room, arranging = app.ui.edit.on;
   const startLabel = s.mode === 'pomodoro' && cycle && !cycle.done ? `Start round ${cycle.round} of ${cycle.rounds}` : 'Start focusing';
-  return `<section class="page focus" data-page="focus"><h1 class="page-title sr-only">Focus</h1>
-<div class="scene${sky.night ? ' night' : ''}">${skyHTML({ t: sky.t ?? 0.5, night: sky.night, showArc: false })}
-<button class="clock" data-action="choose-length" aria-label="Session length, ${e(length)}. Change">${clock}</button>
-<div class="plot">${plot(species.id, 3)}</div></div>
-<div class="panel">
+  const empty = !Object.keys(store.state.haven.spots).length;
+  const panel = arranging ? haven.arrangePanel(app) : `<div class="panel">
 ${room ? `<div class="notice"><p>You are in a room${room.members.length > 1 ? ` with ${room.members.length - 1} ${room.members.length === 2 ? 'friend' : 'friends'}` : ''}. It starts when the host is ready.</p><button class="secondary" data-action="open-room">Open room</button></div>` : ''}
 ${segmented('mode', MODES, s.mode, 'How to time the session')}
 <div class="choosers">
 <button class="chooser" data-action="choose-length"><span>Length</span><b>${e(length)}</b></button>
-<button class="chooser" data-action="choose-species"><span>Growing</span><b>${e(species.name)}</b></button>
+<button class="chooser" data-action="choose-species"><span>${species.kind === 'nature' ? 'Building' : 'Growing'}</span><b>${e(species.name)}</b></button>
 <button class="chooser" data-action="choose-tag"><span>Tag</span><b><i class="dot" style="background:${store.tagColour(s.tag)}"></i>${e(store.tagName(s.tag))}</b></button>
 </div>
 <button class="primary wide" data-action="start">${startLabel}</button>
 ${cycle && !cycle.done && s.mode === 'pomodoro' ? '<button class="secondary wide" data-action="end-cycle">End this pomodoro run</button>' : ''}
 <p class="note">${e(awayText(s, species))} <button class="linklike" data-action="settings" data-section="focus">Change</button></p>
-<p class="note">${today ? `Today: ${formatMinutes(today)} focused.` : 'Nothing grown yet today.'}${streak > 1 ? ` ${streak} days in a row.` : ''}</p>
-</div></section>`;
+<p class="note">${today ? `Today: ${formatMinutes(today)} focused.` : empty ? 'Your land is bare. Finish a session and something will live here.' : 'Nothing grown yet today.'}${streak > 1 ? ` ${streak} days in a row.` : ''}</p>
+</div>`;
+  return `<section class="page focus${arranging ? ' arranging' : ''}" data-page="focus"><h1 class="page-title sr-only">Haven</h1>
+<div class="scene${sky.night ? ' night' : ''}">${skyHTML({ t: sky.t ?? 0.5, night: sky.night, showArc: false })}
+${arranging ? '<p class="scene-label">Arranging</p>' : `<button class="clock" data-action="choose-length" aria-label="Session length, ${e(length)}. Change">${clock}</button>`}
+${world(app)}${arranging ? '' : haven.tools(app)}</div>
+${panel}</section>`;
 }
 
 function running(app) {
@@ -60,14 +71,14 @@ function running(app) {
   const species = speciesById(active.species), p = progress(active, now);
   const room = active.room ? social.data.room : null;
   const label = active.mode === 'pomodoro' && active.round ? `Round ${active.round} of ${store.state.cycle?.rounds || store.state.settings.pomodoro.rounds}` : active.room ? 'Focusing together' : active.planned ? '' : 'Stopwatch';
-  const verb = species.kind === 'animal' ? `Waiting for a ${lower(species)}.` : `Growing a ${lower(species)}.`;
-  const rule = active.deep ? ` Stay in Haven: more than ${active.allowance} s away and ${species.kind === 'animal' ? 'it leaves' : 'it withers'}.` : ' You can use other apps.';
+  const verb = species.kind === 'animal' ? `Waiting for a ${lower(species)}.` : species.kind === 'nature' ? `Building a ${lower(species)}.` : `Growing a ${lower(species)}.`;
+  const rule = active.deep ? ` Stay in Haven: more than ${active.allowance} s away and ${species.kind === 'animal' ? 'it leaves' : species.kind === 'nature' ? 'the work is lost' : 'it withers'}.` : ' You can use other apps.';
   const members = room ? `<ul class="room-strip" aria-label="In this room">${room.members.map(m => `<li class="${m.status}">${avatar(m.avatar)}<span>${e(m.id === social.account?.id ? 'You' : m.name)}</span><small>${m.status === 'focusing' ? 'Focusing' : m.status === 'done' ? 'Finished' : 'Left'}</small></li>`).join('')}</ul>` : '';
   return `<section class="page focus running" data-page="focus"><h1 class="page-title sr-only">Focusing</h1>
 <div class="scene">${skyHTML({ t: p.fraction })}
 ${label ? `<p class="scene-label">${e(label)}</p>` : ''}
 <div class="clock" role="timer" aria-live="off">${clockText(active, p, now)}</div>
-<div class="plot" data-stage="${stageAt(p.fraction)}">${plot(species.id, stageAt(p.fraction))}</div></div>
+${world(app, stageAt(p.fraction))}</div>
 <div class="panel">
 <p class="status">${e(verb + rule)}</p>${members}
 <div class="button-row">
@@ -79,14 +90,12 @@ ${active.planned ? '' : '<button class="primary" data-action="finish">Finish</bu
 
 function onBreak(app) {
   const { store, timer } = app, c = store.state.cycle, s = store.state.settings;
-  const last = store.state.sessions[store.state.sessions.length - 1];
-  const species = speciesById(last?.species) || speciesById(s.species);
   const text = c.done ? 'Long break. That was the last round.' : `${c.breakKind === 'long' ? 'Long break' : 'Break'}. Round ${c.round} of ${c.rounds} ${s.pomodoro.auto ? 'starts when it ends' : 'is next'}.`;
   return `<section class="page focus break" data-page="focus"><h1 class="page-title sr-only">Break</h1>
 <div class="scene">${skyHTML({ t: 0.5, showArc: false })}<p class="scene-label">Break</p>
 <div class="clock" role="timer" aria-live="off">${formatClock(timer.breakLeft())}</div>
-<div class="plot">${plot(species.id, 3)}</div></div>
-<div class="panel"><p class="status">${e(text)}</p>
+${world(app)}</div>
+<div class="panel"><p class="status">${e(text)} A good time to look in on the animals.</p>
 <div class="button-row">${c.done ? '<button class="primary" data-action="skip-break">Finish</button>' : `<button class="secondary" data-action="end-cycle">End pomodoro</button><button class="primary" data-action="skip-break">Start round ${c.round} now</button>`}</div>
 </div></section>`;
 }
@@ -104,8 +113,13 @@ export function tick(app, p) {
   if (clock.textContent !== text) clock.textContent = text;
   const give = $('[data-action="give-up"]', root), label = giveUpLabel(timer);
   if (give && give.textContent !== label) give.textContent = label;
-  const stage = stageAt(p.fraction), plotEl = $('.plot', root);
-  if (plotEl && Number(plotEl.dataset.stage) !== stage) { plotEl.dataset.stage = stage; plotEl.innerHTML = plot(active.species, stage); plotEl.classList.remove('grew'); void plotEl.offsetWidth; plotEl.classList.add('grew'); }
+  const stage = stageAt(p.fraction), plant = $('.ent.sprouting', root);
+  if (plant && Number(plant.dataset.stage) !== stage) {
+    plant.dataset.stage = stage;
+    plant.querySelector('.alive').innerHTML = drawing(active.species, { kind: speciesById(active.species).kind, stage });
+    plant.classList.toggle('growing', stage < 3);
+    plant.classList.remove('grew'); void plant.offsetWidth; plant.classList.add('grew');
+  }
   skyUpdate($('.sky', root), p.fraction);
   root.querySelector('.scene').classList.toggle('late', p.fraction > 0.93);
 }
@@ -137,18 +151,18 @@ ${switchRow('Start the next round by itself', 'pomodoro-auto', p.auto, 'When a b
 function earnText(app, minutes) {
   const coins = coinsFor({ minutes, streak: app.store.streak().current });
   const size = minutes >= 60 ? 'a large one' : minutes >= 25 ? 'a medium one' : 'a small one';
-  return `Earns ${coins} coins and grows ${size}.`;
+  return `Earns ${coins} coins and ${treatsFor(minutes)} ${treatsFor(minutes) === 1 ? 'treat' : 'treats'}, and grows ${size}.`;
 }
 
 function speciesDialog(app, kind = null) {
   const { store } = app, current = store.state.settings.species;
-  const tab = kind || speciesById(current).kind;
-  const list = (tab === 'plant' ? PLANTS : ANIMALS).filter(sp => store.state.unlocked.includes(sp.id));
-  const grid = list.map(sp => `<button class="species-card" data-action="pick-species" data-id="${sp.id}" aria-pressed="${sp.id === current}">${sprite(sp.id, { kind: sp.kind })}<b>${e(sp.name)}</b></button>`).join('');
-  openDialog('What to grow', `${segmented('species-tab', [['plant', 'Plants'], ['animal', 'Animals']], tab, 'Plants or animals')}
-<div class="species-grid">${grid}</div>
-<p class="note">${list.length} of ${(tab === 'plant' ? PLANTS : ANIMALS).length} unlocked.</p>
-<div class="button-row"><button class="secondary wide" data-action="go" data-page="collection">Open the collection</button></div>`);
+  const tab = kind || speciesById(current).kind, all = ofKind(tab);
+  const list = all.filter(sp => store.state.unlocked.includes(sp.id));
+  const grid = list.map(sp => `<button class="species-card" data-action="pick-species" data-id="${sp.id}" aria-pressed="${sp.id === current}">${sprite(sp.id, { kind: sp.kind })}<b>${e(sp.name)}</b>${sp.minMinutes ? `<small>${sp.minMinutes} min or more</small>` : ''}</button>`).join('');
+  openDialog('What to grow', `${segmented('species-tab', KINDS.map(([id, label]) => [id, label]), tab, 'Plants, animals or nature')}
+${grid ? `<div class="species-grid">${grid}</div>` : `<p class="lead">You have not unlocked any ${tab === 'nature' ? 'nature items' : tab + 's'} yet. Nature is built with longer sessions: a pond takes 60 min.</p>`}
+<p class="note">${list.length} of ${all.length} unlocked.</p>
+<div class="button-row"><button class="secondary wide" data-action="open-collection" data-kind="${tab}">Open the collection</button></div>`);
 }
 
 function tagDialog(app) {
@@ -172,24 +186,25 @@ export function resultDialog(app, result) {
   const { store } = app, session = result.session, species = speciesById(session.species), level = result.levelUp;
   const facts = [
     ['Coins', `+${result.coins}`],
+    ['Treats', `+${result.treats}`],
     ...(session.others ? [['With friends', `${session.others} finished with you`]] : []),
     ...(result.streak > 1 ? [['Streak', `${result.streak} days in a row`]] : []),
     ...(level ? [[`Level ${level.level}`, `+${level.coins} coins${level.grew ? `, and your land is now ${level.side} by ${level.side}` : ''}`]] : []),
     ...result.achievements.map(a => [a.name, `+${a.coins} coins`]),
   ];
   const where = result.placedAt ? 'It is in your haven.' : store.state.settings.autoPlace ? 'Your haven is full, so it is in storage.' : 'It is in storage, ready to place.';
-  const lead = species.kind === 'animal' ? `${formatMinutes(session.minutes)} focused. A ${lower(species)} has moved in.` : `${formatMinutes(session.minutes)} focused. The ${lower(species)} is fully grown.`;
+  const lead = species.kind === 'animal' ? `${formatMinutes(session.minutes)} focused. A ${lower(species)} has moved in.` : species.kind === 'nature' ? `${formatMinutes(session.minutes)} focused. The ${lower(species)} is built.` : `${formatMinutes(session.minutes)} focused. The ${lower(species)} is fully grown.`;
   const cycle = store.state.cycle;
   const next = cycle?.breakUntil ? `<p class="note">${cycle.done ? 'Last round done. Enjoy the long break.' : `Break time. Round ${cycle.round} of ${cycle.rounds} is next.`}</p>` : '';
   openDialog('Session finished', `<div class="result-art">${sprite(species.id, { kind: species.kind, label: species.name })}</div>
 <p class="lead">${e(lead)} ${where}</p>
 <dl class="facts">${facts.map(([k, v]) => `<div><dt>${e(k)}</dt><dd>${e(v)}</dd></div>`).join('')}</dl>${next}
-<div class="button-row"><button class="secondary" data-action="go" data-page="haven">See your haven</button><button class="primary" data-action="close-dialog" autofocus>Done</button></div>`, { cls: 'result' });
+<div class="button-row"><button class="primary wide" data-action="close-dialog" autofocus>Done</button></div>`, { cls: 'result' });
 }
 
 export function failedDialog(app, { session, reason, away, who }) {
   const species = speciesById(session.species), minutes = Math.floor((session.end - session.start) / 60000);
-  const title = species.kind === 'animal' ? `The ${lower(species)} wandered off` : `The ${lower(species)} withered`;
+  const title = species.kind === 'animal' ? `The ${lower(species)} wandered off` : species.kind === 'nature' ? `The ${lower(species)} was not finished` : `The ${lower(species)} withered`;
   const why = reason === 'left' ? `You were away from Haven for ${away >= 120 ? formatMinutes(away / 60) : `${away} s`}. Deep focus allows ${app.store.state.settings.allowance} s.`
     : reason === 'friend-left' ? `${who ? e(who) : 'Someone'} left the room. In this kind of room, one person leaving ends it for everyone.`
     : `You stopped after ${minutes < 1 ? 'less than a minute' : formatMinutes(minutes)}.`;
@@ -200,13 +215,24 @@ export function failedDialog(app, { session, reason, away, who }) {
 
 // ——— Actions ———
 
+/** Choose what the next session makes. Nature needs time: the length is raised to fit if it is too short. */
+export function pickSpecies(app, id) {
+  const sp = speciesById(id), s = app.store.state.settings;
+  app.store.set({ species: id });
+  app.social.roomSpecies(id);
+  if (!sp.minMinutes) return;
+  if (s.mode === 'timer' && s.minutes < sp.minMinutes) { app.store.set({ minutes: sp.minMinutes }); toast(`Length set to ${sp.minMinutes} min, the least a ${lower(sp)} takes.`); }
+  else if (s.mode === 'pomodoro' && s.pomodoro.focus < sp.minMinutes) toast(`A ${lower(sp)} takes ${sp.minMinutes} min. Use the timer, or make pomodoro rounds that long.`);
+}
+
 export const actions = {
   mode(app, d) { app.store.set({ mode: d.value }); },
   'choose-length': app => lengthDialog(app),
   'choose-species': app => speciesDialog(app),
   'choose-tag': app => tagDialog(app),
   'species-tab': (app, d) => speciesDialog(app, d.value),
-  'pick-species'(app, d) { app.store.set({ species: d.id }); app.social.roomSpecies(d.id); closeDialog(); },
+  'pick-species'(app, d) { pickSpecies(app, d.id); closeDialog(); },
+  'open-collection'(app, d) { app.ui.collection = d.kind; app.go('collection'); },
   'pick-tag'(app, d) { app.store.set({ tag: d.id }); closeDialog(); },
   'remove-tag'(app, d) { const r = app.store.removeTag(d.id); if (!r.ok) toast(r.error); else tagDialog(app); },
   'length-chip'(app, d) { const range = $('#length-range'); range.value = d.value; range.dispatchEvent(new Event('input', { bubbles: true })); },
@@ -221,7 +247,7 @@ export const actions = {
     if (!active) return;
     const species = speciesById(active.species);
     const together = active.room && app.social.data.room?.rule === 'together';
-    const ok = await app.confirm('Give up?', `${species.kind === 'animal' ? `The ${lower(species)} will leave` : `The ${lower(species)} will wither`} and this session will not count.${together ? ' The session ends for everyone in the room.' : ''}`, 'Give up');
+    const ok = await app.confirm('Give up?', `${species.kind === 'animal' ? `The ${lower(species)} will leave` : species.kind === 'nature' ? `The ${lower(species)} will be left unfinished` : `The ${lower(species)} will wither`} and this session will not count.${together ? ' The session ends for everyone in the room.' : ''}`, 'Give up');
     if (ok) timer.giveUp();
   },
   finish: app => app.timer.complete(),
@@ -264,3 +290,5 @@ export const forms = {
     closeDialog();
   },
 };
+
+export const mounted = haven.mounted;

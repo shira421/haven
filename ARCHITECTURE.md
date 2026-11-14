@@ -7,8 +7,9 @@
         │  core.js   rules: time, coins, levels, streaks, goals, summaries (no DOM)      │
         │  store.js  everything kept on the device, and every change to it               │
         │  timer.js  runs a session: clock, leaving and returning, breaks, rooms         │
+        │  world.js  the animals' lives: wandering, visiting, greeting, sleeping         │
         │  social.js profile, calls to the friends server, the live connection           │
-        │  art.js    every plant and animal as SVG      scene.js  sky and island         │
+        │  art.js    plants, animals, nature as SVG     scene.js  sky and land           │
         │  views/    one file per screen                ui.js     shared pieces          │
         │  device.js what the phone does (native bridge, or web APIs)                    │
         └──────────────┬───────────────────────┬──────────────────────┬──────────────────┘
@@ -29,7 +30,10 @@ The same `dist/` folder is served by GitHub Pages and packed into both phone app
 - **State** is one JSON document in `localStorage` (`haven-state`). `store.js` validates it on load (`migrate`), so damaged or old data falls back to safe values instead of breaking the app. The profile token is kept under a separate key and is never part of a backup.
 - **Time** is never counted by ticking. A session stores when it started; what is left is worked out from the clock each time. Reloading, a paused web view, or a phone that slept all give the right answer.
 - **Leaving.** When the page is hidden the moment is stored. A browser keeps running in the background, so `timer.js` fails the session as soon as the allowance runs out. The apps are paused in the background, so they are judged on return, and the native side says whether the phone was only locked (`device.lastAway`). If Haven is closed without warning, a heartbeat saved every 10 s stands in for the moment it left.
-- **Drawing.** `art.js` returns SVG text for each species, built from a small set of shape helpers, so there are no image files. `scene.js` lays sprites on an isometric grid, back to front. Screens are template strings set as `innerHTML`, with every value escaped through `e()`. Clicks are routed by `data-action`.
+- **The land.** Everything standing in the haven has a point `(u, v)`, each from 0 to the land's side, not a tile. `scene.js` projects points to the picture and back (`project`, `unproject`), which is what makes dragging and free roaming possible. Havens saved as tiles by version 1.0 are converted on load.
+- **The animals.** `world.js` is a small simulation with no DOM. Each animal is in one state (idle, walk, enjoy, greet, chase, sleep) and, when it has nothing to do, picks what to do next from its traits: how it moves, how fast, what it likes, whether it swims, perches or is awake at night. It takes its random numbers from outside and is advanced by `step(dt)`, so tests run minutes of haven life in milliseconds with a fixed seed. `views/haven.js` steps it once a frame and moves the elements; nothing is redrawn. It stops when the screen is hidden or reduced motion is on.
+- **Care** is plain data on each animal (`fed`, `pet`, `bond`, `name`) with the rules in `core.js` (`hungerOf`, `bondLevel`, `moodOf`). Hunger is worked out from the clock, like sessions, so nothing needs to run while the app is closed.
+- **Drawing.** `art.js` returns SVG text for each species, built from a small set of shape helpers, so there are no image files. `scene.js` lays sprites on the land, back to front. Screens are template strings set as `innerHTML`, with every value escaped through `e()`. Clicks are routed by `data-action`.
 - **Offline.** `public/sw.js` keeps the app's own files. Sessions finished offline are sent to the server later.
 
 ## The friends server

@@ -1,7 +1,7 @@
 // Everything Haven keeps on the device, and every change that can be made to it.
 // The state is one JSON document. Each action checks its input, changes the state, saves, and tells listeners.
 import { SPECIES, STARTERS, speciesById } from './catalog.js';
-import { LIMITS, clamp, coinsFor, sizeFor, levelFor, landSide, levelReward, streaks, availability, newAchievements, doneSessions, progress, newId } from './core.js';
+import { LIMITS, CARE, clamp, coinsFor, treatsFor, sizeFor, levelFor, landSide, levelReward, streaks, availability, newAchievements, doneSessions, progress, newId, hungerOf, bondLevel, bondReward, canPet } from './core.js';
 
 export const STATE_VERSION = 1;
 export const TAG_COLOURS = ['#4f6bed', '#2f8f63', '#c2456b', '#d9822b', '#7a5af8', '#0e9aa7', '#b5651d', '#687089'];
@@ -35,9 +35,11 @@ export function freshState(now = Date.now()) {
     created: now,
     updated: now,
     coins: 0,
+    food: 3, // treats, for feeding animals
     unlocked: [...STARTERS],
-    items: [], // {id, s: species id, z: size 1-3, at, from?}
-    haven: { tiles: {} }, // "row,col" → item id
+    items: [], // {id, s: species id, z: size 1-3, at, from?} and for animals {name?, fed, pet, bond}
+    haven: { spots: {} }, // item id → [u, v]: where it stands on the land, 0 to the land's side each way
+    care: { feeds: 0 },
     sessions: [], // finished and failed sessions, oldest first
     active: null, // the session in progress
     cycle: null, // a pomodoro run in progress: {round, rounds, breakUntil, breakKind}
@@ -61,15 +63,23 @@ export function migrate(raw, now = Date.now()) {
   state.updated = num(raw.updated, now);
   state.coins = Math.max(0, Math.floor(num(raw.coins, 0)));
   state.unlocked = [...new Set([...STARTERS, ...(Array.isArray(raw.unlocked) ? raw.unlocked : [])])].filter(id => speciesById(id));
+  state.food = clamp(Math.floor(num(raw.food, base.food)), 0, 9999);
+  state.care = { feeds: Math.max(0, Math.floor(num(raw.care?.feeds, 0))) };
   state.items = (Array.isArray(raw.items) ? raw.items : [])
     .filter(i => isObj(i) && typeof i.id === 'string' && speciesById(i.s))
-    .map(i => ({ id: i.id, s: i.s, z: clamp(Math.round(num(i.z, 1)), 1, 3), at: num(i.at, now), ...(typeof i.from === 'string' ? { from: i.from.slice(0, 40) } : {}) }));
+    .map(i => ({
+      id: i.id, s: i.s, z: clamp(Math.round(num(i.z, 1)), 1, 3), at: num(i.at, now), ...(typeof i.from === 'string' ? { from: i.from.slice(0, 40) } : {}),
+      ...(speciesById(i.s).kind === 'animal' ? { fed: num(i.fed, num(i.at, now)), pet: num(i.pet, 0), bond: clamp(Math.floor(num(i.bond, 0)), 0, CARE.maxBond), ...(typeof i.name === 'string' && i.name.trim() ? { name: i.name.trim().slice(0, 20) } : {}) } : {}),
+    }));
   const itemIds = new Set(state.items.map(i => i.id));
-  state.haven = { tiles: {} };
-  const seen = new Set();
-  if (isObj(raw.haven) && isObj(raw.haven.tiles)) {
+  state.haven = { spots: {} };
+  const inside = n => Number.isFinite(n) && n >= 0 && n <= 10;
+  if (isObj(raw.haven) && isObj(raw.haven.spots)) {
+    for (const [id, at] of Object.entries(raw.haven.spots)) if (itemIds.has(id) && Array.isArray(at) && inside(at[0]) && inside(at[1])) state.haven.spots[id] = [at[0], at[1]];
+  } else if (isObj(raw.haven) && isObj(raw.haven.tiles)) {
+    // Havens saved before things could stand anywhere: each tile becomes the middle of that tile.
     for (const [key, id] of Object.entries(raw.haven.tiles)) {
-      if (/^\d{1,2},\d{1,2}$/.test(key) && itemIds.has(id) && !seen.has(id)) { state.haven.tiles[key] = id; seen.add(id); }
+      if (/^\d{1,2},\d{1,2}$/.test(key) && itemIds.has(id) && !state.haven.spots[id]) { const [r, c] = key.split(',').map(Number); if (r < 10 && c < 10) state.haven.spots[id] = [r + 0.5, c + 0.5]; }
     }
   }
   state.sessions = (Array.isArray(raw.sessions) ? raw.sessions : [])
@@ -140,6 +150,7 @@ export function mergeStates(local, remote, now = Date.now()) {
   out.achieved = { ...older.achieved, ...newer.achieved };
   for (const [id, t] of Object.entries(older.achieved)) out.achieved[id] = Math.min(t, out.achieved[id] ?? t);
   out.social = { friends: Math.max(a.social.friends, b.social.friends), giftsSent: Math.max(a.social.giftsSent, b.social.giftsSent) };
+  out.care = { feeds: Math.max(a.care.feeds, b.care.feeds) };
   out.active = a.active; // a running session belongs to this device
   out.updated = now;
   return migrate(out, now);
@@ -176,13 +187,28 @@ export class Store {
   side() { return landSide(this.level().level); }
   streak() { return streaks(this.state.sessions, this.now()); }
   item(id) { return this.state.items.find(i => i.id === id) || null; }
-  placedIds() { return new Set(Object.values(this.state.haven.tiles)); }
-  /** Plants and animals that are owned but not standing in the haven. */
+  placedIds() { return new Set(Object.keys(this.state.haven.spots)); }
+  /** Plants, animals and nature that are owned but not standing in the haven. */
   stored() { const placed = this.placedIds(); return this.state.items.filter(i => !placed.has(i.id)); }
-  freeTiles() {
-    const side = this.side(), free = [];
-    for (let r = 0; r < side; r++) for (let c = 0; c < side; c++) if (!this.state.haven.tiles[`${r},${c}`]) free.push(`${r},${c}`);
-    return free;
+  /** How many things the land holds: one for each tile's worth of ground. */
+  capacity() { return this.side() ** 2; }
+  /** How many more things fit. */
+  room() { return Math.max(0, this.capacity() - Object.keys(this.state.haven.spots).length); }
+  /** Keep a point on the land, a little in from the edge. */
+  onLand(u, v) { const side = this.side(), m = 0.4; return [clamp(u, m, side - m), clamp(v, m, side - m)]; }
+  /** A free-looking spot: of a handful of candidates, the one farthest from everything else. `seed` keeps it stable. */
+  suggestSpot(seed) {
+    const side = this.side(), taken = Object.values(this.state.haven.spots);
+    let h = 2166136261;
+    for (const ch of String(seed)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+    const rand = () => { h = (Math.imul(h, 1664525) + 1013904223) >>> 0; return h / 4294967296; };
+    let best = null, bestGap = -1;
+    for (let i = 0; i < 16; i++) {
+      const p = this.onLand(0.5 + rand() * (side - 1), 0.5 + rand() * (side - 1));
+      const gap = taken.reduce((n, t) => Math.min(n, Math.hypot(t[0] - p[0], t[1] - p[1])), 99);
+      if (gap > bestGap) { bestGap = gap; best = p; }
+    }
+    return best.map(n => Math.round(n * 100) / 100);
   }
 
   // ——— Settings and tags ———
@@ -218,7 +244,9 @@ export class Store {
     if (this.state.active) return { ok: false, error: 'A session is already running.' };
     if (!speciesById(species) || !this.state.unlocked.includes(species)) return { ok: false, error: 'Choose a plant or an animal you have unlocked.' };
     const planned = mode === 'stopwatch' ? 0 : clamp(Math.round(minutes), 1, LIMITS.maxMinutes);
-    this.state.active = { id, start, planned, species, tag: this.state.tags.some(t => t.id === tag) ? tag : this.state.tags[0].id, mode, deep: Boolean(deep), allowance: this.state.settings.allowance, ...(room ? { room } : {}), ...(round ? { round } : {}) };
+    const least = speciesById(species).minMinutes || 0;
+    if (planned && planned < least) return { ok: false, error: `${speciesById(species).name} takes at least ${least} min. Choose a longer session.` };
+    this.state.active = { id, start, planned, species, tag: this.state.tags.some(t => t.id === tag) ? tag : this.state.tags[0].id, mode, deep: Boolean(deep), allowance: this.state.settings.allowance, ...(room ? { room } : {}), ...(round ? { round } : {}), ...(this.room() ? { spot: this.suggestSpot(id) } : {}) };
     this.commit('session');
     return { ok: true, active: this.state.active };
   }
@@ -269,20 +297,23 @@ export class Store {
     const minutes = active.planned ? active.planned : Math.floor(p.elapsed / 60);
     if (active.planned && !p.done) return { ok: false, error: 'The session has not finished yet.' };
     this.state.active = null;
-    if (!active.planned && minutes < LIMITS.stopwatchMinMinutes) {
+    const least = Math.max(LIMITS.stopwatchMinMinutes, speciesById(active.species).minMinutes || 0);
+    if (!active.planned && minutes < least) {
       this.commit('session');
-      return { ok: true, short: true, minutes };
+      return { ok: true, short: true, minutes, least };
     }
     const before = this.level().level;
     const streakBefore = this.streak().current;
     const coins = coinsFor({ minutes, streak: streakBefore, others });
     const session = { id: active.id, start: active.start, end: active.planned ? active.start + active.planned * 60000 : end, planned: active.planned, minutes, status: 'done', species: active.species, tag: active.tag, mode: active.mode, coins, ...(others ? { others } : {}), ...(active.room ? { room: active.room } : {}) };
     this.state.sessions.push(session);
-    const item = { id: newId('i'), s: active.species, z: sizeFor(minutes), at: session.end };
-    this.state.items.push(item);
+    const item = this.newItem(newId('i'), active.species, sizeFor(minutes), session.end);
     this.state.coins += coins;
+    const treats = treatsFor(minutes);
+    this.state.food += treats;
+    // It stays where it grew. If the land filled up meanwhile, it waits in storage.
     let placedAt = null;
-    if (this.state.settings.autoPlace) placedAt = this.placeAnywhere(item.id, false);
+    if (this.state.settings.autoPlace && this.room()) { placedAt = active.spot ? this.onLand(...active.spot) : this.suggestSpot(item.id); this.state.haven.spots[item.id] = placedAt; }
     const level = this.level().level;
     let levelCoins = 0;
     for (let l = before + 1; l <= level; l++) levelCoins += levelReward(l);
@@ -290,7 +321,7 @@ export class Store {
     this.state.level = level;
     const earned = this.recordAchievements();
     this.commit('session');
-    return { ok: true, session, coins, item, placedAt, levelUp: level > before ? { level, coins: levelCoins, side: landSide(level), grew: landSide(level) > landSide(before) } : null, achievements: earned, streak: this.streak().current };
+    return { ok: true, session, coins, treats, item, placedAt, levelUp: level > before ? { level, coins: levelCoins, side: landSide(level), grew: landSide(level) > landSide(before) } : null, achievements: earned, streak: this.streak().current };
   }
 
   /** The session was given up or Haven was left for too long. */
@@ -302,6 +333,13 @@ export class Store {
     this.state.sessions.push(session);
     this.commit('session');
     return { ok: true, session };
+  }
+
+  /** Make a new plant, animal or nature item. Animals arrive fed. */
+  newItem(id, species, size, at, from = null) {
+    const item = { id, s: species, z: size, at, ...(from ? { from } : {}), ...(speciesById(species).kind === 'animal' ? { fed: at, pet: 0, bond: 0 } : {}) };
+    this.state.items.push(item);
+    return item;
   }
 
   deleteSession(id) {
@@ -376,8 +414,7 @@ export class Store {
     if (!speciesById(speciesId)) return null;
     const id = 'g' + giftId;
     if (this.item(id)) return null; // already received
-    const item = { id, s: speciesId, z: 2, at: this.now(), from: String(from || 'A friend').slice(0, 40) };
-    this.state.items.push(item);
+    const item = this.newItem(id, speciesId, 2, this.now(), String(from || 'A friend').slice(0, 40));
     if (this.state.settings.autoPlace) this.placeAnywhere(id, false);
     this.commit('haven');
     return item;
@@ -392,60 +429,112 @@ export class Store {
 
   // ——— Haven ———
 
-  /** Put an item on a tile. An item already standing somewhere moves; a tile already taken swaps. */
-  place(itemId, row, col) {
-    const side = this.side();
+  /** Stand an item at a point on the land, or move it there. */
+  place(itemId, u, v) {
     if (!this.item(itemId)) return { ok: false, error: 'That item is not yours.' };
-    if (!(row >= 0 && col >= 0 && row < side && col < side)) return { ok: false, error: 'That tile is outside your land.' };
-    const key = `${row},${col}`;
-    const tiles = this.state.haven.tiles;
-    const from = Object.keys(tiles).find(k => tiles[k] === itemId) || null;
-    const occupant = tiles[key] || null;
-    if (from === key) return { ok: true };
-    if (from) delete tiles[from];
-    if (occupant && from) tiles[from] = occupant; // swap places
-    tiles[key] = itemId;
+    if (!Number.isFinite(u) || !Number.isFinite(v)) return { ok: false, error: 'That spot is outside your land.' };
+    const spots = this.state.haven.spots;
+    if (!spots[itemId] && !this.room()) return { ok: false, error: `Your land is full. It holds ${this.capacity()} things at this level. Put something in storage first.` };
+    spots[itemId] = this.onLand(u, v).map(n => Math.round(n * 100) / 100);
     const earned = this.recordAchievements();
     this.commit('haven');
-    return { ok: true, achievements: earned, displaced: occupant && !from ? occupant : null };
+    return { ok: true, achievements: earned, at: spots[itemId] };
   }
-  /** Put an item on a free tile, chosen from the item's id so it is stable. Returns the tile or null. */
+  /** Stand an item on a free-looking spot. Returns the spot, or null when the land is full. */
   placeAnywhere(itemId, commit = true) {
-    const free = this.freeTiles();
-    if (!free.length || !this.item(itemId) || this.placedIds().has(itemId)) return null;
-    let h = 0;
-    for (const ch of itemId) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-    const key = free[h % free.length];
-    this.state.haven.tiles[key] = itemId;
+    if (!this.room() || !this.item(itemId) || this.state.haven.spots[itemId]) return null;
+    const spot = this.suggestSpot(itemId);
+    this.state.haven.spots[itemId] = spot;
     if (commit) { this.recordAchievements(); this.commit('haven'); }
-    return key;
+    return spot;
   }
-  /** Take whatever stands on a tile back into storage. */
-  unplace(row, col) {
-    const key = `${row},${col}`;
-    if (!this.state.haven.tiles[key]) return { ok: false };
-    delete this.state.haven.tiles[key];
+  /** Take an item back into storage. */
+  unplace(itemId) {
+    if (!this.state.haven.spots[itemId]) return { ok: false };
+    delete this.state.haven.spots[itemId];
     this.commit('haven');
     return { ok: true };
   }
   /** Let an item go for good. */
   release(itemId) {
-    const tiles = this.state.haven.tiles;
-    for (const k of Object.keys(tiles)) if (tiles[k] === itemId) delete tiles[k];
+    delete this.state.haven.spots[itemId];
     this.state.items = this.state.items.filter(i => i.id !== itemId);
     this.commit('haven');
   }
 
+  // ——— Caring for animals ———
+
+  animals() { const placed = this.placedIds(); return this.state.items.filter(i => placed.has(i.id) && speciesById(i.s).kind === 'animal'); }
+  hungry() { const now = this.now(); return this.animals().filter(i => hungerOf(i, now) !== 'full'); }
+  /** Add bond points and pay for any bond level reached. */
+  addBond(item, points) {
+    const before = bondLevel(item.bond);
+    item.bond = Math.min(CARE.maxBond, (item.bond || 0) + points);
+    const level = bondLevel(item.bond);
+    if (level <= before) return null;
+    let coins = 0;
+    for (let l = before + 1; l <= level; l++) coins += bondReward(l);
+    this.state.coins += coins;
+    return { level, coins };
+  }
+  /** Give an animal a treat. A full animal will not eat. */
+  feed(itemId, commit = true) {
+    const item = this.item(itemId), now = this.now();
+    if (!item || speciesById(item.s).kind !== 'animal') return { ok: false, error: 'Only animals eat.' };
+    const hunger = hungerOf(item, now);
+    if (hunger === 'full') return { ok: false, error: 'It is full. Try again later.' };
+    if (this.state.food < 1) return { ok: false, error: 'You have no treats. Every finished session earns some.' };
+    this.state.food -= 1;
+    this.state.care.feeds += 1;
+    item.fed = now;
+    const bond = this.addBond(item, CARE.feedBond + (hunger === 'hungry' ? CARE.hungryBonus : 0));
+    const earned = this.recordAchievements();
+    if (commit) this.commit('care');
+    return { ok: true, bond, achievements: earned };
+  }
+  /** Feed every animal that will eat, hungriest first, while treats last. */
+  feedAll() {
+    const now = this.now();
+    const list = this.hungry().sort((a, b) => (a.fed || 0) - (b.fed || 0));
+    const fed = [], bonds = [], earned = [];
+    for (const item of list) {
+      if (this.state.food < 1) break;
+      const r = this.feed(item.id, false);
+      if (r.ok) { fed.push(item.id); if (r.bond) bonds.push({ id: item.id, ...r.bond }); earned.push(...r.achievements); }
+    }
+    if (fed.length) this.commit('care');
+    return { ok: fed.length > 0, fed, bonds, achievements: earned, left: list.length - fed.length, now };
+  }
+  /** A pat. It counts toward the bond once an hour. */
+  pet(itemId) {
+    const item = this.item(itemId), now = this.now();
+    if (!item || speciesById(item.s).kind !== 'animal') return { ok: false };
+    const counted = canPet(item, now);
+    let bond = null;
+    if (counted) { item.pet = now; bond = this.addBond(item, CARE.petBond); }
+    const earned = counted ? this.recordAchievements() : [];
+    if (counted) this.commit('care');
+    return { ok: true, counted, bond, achievements: earned };
+  }
+  rename(itemId, name) {
+    const item = this.item(itemId);
+    if (!item) return { ok: false };
+    const clean = String(name || '').replace(/\s+/g, ' ').trim().slice(0, 20).trim();
+    if (clean) item.name = clean; else delete item.name;
+    this.commit('care');
+    return { ok: true };
+  }
+  /** What to call an item: its own name, or its species. */
+  nameOf(item) { return item.name || speciesById(item.s).name; }
+
   // ——— Backup ———
 
-  /** What other people may see: level, totals and the haven's layout. */
+  /** What other people may see: level, totals and where things stand in the haven. */
   publicCard() {
-    const side = this.side();
-    const tiles = [];
-    for (const [key, id] of Object.entries(this.state.haven.tiles)) {
+    const side = this.side(), tiles = [];
+    for (const [id, [u, v]] of Object.entries(this.state.haven.spots)) {
       const item = this.item(id);
-      const [r, c] = key.split(',').map(Number);
-      if (item && r < side && c < side) tiles.push([r, c, item.s, item.z]);
+      if (item && tiles.length < 100) tiles.push([u, v, item.s, item.z]);
     }
     const streak = this.streak();
     return { level: this.level().level, minutes: this.totalMinutes(), sessions: doneSessions(this.state.sessions).length, streak: streak.current, best: streak.best, species: this.state.unlocked.length, of: SPECIES.length, side, tiles };

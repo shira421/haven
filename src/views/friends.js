@@ -3,7 +3,7 @@ import { e, $, icon, segmented, openDialog, updateDialog, closeDialog, dialogOpe
 import { formatMinutes, formatAgo, formatClock } from '../core.js';
 import { speciesById } from '../catalog.js';
 import { inviteLink, prettyCode } from '../social.js';
-import { islandSVG, tilesFromCard } from '../scene.js';
+import { worldHTML, thingsFromCard } from '../scene.js';
 import { share, copyText } from '../device.js';
 
 const TABS = [['friends', 'Friends'], ['together', 'Together'], ['board', 'Board'], ['activity', 'Activity']];
@@ -130,10 +130,10 @@ async function friendDialog(app, id) {
   let page;
   try { page = await social.friendPage(id); } catch (error) { updateDialog(`<p class="lead">${e(error.message)}</p>`); return; }
   if (!dialogOpen() || $('#dialog-title')?.textContent !== f.name) return;
-  const { side, tiles } = tilesFromCard(page.card), p = presence({ ...f, focusing: page.focusing, online: page.online }, social.serverNow());
+  const { side, things } = thingsFromCard(page.card), p = presence({ ...f, focusing: page.focusing, online: page.online }, social.serverNow());
   const inRoom = social.data.room?.state === 'lobby';
   updateDialog(`<p class="lead"><span class="presence ${p.cls}">${e(p.text)}</span>. @${e(f.handle)}</p>
-<div class="island-wrap friend">${islandSVG({ side, tiles, label: `${f.name}'s haven` })}</div>
+<div class="island-wrap friend">${worldHTML({ side, things, label: `${e(f.name)}'s haven` })}</div>
 <dl class="facts"><div><dt>Today</dt><dd>${formatMinutes(page.stats.today)}</dd></div><div><dt>This week</dt><dd>${formatMinutes(page.stats.week)}</dd></div><div><dt>All time</dt><dd>${formatMinutes(page.stats.total)} in ${page.stats.sessions} sessions</dd></div><div><dt>Level</dt><dd>${Number(page.card.level) || 1}</dd></div></dl>
 <div class="button-row"><button class="secondary" data-action="cheer" data-id="${id}" data-kind="cheer">${icon('cheer')}Cheer</button><button class="secondary" data-action="cheer" data-id="${id}" data-kind="nudge">${icon('nudge')}Nudge</button></div>
 <div class="button-row"><button class="secondary" data-action="gift-pick" data-id="${id}">${icon('gift')}Send a gift</button><button class="secondary" data-action="invite-friend" data-id="${id}">${icon('users')}${inRoom ? 'Invite to room' : 'Focus together'}</button></div>

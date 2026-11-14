@@ -4,7 +4,7 @@ This file says what Haven does today and what it does not, so nothing is taken f
 
 ## Who it is for
 
-People who study or work in focused blocks and want a reason to stay off their phone, alone or with friends.
+People who study or work in focused blocks and want a reason to stay off their phone, alone or with friends, and who would rather look after something alive than tick off a timer.
 
 ## Built
 
@@ -21,16 +21,34 @@ People who study or work in focused blocks and want a reason to stay off their p
 | Sounds | Seven background sounds and a finishing chime, generated on the device. |
 | Session survives a restart | A running session is stored and resumes, or is judged by how long Haven was closed. |
 
+### The living haven
+
+| Feature | Notes |
+| --- | --- |
+| Free roaming | Animals walk, hop, crawl or fly anywhere on the land. Nothing is tied to a tile. |
+| Likes | Each animal visits the plants and nature it likes: 27 sets of likes across flowers, trees, cover, water and built things. |
+| Into and onto things | Swimmers go into the pond. Perchers sit up in trees and on the bird house. Fliers hover over flowers. What is visited rustles. |
+| Each other | Animals walk up to greet each other and play chase. |
+| Day and night | After 6:30 pm day animals sleep where they are. Owls, foxes, raccoons, hedgehogs and fennecs stay up. The campfire and the lantern glow. |
+| Treats | Every finished session earns one, and one more per 15 min. You start with three. |
+| Feeding | An animal is full for 6 hours after eating, then peckish, and hungry after 20. Feed one, or everyone who will eat. |
+| Petting | Any time. It counts toward the bond once an hour. |
+| Bond | Five levels. Each new level pays coins. Feeding a hungry animal bonds a little more. |
+| Names | Any animal can be named. |
+| No punishment | A hungry animal is slow, stays close and asks for food. It never leaves, sickens or dies. |
+| Arranging | Drag anything to any point on the land, put it in storage, or let it go. |
+
 ### Growing
 
 | Feature | Notes |
 | --- | --- |
 | 27 plants and 27 animals | Original drawings. Four growth stages during a session. Three sizes by session length. |
+| 10 nature items | Tall grass, tree stump, boulder, mossy log, burrow, bird house, beehive, stone lantern, campfire, pond. Each needs a session of 10 to 60 min or more. |
 | Coins | 2 a minute, more for longer sessions, streaks and friends. |
 | Unlocks | Coins, goals (for example a 120 min session for the bonsai) or free in season. Nothing costs money. |
-| Levels and land | Level from total focused time. The haven grows from 5 by 5 to 10 by 10 tiles. |
-| Arranging | Place, move, swap, store and release. New arrivals can place themselves. |
-| 25 achievements | Each pays coins. |
+| Levels and land | Level from total focused time. The land grows from room for 25 things to room for 100. |
+| Grows where planted | What a session makes appears at its spot from the first minute and stays there. |
+| 29 achievements | Each pays coins. |
 
 ### Friends
 
@@ -40,7 +58,7 @@ People who study or work in focused blocks and want a reason to stay off their p
 | Adding friends | By friend code, exact username or invite link. Requests, accept, decline, cancel, remove, block. |
 | Live presence | Online, focusing and time left, today's minutes. Arrives over a live connection. |
 | Cheer and nudge | Delivered at once, or when the friend is next online. |
-| Gifts | Send a plant or animal you have unlocked. It arrives ready to place. |
+| Gifts | Send a plant, animal or nature item you have unlocked. It arrives in their haven. |
 | Visit | See a friend's haven and totals. |
 | Rooms | Up to 8 people. Start together on the server's clock. "Ends for everyone" or "only they lose theirs". |
 | Board | You and your friends for today, week, month and all time. |
@@ -54,7 +72,7 @@ People who study or work in focused blocks and want a reason to stay off their p
 | --- | --- |
 | Plant together | Rooms, with both rules. |
 | Friends and rankings | Friends, live presence, board, activity. |
-| More species, seasonal trees | 54 species, four of them seasonal, all free. |
+| More species, seasonal trees | 64 things to grow and build, four of them seasonal, all free. |
 | Triple coins | Haven pays 2 coins a minute for everyone, with bonuses. |
 | Detailed statistics, insights | Journal: periods, chart, by tag, best hour, finished rate, streaks. |
 | Personalised focus settings | Away allowance, deep focus on or off, pomodoro lengths, auto-start. |
@@ -67,6 +85,9 @@ People who study or work in focused blocks and want a reason to stay off their p
 
 - **Per-app allow list.** Letting chosen apps through needs Apple's Family Controls entitlement on iOS and usage-access permission with a background service on Android. Haven forgives a set time away instead.
 - **Planting real trees.**
+- **Animals in a friend's haven do not move.** A visit shows where things stand, not the live animals.
+- **Animals do not interact with the session being grown**, and they do not breed, age or have different foods. There is one kind of treat.
+- **With reduced motion switched on in the phone's settings, animals stay still.** Care still works.
 - **Widgets, watch apps, and scheduled blocking.**
 - **Push notifications from the server.** A cheer reaches a closed app only when it is next opened. Session-end and reminder notifications are scheduled on the phone and do work while the app is closed, in the iOS and Android apps.
 - **Sounds while the phone is locked.**
@@ -76,5 +97,6 @@ People who study or work in focused blocks and want a reason to stay off their p
 ## Limits to know
 
 - The friends server is one Durable Object. It suits a circle of friends up to a few thousand people. See ARCHITECTURE.md.
-- Coins and the haven live on your device. The server checks session times for the board, not coins.
+- Coins, treats, bonds and the haven live on your device. The server checks session times for the board, not coins.
+- Where an animal is wandering is not saved. On opening the app each starts from where it was last put down.
 - A profile can only be reached from a device that is signed in. If every signed-in device is lost, so is access to the profile.

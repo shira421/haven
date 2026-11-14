@@ -1,12 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SPECIES, PLANTS, ANIMALS, STARTERS, HABITATS, speciesById, inSeason, seasonText, goalText } from '../src/catalog.js';
+import { SPECIES, PLANTS, ANIMALS, NATURE, KINDS, ofKind, STARTERS, HABITATS, speciesById, inSeason, seasonText, goalText } from '../src/catalog.js';
 import { ART } from '../src/art.js';
 
 test('the catalogue is consistent', () => {
   assert.equal(new Set(SPECIES.map(s => s.id)).size, SPECIES.length, 'ids are unique');
   assert.equal(new Set(SPECIES.map(s => s.name)).size, SPECIES.length, 'names are unique');
-  assert.ok(PLANTS.length >= 20 && ANIMALS.length >= 20, 'a real variety of both');
+  assert.ok(PLANTS.length >= 20 && ANIMALS.length >= 20 && NATURE.length >= 8, 'a real variety of each');
+  assert.equal(PLANTS.length + ANIMALS.length + NATURE.length, SPECIES.length, 'everything is a plant, an animal or nature');
+  assert.deepEqual(KINDS.map(k => k[0]), ['plant', 'animal', 'nature']);
+  assert.equal(ofKind('nature'), NATURE);
+  for (const n of NATURE) assert.ok(n.minMinutes >= 10 && n.minMinutes <= 60 && n.price > 0, `${n.id} takes real time`);
   for (const s of SPECIES) {
     assert.match(s.id, /^[a-z]+$/);
     assert.ok(HABITATS[s.habitat], `${s.id} has a known habitat`);
