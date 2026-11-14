@@ -65,6 +65,12 @@ try {
   assert.equal(await ana.locator('.clock').textContent(), '25:00');
   await noOverflow(ana, 'Haven');
   assert.equal(await ana.locator('.tabs button').count(), 4);
+  // The four tabs share the width evenly, each centred in its own quarter.
+  const spread = await ana.evaluate(() => {
+    const bar = document.querySelector('.tabs').getBoundingClientRect();
+    return [...document.querySelectorAll('.tabs button')].map(b => { const r = b.getBoundingClientRect(); return Math.round(((r.left + r.right) / 2 - bar.left) / bar.width * 100); });
+  });
+  assert.deepEqual(spread, [13, 38, 63, 88], `the tab bar is evenly divided between its tabs (${spread.join(' ')})`);
   assert.equal(await ana.locator('.world .land').count(), 1, 'the land is there before anything grows');
   await shot(ana, 'focus');
   ok('the app opens on the haven with a 25 min timer');
@@ -342,7 +348,13 @@ try {
   assert.match(await ana.locator('.page.journal .facts').textContent(), /Focused1 h 15 min/);
   assert.match(await ana.locator('.page.journal .facts').textContent(), /3 finished, 2 not/);
   assert.match(await ana.locator('.page.journal .level').textContent(), /Level 2/);
-  assert.equal(await ana.locator('.chart rect').count(), 7);
+  const chart = await ana.evaluate(() => [...document.querySelectorAll('.page.journal .chart path')].map(p => {
+    const box = p.getBBox(), line = Number(document.querySelector('.page.journal .chart line').getAttribute('y1'));
+    return [p.querySelector('title').textContent, Math.round((box.y + box.height - line) * 10) / 10];
+  }));
+  assert.equal(chart.length, 1, `a bar for each day that has a session (${JSON.stringify(chart)})`);
+  assert.match(chart[0][0], /^\w+: 1 h 15 min$/);
+  assert.ok(Math.abs(chart[0][1]) < 0.6, `the bar stands on the line it is drawn against (${chart[0][1]})`);
   await noOverflow(ana, 'Journal');
   await shot(ana, 'journal');
   ok('the journal counts finished and unfinished sessions');

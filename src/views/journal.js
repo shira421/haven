@@ -11,7 +11,14 @@ const dayText = ts => new Date(ts).toLocaleDateString('en-GB', { weekday: 'short
 
 function chart(p, sum) {
   const max = Math.max(...sum.bars, 1), n = sum.bars.length, w = 320 / n;
-  const bars = sum.bars.map((m, i) => { const h = m ? Math.max(3, (m / max) * 84) : 0; return `<rect x="${(i * w + w * 0.18).toFixed(1)}" y="${(92 - h).toFixed(1)}" width="${(w * 0.64).toFixed(1)}" height="${h.toFixed(1)}" rx="${Math.min(3, w * 0.3).toFixed(1)}"><title>${p.buckets[i].label || i + 1}: ${formatMinutes(m)}</title></rect>`; }).join('');
+  // Each bar is rounded at the top only, so it sits flat on the line it stands on.
+  const bars = sum.bars.map((m, i) => {
+    const h = m ? Math.max(3, (m / max) * 84) : 0;
+    if (!h) return '';
+    const x = i * w + w * 0.18, bw = w * 0.64, r = Math.min(3, bw / 2, h), y = 92 - h, f = v => v.toFixed(1);
+    const d = `M${f(x)} 92V${f(y + r)}a${f(r)} ${f(r)} 0 0 1 ${f(r)} ${f(-r)}h${f(bw - 2 * r)}a${f(r)} ${f(r)} 0 0 1 ${f(r)} ${f(r)}V92Z`;
+    return `<path d="${d}"><title>${p.buckets[i].label || i + 1}: ${formatMinutes(m)}</title></path>`;
+  }).join('');
   const labels = p.buckets.map((b, i) => (b.label ? `<text x="${(i * w + w / 2).toFixed(1)}" y="108">${b.label}</text>` : '')).join('');
   const what = { day: 'hour', week: 'day', month: 'day', year: 'month' }[p.kind];
   return `<svg class="chart" viewBox="0 0 320 112" role="img" aria-label="Focused time by ${what}. The most in one ${what} is ${formatMinutes(max === 1 && !sum.minutes ? 0 : max)}."><line x1="0" y1="92.5" x2="320" y2="92.5"/>${bars}${labels}</svg>`;
