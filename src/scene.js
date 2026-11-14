@@ -1,5 +1,6 @@
 // The two pictures Haven draws: the sky a session passes under, and the island a haven stands on.
 // Both are SVG text built from data, so they can be drawn for you, for a friend, or for a test.
+import { traitsOf } from './world.js';
 import { drawing, tone } from './art.js';
 import { speciesById } from './catalog.js';
 import { escapeHTML } from './core.js';
@@ -78,7 +79,8 @@ export function skyUpdate(el, t) {
 const W = 100, H = 50, DEPTH = 26, HEADROOM = 104, PAD = 6;
 const SCALE = { 1: 0.8, 2: 0.98, 3: 1.18 };
 // Some things are drawn larger or smaller than a standard tile-wide sprite.
-const BUILD = { pond: 1.7, bear: 1.15, deer: 1.1, panda: 1.1, bee: 0.5, butterfly: 0.58, ladybug: 0.46, snail: 0.58, frog: 0.68, robin: 0.6, lizard: 0.7, duck: 0.72, hedgehog: 0.74, squirrel: 0.8, turtle: 0.8, parrot: 0.72, owl: 0.78, penguin: 0.85, tallgrass: 0.85, stump: 0.85 };
+const BUILD = { pond: 1.7, tallgrass: 0.85, stump: 0.85,
+  bear: 1.1, panda: 1.05, deer: 1, seal: 0.95, capybara: 0.9, fox: 0.85, otter: 0.85, shiba: 0.8, redpanda: 0.8, raccoon: 0.78, cat: 0.72, penguin: 0.7, fennec: 0.68, turtle: 0.66, rabbit: 0.62, duck: 0.62, squirrel: 0.6, parrot: 0.68, owl: 0.64, lizard: 0.6, hedgehog: 0.58, frog: 0.5, robin: 0.5, snail: 0.42, butterfly: 0.4, ladybug: 0.32, bee: 0.32 };
 const GRASS = ['#8fce6e', '#8aca69'], EDGE = '#74b85a', SOIL = '#9a6f4c';
 
 /** The box the land is drawn in, in drawing units: [x, y, width, height]. */
@@ -105,6 +107,11 @@ export function widthOf(side, species, size = 2) {
   return ((W * 0.94 * (SCALE[size] || SCALE[2]) * (BUILD[species] || 1)) / landBox(side)[2]) * 100;
 }
 
+/** How many drawing units one tile of height is for a thing: what turns an animal's lift into a move of its drawing. */
+export function liftScale(species, size = 2) {
+  return (H * 100) / (W * 0.94 * (SCALE[size] || SCALE[2]) * (BUILD[species] || 1));
+}
+
 /** One plant, animal or nature item standing on the land. */
 function entity(side, t, interactive) {
   const s = speciesById(t.species), at = project(side, t.u, t.v);
@@ -112,7 +119,9 @@ function entity(side, t, interactive) {
   const tag = interactive && t.id ? 'button' : 'span';
   const label = interactive && t.id ? ` data-action="ent" data-ent="${t.id}" aria-label="${escapeHTML(t.label || s.name)}"` : '';
   const growing = t.stage !== undefined && t.stage < 3;
-  return `<${tag} class="ent ${s.kind}${t.withered ? ' withered' : ''}${growing ? ' growing' : ''}${t.cls ? ' ' + t.cls : ''}"${label}${t.stage !== undefined ? ` data-stage="${t.stage}"` : ''} data-species="${s.id}" style="left:${at.left.toFixed(2)}%;top:${at.top.toFixed(2)}%;width:${widthOf(side, s.id, t.size).toFixed(2)}%;z-index:${at.depth};--delay:${delay}s"><svg class="sprite" viewBox="0 0 100 100" aria-hidden="true"><g class="alive">${drawing(t.species, { kind: s.kind, stage: t.stage ?? 3, withered: t.withered })}</g></svg>${s.kind === 'animal' ? '<i class="emote" aria-hidden="true"></i>' : ''}</${tag}>`;
+  const trait = s.kind === 'animal' ? traitsOf(s.id) : null;
+  const rig = trait ? `;--gait:${trait.gait || 0.5}s;--sink:${trait.sink || 14};--k:${liftScale(s.id, t.size).toFixed(1)}` : '';
+  return `<${tag} class="ent ${s.kind}${trait ? ' m-' + trait.move : ''}${t.withered ? ' withered' : ''}${growing ? ' growing' : ''}${t.cls ? ' ' + t.cls : ''}"${label}${t.stage !== undefined ? ` data-stage="${t.stage}"` : ''} data-species="${s.id}" style="left:${at.left.toFixed(2)}%;top:${at.top.toFixed(2)}%;width:${widthOf(side, s.id, t.size).toFixed(2)}%;z-index:${at.depth};--delay:${delay}s${rig}"><svg class="sprite" viewBox="0 0 100 100" aria-hidden="true"><g class="alive">${drawing(t.species, { kind: s.kind, stage: t.stage ?? 3, withered: t.withered })}</g></svg>${s.kind === 'animal' ? '<i class="emote" aria-hidden="true"></i>' : ''}</${tag}>`;
 }
 
 /**

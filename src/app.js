@@ -1,6 +1,6 @@
 // Haven's shell: starts everything, draws the chosen screen, and routes taps, typing and
 // server messages to the screen that handles them.
-import { e, $, icon, toast, initDialog, openDialog, closeDialog, dialogOpen, confirmDialog } from './ui.js';
+import { e, $, icon, toast, initDialog, openDialog, closeDialog, dialogOpen, confirmDialog, paintRanges } from './ui.js';
 import { Store } from './store.js';
 import { Social, discoverApi } from './social.js';
 import { Timer } from './timer.js';
@@ -61,6 +61,7 @@ function render() {
   const scroll = view.scrollTop, focused = document.activeElement?.closest?.('#view') ? document.activeElement : null;
   const key = focused ? [focused.dataset.action, focused.dataset.id, focused.dataset.value, focused.dataset.page].join('|') : null;
   view.innerHTML = page.render(app);
+  paintRanges(view);
   view.scrollTop = scroll;
   if (key) [...view.querySelectorAll('[data-action]')].find(el => [el.dataset.action, el.dataset.id, el.dataset.value, el.dataset.page].join('|') === key)?.focus({ preventScroll: true });
   for (const tab of document.querySelectorAll('.tabs button')) { if (tab.dataset.page === app.ui.page) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current'); }
@@ -117,7 +118,11 @@ function wire() {
     event.preventDefault();
     forms[form.dataset.form]?.(app, form);
   });
-  document.addEventListener('input', event => { const name = event.target.dataset?.input; if (name) inputs[name]?.(app, event.target); });
+  document.addEventListener('input', event => {
+    if (event.target.type === 'range') paintRanges(event.target.parentElement || document);
+    const name = event.target.dataset?.input;
+    if (name) inputs[name]?.(app, event.target);
+  });
   document.addEventListener('change', event => { const name = event.target.dataset?.change; if (name) changes[name]?.(app, event.target); });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') app.timer.hidden();

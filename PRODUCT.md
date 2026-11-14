@@ -26,6 +26,11 @@ People who study or work in focused blocks and want a reason to stay off their p
 | Feature | Notes |
 | --- | --- |
 | Free roaming | Animals walk, hop, crawl or fly anywhere on the land. Nothing is tied to a tile. |
+| Drawn to move | Every animal is drawn from the side with its own legs, head, ears, tail and wings. Legs stride in pairs, wings flap, tails wag, eyes blink, chests breathe. |
+| Weight | Walkers gather speed and slow to a stop, and go round rocks, trees and water. Hops rise and fall with the body tipping through them. Birds walk short distances and fly long ones. The shadow stays on the ground. |
+| Doing things | Swimming (sunk to the belly, with ripples), drinking at the bank, grazing, resting by the fire, hiding in the burrow, perching, landing on flowers, running when called or chased. |
+| Effects | A splash on entering water, dust when a big hop lands, leaves when something lands in a tree, plants rustling when brushed past. |
+| Calling | Tap the ground and up to three animals nearby come over. Fed animals stop to eat; petted ones jump. |
 | Likes | Each animal visits the plants and nature it likes: 27 sets of likes across flowers, trees, cover, water and built things. |
 | Into and onto things | Swimmers go into the pond. Perchers sit up in trees and on the bird house. Fliers hover over flowers. What is visited rustles. |
 | Each other | Animals walk up to greet each other and play chase. |
@@ -85,7 +90,7 @@ People who study or work in focused blocks and want a reason to stay off their p
 
 - **Per-app allow list.** Letting chosen apps through needs Apple's Family Controls entitlement on iOS and usage-access permission with a background service on Android. Haven forgives a set time away instead.
 - **Planting real trees.**
-- **Animals in a friend's haven do not move.** A visit shows where things stand, not the live animals.
+- **Animals in a friend's haven do not walk about.** A visit shows where things stand; they breathe and blink there, nothing more.
 - **Animals do not interact with the session being grown**, and they do not breed, age or have different foods. There is one kind of treat.
 - **With reduced motion switched on in the phone's settings, animals stay still.** Care still works.
 - **Widgets, watch apps, and scheduled blocking.**

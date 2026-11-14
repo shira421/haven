@@ -46,10 +46,18 @@ const ICONS = {
 };
 export const icon = (name, cls = '') => `<svg class="icon${cls ? ' ' + cls : ''}" viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[name] || ICONS.info}"/></svg>`;
 
+/** Colour a slider's track up to where its handle is. Call it after drawing one, and as it moves. */
+export function paintRanges(root = document) {
+  for (const el of root.querySelectorAll('input[type="range"]')) {
+    const min = Number(el.min || 0), max = Number(el.max || 100);
+    el.style.setProperty('--fill', `${(((Number(el.value) - min) / (max - min || 1)) * 100).toFixed(1)}%`);
+  }
+}
+
 /** A species drawn at its natural size for lists and cards. */
 export function avatar(id, cls = '') {
   const s = speciesById(id) || speciesById('rabbit');
-  return `<span class="avatar${cls ? ' ' + cls : ''}">${sprite(s.id, { kind: s.kind })}</span>`;
+  return `<span class="avatar ${s.kind}${cls ? ' ' + cls : ''}">${sprite(s.id, { kind: s.kind })}</span>`;
 }
 
 /** A choice among a few views. `items` is [[value, label], …]. */
@@ -89,13 +97,14 @@ export function openDialog(title, body, options = {}) {
   dialog.innerHTML = `<div class="dialog-head"><h2 id="dialog-title">${e(title)}</h2>${options.locked ? '' : `<button class="iconbutton" data-action="close-dialog" aria-label="Close">${icon('close')}</button>`}</div><div class="dialog-body">${body}</div>`;
   if (!dialog.open) dialog.showModal();
   dialog.scrollTop = 0;
+  paintRanges(dialog);
   const first = dialog.querySelector('[autofocus]') || dialog.querySelector('.dialog-body button, .dialog-body input, .dialog-body select') || dialog.querySelector('button');
   first?.focus({ preventScroll: true });
 }
 /** Replace the dialog's content without closing it or moving focus away from a field being typed in. */
 export function updateDialog(body) {
   const el = $('#dialog .dialog-body');
-  if (el) el.innerHTML = body;
+  if (el) { el.innerHTML = body; paintRanges(el); }
 }
 export function closeDialog() {
   const dialog = $('#dialog');
