@@ -1,0 +1,237 @@
+package com.shira421.haven;
+
+import android.Manifest;
+import android.app.Activity;
+import android.app.KeyguardManager;
+import android.content.ActivityNotFoundException;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.content.res.Configuration;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.PowerManager;
+import android.view.HapticFeedbackConstants;
+import android.view.WindowManager;
+import android.webkit.JavascriptInterface;
+import android.webkit.WebChromeClient;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import androidx.webkit.WebViewAssetLoader;
+import java.util.ArrayList;
+import java.util.List;
+import org.json.JSONObject;
+
+/** Hosts the bundled Haven web app and gives it what only the phone can do. See src/device.js. */
+public final class MainActivity extends Activity {
+    private static final int REQUEST_NOTIFICATIONS = 1;
+    private static final String PREFS = "haven-away";
+    private WebView webView;
+    private final List<String> notifyWaiting = new ArrayList<>();
+
+    private final class Bridge {
+        /** Called from the page as HavenNative.device(id, json). Answers through window.__havenReply. */
+        @JavascriptInterface
+        public void device(final String id, final String json) {
+            runOnUiThread(() -> handle(id, json));
+        }
+    }
+
+    private void handle(String id, String json) {
+        JSONObject m;
+        try {
+            m = new JSONObject(json);
+        } catch (Exception error) {
+            reply(id, null, "Bad request");
+            return;
+        }
+        try {
+            switch (m.optString("action")) {
+                case "notifyPermission":
+                    notificationPermission(id, m.optBoolean("request"));
+                    break;
+                case "schedule":
+                    Notifier.schedule(this, m.optString("id", "session"), m.optLong("at"), m.optString("title", "Haven"), m.optString("body"));
+                    reply(id, true, null);
+                    break;
+                case "notify":
+                    Notifier.post(this, m.optString("id", "haven"), m.optString("title", "Haven"), m.optString("body"));
+                    reply(id, true, null);
+                    break;
+                case "cancel":
+                    Notifier.cancel(this, m.optString("id", "session"));
+                    reply(id, true, null);
+                    break;
+                case "reminder":
+                    Notifier.setReminder(this, m.optBoolean("on"), m.optInt("hour", 19), m.optInt("minute", 0), m.optString("title", "Time to focus"), m.optString("body"));
+                    reply(id, true, null);
+                    break;
+                case "keepAwake":
+                    if (m.optBoolean("on")) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                    else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                    reply(id, true, null);
+                    break;
+                case "haptic": {
+                    String kind = m.optString("kind");
+                    int effect = Build.VERSION.SDK_INT >= 30 && "success".equals(kind) ? HapticFeedbackConstants.CONFIRM
+                        : Build.VERSION.SDK_INT >= 30 && "warning".equals(kind) ? HapticFeedbackConstants.REJECT
+                        : HapticFeedbackConstants.KEYBOARD_TAP;
+                    webView.performHapticFeedback(effect);
+                    reply(id, true, null);
+                    break;
+                }
+                case "share": {
+                    Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, m.optString("text"));
+                    startActivity(Intent.createChooser(send, null));
+                    reply(id, true, null);
+                    break;
+                }
+                case "away": {
+                    SharedPreferences prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+                    JSONObject value = new JSONObject();
+                    value.put("at", prefs.getLong("at", 0));
+                    value.put("locked", prefs.getBoolean("locked", false));
+                    reply(id, value, null);
+                    break;
+                }
+                default:
+                    reply(id, null, "Unknown action");
+            }
+        } catch (Exception error) {
+            reply(id, null, "The phone could not do that. Try again.");
+        }
+    }
+
+    private void reply(String id, Object value, String error) {
+        JSONObject answer = new JSONObject();
+        try {
+            if (error != null) answer.put("error", error);
+            else answer.put("value", value == null ? JSONObject.NULL : value);
+        } catch (Exception ignored) { }
+        if (webView != null) webView.evaluateJavascript("window.__havenReply&&window.__havenReply(" + JSONObject.quote(id) + "," + answer + ")", null);
+    }
+
+    private void notificationPermission(String id, boolean request) {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            if (!request) {
+                reply(id, "default", null);
+                return;
+            }
+            notifyWaiting.add(id);
+            if (notifyWaiting.size() == 1) requestPermissions(new String[] {Manifest.permission.POST_NOTIFICATIONS}, REQUEST_NOTIFICATIONS);
+            return;
+        }
+        reply(id, Notifier.allowed(this) ? "granted" : "denied", null);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode != REQUEST_NOTIFICATIONS) return;
+        boolean granted = false;
+        for (int result : results) granted |= result == PackageManager.PERMISSION_GRANTED;
+        List<String> waiting = new ArrayList<>(notifyWaiting);
+        notifyWaiting.clear();
+        for (String id : waiting) reply(id, granted && Notifier.allowed(this) ? "granted" : "denied", null);
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        boolean night = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+        webView = new WebView(this);
+        webView.setBackgroundColor(night ? 0xff14152b : 0xfff5f5fb);
+        WebSettings settings = webView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setAllowFileAccess(false);
+        settings.setAllowContentAccess(false);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        settings.setMediaPlaybackRequiresUserGesture(false);
+        settings.setTextZoom(100);
+        webView.setOverScrollMode(WebView.OVER_SCROLL_NEVER);
+        webView.addJavascriptInterface(new Bridge(), "HavenNative");
+        final WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
+            .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
+            .build();
+        webView.setWebChromeClient(new WebChromeClient());
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                return assetLoader.shouldInterceptRequest(request.getUrl());
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                Uri uri = request.getUrl();
+                String scheme = uri.getScheme();
+                if ("https".equals(scheme) && "appassets.androidplatform.net".equals(uri.getHost())
+                    && uri.getPath() != null && uri.getPath().startsWith("/assets/")) return false;
+                if ("http".equals(scheme) || "https".equals(scheme)) {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, uri));
+                    } catch (ActivityNotFoundException ignored) {
+                        // Devices without a browser keep the application open.
+                    }
+                }
+                return true;
+            }
+        });
+        webView.setOnApplyWindowInsetsListener((view, insets) -> {
+            view.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
+                insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
+            return insets;
+        });
+        setContentView(webView);
+        webView.loadUrl("https://appassets.androidplatform.net/assets/index.html");
+    }
+
+    /**
+     * Haven is no longer in front. Note when, and whether the phone was locked or its screen
+     * turned off: that does not count as leaving a session, while switching to another app does.
+     */
+    @Override
+    protected void onStop() {
+        super.onStop();
+        boolean screenOff = !getSystemService(PowerManager.class).isInteractive();
+        boolean keyguard = getSystemService(KeyguardManager.class).isKeyguardLocked();
+        getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putLong("at", System.currentTimeMillis()).putBoolean("locked", screenOff || keyguard).apply();
+    }
+
+    // The page sees itself hidden and visible again through these.
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (webView != null) webView.onPause();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (webView != null) webView.onResume();
+    }
+
+    /** Back closes an open sheet first; otherwise Haven goes to the background and keeps its state. */
+    @Override
+    public void onBackPressed() {
+        if (webView == null) { moveTaskToBack(true); return; }
+        webView.evaluateJavascript("(function(){var d=document.querySelector('dialog[open]');if(d&&d.querySelector('[data-action=\"close-dialog\"]')){d.close();return true}return false})()",
+            closed -> { if (!"true".equals(closed)) moveTaskToBack(true); });
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (webView != null) {
+            webView.removeJavascriptInterface("HavenNative");
+            webView.destroy();
+            webView = null;
+        }
+        super.onDestroy();
+    }
+}

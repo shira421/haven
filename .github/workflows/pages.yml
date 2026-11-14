@@ -1,0 +1,67 @@
+name: Deploy web app and friends server
+
+# Pushes to main deploy the friends server (a Cloudflare Worker, when the two Cloudflare secrets
+# are set) and then the web app to GitHub Pages, built to talk to that server.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Server tests on the Workers runtime
+        run: node --test tests/hub.test.mjs
+      - name: Deploy the friends server (only when Cloudflare secrets are set)
+        id: hub
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+        run: |
+          out=$(npx --yes wrangler@4 deploy --config worker/wrangler.toml 2>&1) || { echo "$out"; echo "::error::The friends server could not be deployed. If the message mentions a workers.dev subdomain, open Workers & Pages in the Cloudflare dashboard once and run this workflow again."; exit 1; }
+          echo "$out"
+          url=$(echo "$out" | grep -oE 'https://[a-z0-9.-]+\.workers\.dev' | head -1)
+          [ -n "$url" ] || { echo "::error::The friends server was deployed but its address could not be read from the output above."; exit 1; }
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          # It answers, and a browser on the Pages site is allowed to call it.
+          ok=0; for i in 1 2 3 4 5 6; do curl -fsS "$url/health" && ok=1 && break; sleep 5; done; echo
+          [ "$ok" = 1 ] || { echo "::error::The friends server was deployed but does not answer at $url/health."; exit 1; }
+          curl -fsS -o /dev/null -D - -H 'Origin: https://shira421.github.io' "$url/health" | grep -i '^access-control-allow-origin' || { echo "::error::The friends server does not allow calls from the web app."; exit 1; }
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$url/api/me")
+          [ "$code" = 401 ] || { echo "::error::Expected the friends server to ask for sign-in (401) but got HTTP $code."; exit 1; }
+          echo "Friends server live at $url"
+      - name: Explain how to switch friends on
+        if: env.CLOUDFLARE_API_TOKEN == '' || env.CLOUDFLARE_ACCOUNT_ID == ''
+        run: |
+          echo "::warning::Haven is built without a friends server, so the Friends screen says friends are not switched on. Add the repository secrets CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID (see README, 'Switching friends on') and run this workflow again."
+      - run: npm run build
+        env:
+          HAVEN_API_URL: ${{ steps.hub.outputs.url || vars.HAVEN_API_URL }}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

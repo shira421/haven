@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar icon: a single-colour sprout. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF" android:pathData="M11,21L11,13.9C7.6,13.6 5,10.8 5,7.3L5,6L6.3,6C9.1,6 11.5,7.7 12.5,10.2C13.4,6.6 16.6,4 20.5,4L21,4L21,4.5C21,8.9 17.6,12.5 13.3,12.9L13,12.9L13,21Z" />
+</vector>

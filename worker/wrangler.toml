@@ -1,0 +1,14 @@
+# Haven's friends server. Deployed by .github/workflows/pages.yml when the repository has
+# CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets. Runs on Cloudflare's free plan.
+name = "haven-hub"
+main = "worker.js"
+compatibility_date = "2026-07-01"
+
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "HubObject"
+
+# SQLite-backed Durable Objects are the kind the free plan includes.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["HubObject"]

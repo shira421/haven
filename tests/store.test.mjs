@@ -1,0 +1,257 @@
+process.env.TZ = 'Asia/Singapore';
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { Store, freshState, migrate, mergeStates, DEFAULT_SETTINGS } from '../src/store.js';
+import { SPECIES } from '../src/catalog.js';
+
+const T0 = new Date(2026, 10, 14, 9, 0).getTime();
+function make(seed) {
+  const clock = { t: T0 };
+  const map = new Map();
+  if (seed) map.set('haven-state', JSON.stringify(seed));
+  const storage = { getItem: k => (map.has(k) ? map.get(k) : null), setItem: (k, v) => map.set(k, v), removeItem: k => map.delete(k) };
+  const store = new Store({ storage, now: () => clock.t });
+  return { store, clock, map, reopen: () => new Store({ storage, now: () => clock.t }) };
+}
+const run = (store, clock, minutes, extra = {}) => { const b = store.begin({ minutes, species: 'clover', tag: 'study', ...extra }); assert.equal(b.ok, true); clock.t += minutes * 60000; return store.finish(); };
+
+test('a new haven has starters and sensible settings', () => {
+  const { store } = make();
+  assert.deepEqual(store.state.unlocked, ['clover', 'fern', 'rabbit']);
+  assert.equal(store.state.coins, 0);
+  assert.deepEqual(store.state.settings, DEFAULT_SETTINGS);
+  assert.equal(store.side(), 5);
+});
+
+test('finishing a session gives coins, a plant in the haven, and achievements', () => {
+  const { store, clock } = make();
+  const r = run(store, clock, 25);
+  assert.equal(r.ok, true);
+  assert.equal(r.coins, 60);
+  assert.equal(r.item.s, 'clover');
+  assert.equal(r.item.z, 2);
+  assert.match(r.placedAt, /^\d,\d$/);
+  assert.equal(store.state.haven.tiles[r.placedAt], r.item.id);
+  assert.deepEqual(r.achievements.map(a => a.id), ['first']);
+  assert.equal(store.state.coins, 60 + 50);
+  assert.equal(store.state.active, null);
+  assert.equal(store.state.sessions.length, 1);
+  assert.equal(store.state.sessions[0].end - store.state.sessions[0].start, 25 * 60000);
+  assert.equal(r.streak, 1);
+});
+
+test('a session cannot be finished early, started twice, or started with a locked species', () => {
+  const { store, clock } = make();
+  assert.equal(store.begin({ minutes: 25, species: 'panda', tag: 'study' }).ok, false);
+  assert.equal(store.begin({ minutes: 25, species: 'clover', tag: 'study' }).ok, true);
+  assert.equal(store.begin({ minutes: 25, species: 'clover', tag: 'study' }).ok, false);
+  clock.t += 24 * 60000;
+  assert.equal(store.finish().ok, false);
+  assert.ok(store.state.active, 'still running');
+  clock.t += 60000;
+  assert.equal(store.finish().ok, true);
+  assert.equal(store.finish().ok, false);
+});
+
+test('giving up records a failed session and grows nothing', () => {
+  const { store, clock } = make();
+  store.begin({ minutes: 50, species: 'fern', tag: 'work' });
+  clock.t += 12 * 60000;
+  const r = store.fail('gave-up');
+  assert.equal(r.session.status, 'failed');
+  assert.equal(r.session.minutes, 0);
+  assert.equal(store.state.items.length, 0);
+  assert.equal(store.state.coins, 0);
+  assert.equal(store.streak().current, 0);
+});
+
+test('cancelling leaves no trace', () => {
+  const { store } = make();
+  store.begin({ minutes: 25, species: 'clover', tag: 'study' });
+  assert.equal(store.cancel().ok, true);
+  assert.equal(store.state.sessions.length, 0);
+  assert.equal(store.state.active, null);
+});
+
+test('a stopwatch grows something from ten minutes', () => {
+  const { store, clock } = make();
+  store.begin({ minutes: 0, species: 'clover', tag: 'study', mode: 'stopwatch' });
+  clock.t += 9 * 60000;
+  const short = store.finish();
+  assert.equal(short.short, true);
+  assert.equal(store.state.sessions.length, 0);
+  store.begin({ minutes: 0, species: 'clover', tag: 'study', mode: 'stopwatch' });
+  clock.t += 42 * 60000 + 30000;
+  const r = store.finish();
+  assert.equal(r.session.minutes, 42);
+  assert.equal(r.session.mode, 'stopwatch');
+  assert.equal(r.coins, 94);
+});
+
+test('a running session survives a restart, with the time it was left', () => {
+  const { store, clock, reopen } = make();
+  store.begin({ minutes: 25, species: 'clover', tag: 'study' });
+  clock.t += 60000;
+  store.markHidden(clock.t);
+  const again = reopen();
+  assert.equal(again.state.active.species, 'clover');
+  assert.equal(again.state.active.hiddenAt, clock.t);
+  again.markVisible();
+  assert.equal(again.state.active.hiddenAt, undefined);
+});
+
+test('levelling up pays coins and grows the land every two levels', () => {
+  const { store, clock } = make();
+  const r1 = run(store, clock, 60);
+  assert.deepEqual(r1.levelUp, { level: 2, coins: 100, side: 5, grew: false });
+  const r2 = run(store, clock, 120);
+  assert.equal(r2.levelUp.level, 3);
+  assert.equal(r2.levelUp.grew, true);
+  assert.equal(store.side(), 6);
+  assert.equal(store.state.level, 3);
+});
+
+test('unlocking: with coins, in season, by goal, and never twice', () => {
+  const { store, clock } = make();
+  assert.match(store.unlock('daisy').error, /80 more coins/);
+  store.state.coins = 100;
+  assert.equal(store.unlock('daisy').how, 'buy');
+  assert.equal(store.state.coins, 20);
+  assert.equal(store.unlock('daisy').how, 'owned');
+  assert.equal(store.state.coins, 20);
+  assert.equal(store.unlock('pumpkin').how, 'season');
+  assert.equal(store.state.coins, 20);
+  run(store, clock, 120);
+  const coins = store.state.coins;
+  assert.equal(store.unlock('bonsai').how, 'goal');
+  assert.equal(store.state.coins, coins, 'a goal unlock is free');
+  assert.equal(store.unlock('nothing').ok, false);
+});
+
+test('placing, moving, swapping and storing', () => {
+  const { store, clock } = make();
+  store.set({ autoPlace: false });
+  const a = run(store, clock, 25).item, b = run(store, clock, 25).item;
+  assert.equal(a.z, 2);
+  assert.equal(store.stored().length, 2);
+  assert.equal(store.place(a.id, 0, 0).ok, true);
+  assert.equal(store.place(b.id, 9, 9).ok, false, 'outside the land');
+  assert.equal(store.place('nope', 1, 1).ok, false);
+  assert.equal(store.place(b.id, 1, 1).ok, true);
+  assert.equal(store.place(a.id, 1, 1).ok, true, 'moving onto a taken tile swaps');
+  assert.equal(store.state.haven.tiles['1,1'], a.id);
+  assert.equal(store.state.haven.tiles['0,0'], b.id);
+  const c = run(store, clock, 25).item;
+  const swap = store.place(c.id, 1, 1);
+  assert.equal(swap.displaced, a.id, 'a stored item takes the tile and the old one goes to storage');
+  assert.deepEqual(store.stored().map(i => i.id), [a.id]);
+  assert.equal(store.unplace(0, 0).ok, true);
+  assert.equal(store.unplace(0, 0).ok, false);
+  store.release(c.id);
+  assert.equal(store.state.haven.tiles['1,1'], undefined);
+  assert.equal(store.item(c.id), null);
+});
+
+test('a full haven keeps new plants in storage', () => {
+  const { store, clock } = make();
+  for (let i = 0; i < 25; i++) store.state.items.push({ id: 'x' + i, s: 'clover', z: 1, at: T0 });
+  for (let i = 0; i < 25; i++) assert.ok(store.placeAnywhere('x' + i));
+  assert.equal(store.freeTiles().length, 0);
+  const r = run(store, clock, 10);
+  assert.equal(r.placedAt, null);
+  assert.equal(store.stored().length, 1);
+});
+
+test('gifts: paying, refunding and receiving once', () => {
+  const { store } = make();
+  assert.equal(store.payForGift('daisy').ok, false, 'not unlocked');
+  assert.match(store.payForGift('clover').error, /50 more coins/);
+  store.state.coins = 60;
+  const paid = store.payForGift('clover');
+  assert.equal(paid.price, 50);
+  assert.deepEqual(paid.achievements.map(a => a.id), ['gift1']);
+  assert.equal(store.state.coins, 10 + 100);
+  store.refundGift('clover');
+  assert.equal(store.state.coins, 160);
+  const item = store.receiveGift('fox', 'Mei', 7);
+  assert.equal(item.s, 'fox');
+  assert.equal(item.from, 'Mei');
+  assert.equal(store.receiveGift('fox', 'Mei', 7), null, 'the same gift is not added twice');
+  assert.equal(store.receiveGift('dragon', 'Mei', 8), null);
+});
+
+test('tags', () => {
+  const { store } = make();
+  assert.equal(store.addTag('  ').ok, false);
+  assert.equal(store.addTag('study').ok, false, 'names are unique whatever the case');
+  const t = store.addTag('Thesis');
+  assert.equal(t.ok, true);
+  store.set({ tag: t.tag.id });
+  assert.equal(store.removeTag(t.tag.id).ok, true);
+  assert.equal(store.state.settings.tag, 'study');
+  assert.equal(store.tagName('gone'), 'Other');
+});
+
+test('settings are kept inside their limits', () => {
+  const { store } = make();
+  store.set({ minutes: 999, allowance: 1, species: 'panda', theme: 'neon', volume: 4 });
+  assert.equal(store.state.settings.minutes, 180);
+  assert.equal(store.state.settings.allowance, 5);
+  assert.equal(store.state.settings.species, 'clover');
+  assert.equal(store.state.settings.theme, 'system');
+  assert.equal(store.state.settings.volume, 1);
+  store.set({ minutes: 47 });
+  assert.equal(store.state.settings.minutes, 45);
+});
+
+test('broken or hostile stored data falls back safely', () => {
+  assert.deepEqual(migrate('nonsense', T0).unlocked, ['clover', 'fern', 'rabbit']);
+  const s = migrate({ coins: -50, unlocked: ['dragon', 'fox'], items: [{ id: 'a', s: 'fox', z: 9 }, { id: 'b', s: 'dragon' }, 5], haven: { tiles: { '0,0': 'a', '1,1': 'a', 'x': 'a', '2,2': 'zzz' } }, sessions: [{ id: 1 }, { id: 'ok', start: T0, status: 'done', minutes: 9999, species: 'dragon' }], tags: [{ id: 'a', name: '   ' }], settings: { pomodoro: { focus: 0 } }, achieved: { first: 'x' } }, T0);
+  assert.equal(s.coins, 0);
+  assert.deepEqual(s.unlocked, ['clover', 'fern', 'rabbit', 'fox']);
+  assert.deepEqual(s.items.map(i => [i.id, i.z]), [['a', 3]]);
+  assert.deepEqual(s.haven.tiles, { '0,0': 'a' }, 'an item stands on one tile only');
+  assert.equal(s.sessions.length, 1);
+  assert.equal(s.sessions[0].minutes, 180);
+  assert.equal(s.sessions[0].species, 'clover');
+  assert.equal(s.tags.length, 4);
+  assert.equal(s.settings.pomodoro.focus, 5);
+  assert.deepEqual(s.achieved, {});
+  const { store } = make();
+  const bad = new Store({ storage: { getItem: () => '{not json', setItem() {}, removeItem() {} }, now: () => T0 });
+  assert.equal(bad.state.coins, 0);
+  assert.equal(store.importState({ v: 99 }).ok, false);
+});
+
+test('a failing save is reported, not thrown', () => {
+  const store = new Store({ storage: { getItem: () => null, setItem() { throw new Error('quota'); }, removeItem() {} }, now: () => T0 });
+  store.set({ minutes: 30 });
+  assert.equal(store.saveError.message, 'quota');
+  assert.equal(store.state.settings.minutes, 30);
+});
+
+test('merging two devices loses nothing that was earned', () => {
+  const a = make(), b = make();
+  run(a.store, a.clock, 25);
+  b.clock.t = T0 + 3600000;
+  b.store.state.coins = 500;
+  b.store.unlock('daisy');
+  run(b.store, b.clock, 50, { species: 'daisy' });
+  const merged = mergeStates(a.store.exportState(), b.store.exportState(), T0 + 2 * 3600000);
+  assert.equal(merged.sessions.length, 2);
+  assert.equal(merged.items.length, 2);
+  assert.ok(merged.unlocked.includes('daisy'));
+  assert.equal(merged.coins, b.store.state.coins, 'the newer copy decides the balance');
+  assert.ok(merged.achieved.first <= b.store.state.achieved.first);
+  assert.equal(mergeStates(merged, merged, T0).sessions.length, 2, 'merging twice changes nothing');
+});
+
+test('what friends can see holds no private data', () => {
+  const { store, clock } = make();
+  run(store, clock, 25);
+  const card = store.publicCard();
+  assert.deepEqual(Object.keys(card).sort(), ['best', 'level', 'minutes', 'of', 'sessions', 'side', 'species', 'streak', 'tiles']);
+  assert.equal(card.tiles.length, 1);
+  assert.equal(card.tiles[0][2], 'clover');
+  assert.equal(card.of, SPECIES.length);
+});

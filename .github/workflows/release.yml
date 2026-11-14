@@ -1,0 +1,223 @@
+name: Build apps
+
+# Every push to main builds and tests the web app, the Android APK and the iOS app, then
+# publishes a rolling "latest-build" release (stable download links) and, once per version in
+# package.json, an immutable v<version> release.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      # The phone apps carry the web app inside them, so it is built here with the address of the
+      # friends server (deployed by pages.yml): haven-hub.<your workers.dev subdomain>.workers.dev.
+      # Without it the apps ask the website for the address when they start.
+      - name: Build the web app for the phone apps
+        run: |
+          api="${{ vars.HAVEN_API_URL || '' }}"
+          if [ -z "$api" ] && [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            sub=$(curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s).result?.subdomain||''))") || true
+            [ -n "$sub" ] && api="https://haven-hub.$sub.workers.dev" || echo "::warning::Could not read the workers.dev subdomain; the apps will look the friends server up when they start."
+          fi
+          HAVEN_API_URL="$api" npm run build
+      - id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: dist
+          retention-days: 7
+
+  browser:
+    needs: web
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Browser test (two people, headless Chrome, the real friends server run locally)
+        run: npm run test:browser
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-failure
+          path: tests/output/*.png
+          retention-days: 7
+
+  android:
+    needs: web
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+      HAVEN_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: dist
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      # With the keystore secrets every build has the same signature, so updates install over
+      # the old app and keep its data. Without them each build gets a fresh debug key.
+      - name: Use the release keystore (only when its secrets are set)
+        if: env.ANDROID_KEYSTORE_B64 != '' && env.HAVEN_KEYSTORE_PASSWORD != ''
+        run: |
+          echo "$ANDROID_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/haven.keystore"
+          echo "HAVEN_KEYSTORE_FILE=$RUNNER_TEMP/haven.keystore" >> "$GITHUB_ENV"
+      - name: Build Android APK
+        working-directory: android
+        run: gradle :app:assembleDebug
+      - run: cp android/app/build/outputs/apk/debug/app-debug.apk Haven-Android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: Haven-Android.apk
+          retention-days: 14
+
+  ios:
+    needs: web
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: dist
+      - name: Boot an iPhone simulator early (warm by the time the app is built)
+        run: |
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c "import json,sys;d=json.load(sys.stdin)['devices'];print(next(x['udid'] for r,l in sorted(d.items(),reverse=True) if 'iOS' in r for x in l if x['name'].startswith('iPhone')))")
+          echo "SIM_DEVICE=$DEVICE" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEVICE" || true
+      - name: Generate the Xcode project
+        run: |
+          rm -rf ios/web && cp -R dist ios/web
+          brew install xcodegen
+          cd ios && xcodegen generate
+          xcodebuild -version
+      - name: Build unsigned iPhone app (for AltStore / SideStore / Sideloadly)
+        run: |
+          set -o pipefail
+          cd ios
+          xcodebuild -project Haven.xcodeproj -scheme Haven -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build | tail -40
+          rm -rf Payload && mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/Haven.app Payload/
+          zip -qry ../Haven-iOS-unsigned.ipa Payload
+          ls -la ../Haven-iOS-unsigned.ipa
+      - name: Simulator smoke test (app launches, web app loads, the device bridge is there, nothing throws)
+        run: |
+          set -o pipefail
+          cd ios
+          xcodebuild -project Haven.xcodeproj -scheme Haven -configuration Release \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath simbuild \
+            CODE_SIGNING_ALLOWED=NO build | tail -5
+          DEVICE="$SIM_DEVICE"
+          xcrun simctl bootstatus "$DEVICE" -b | tail -2
+          xcrun simctl install "$DEVICE" simbuild/Build/Products/Release-iphonesimulator/Haven.app
+          for i in $(seq 1 30); do xcrun simctl get_app_container "$DEVICE" com.shira421.haven >/dev/null 2>&1 && break; sleep 1; done
+          # A launch sent before the Home Screen has registered a new install can be dropped.
+          sleep 5
+          for attempt in 1 2 3; do
+            xcrun simctl launch --console-pty --terminate-running-process "$DEVICE" com.shira421.haven -HavenSelfTest > ../selftest.log 2>&1 &
+            for i in $(seq 1 40); do grep -q 'HAVEN_EVENT page loaded' ../selftest.log && break; sleep 1; done
+            if grep -q 'HAVEN_EVENT page loaded' ../selftest.log; then echo "App up on attempt $attempt"; break; fi
+            echo "::warning::Launch attempt $attempt: the app did not come to the front within 40 s, launching again"
+            xcrun simctl terminate "$DEVICE" com.shira421.haven || true
+            sleep 3
+          done
+          sleep 25
+          xcrun simctl io "$DEVICE" screenshot ../ios-simulator.png || true
+          xcrun simctl terminate "$DEVICE" com.shira421.haven || true
+          cat ../selftest.log
+          grep -q 'HAVEN_SELFTEST.*"loaded":true' ../selftest.log
+          grep -q 'HAVEN_SELFTEST.*"bridge":true' ../selftest.log
+          grep -q 'HAVEN_SELFTEST t=20.*"errors":\[\]' ../selftest.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-app
+          path: |
+            Haven-iOS-unsigned.ipa
+            ios-simulator.png
+            selftest.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  publish:
+    needs: [web, browser, android, ios]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.web.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Package downloads
+        run: |
+          mkdir -p out
+          cp artifacts/Haven-Android.apk artifacts/Haven-iOS-unsigned.ipa out/
+          (cd artifacts && zip -qr ../out/Haven-WebApp.zip . -x '*.apk' '*.ipa' '*.png' '*.log')
+          SIZE=$(stat -c %s out/Haven-iOS-unsigned.ipa)
+          node -e "
+            const fs=require('fs');const v=process.env.VERSION;const icon='https://shira421.github.io/haven/icons/icon-512.png';
+            fs.writeFileSync('out/altstore-source.json',JSON.stringify({name:'Haven',identifier:'com.shira421.haven.source',subtitle:'Focus timer with friends',iconURL:icon,website:'https://github.com/shira421/haven',apps:[{name:'Haven',bundleIdentifier:'com.shira421.haven',developerName:'shira421',subtitle:'Focus timer with friends',localizedDescription:'Focus for a set time and a plant grows or an animal moves in to your haven. See friends focus live, grow together in a room, cheer each other on and send gifts.',iconURL:icon,tintColor:'#f6b73c',versions:[{version:v,buildVersion:process.env.GITHUB_RUN_NUMBER,date:new Date().toISOString(),localizedDescription:'Build '+process.env.GITHUB_SHA.slice(0,7),downloadURL:'https://github.com/shira421/haven/releases/download/latest-build/Haven-iOS-unsigned.ipa',size:Number(process.argv[1]),minOSVersion:'16.0'}],appPermissions:{entitlements:[],privacy:{}}}],news:[]},null,2));
+          " "$SIZE"
+          (cd out && sha256sum * > SHA256SUMS.txt)
+          ls -la out
+      - name: Update the rolling latest-build release
+        run: |
+          gh release delete latest-build --yes --cleanup-tag 2>/dev/null || true
+          gh release create latest-build out/* --target "$GITHUB_SHA" --prerelease \
+            --title "Haven latest build (${GITHUB_SHA::7})" --notes-file .github/release-notes.md
+      - name: Create the v${{ env.VERSION }} release once
+        run: |
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "v$VERSION already published; its files stay unchanged. latest-build has this commit."
+          else
+            gh release create "v$VERSION" out/* --target "$GITHUB_SHA" --latest \
+              --title "Haven v$VERSION" --notes-file .github/release-notes.md
+          fi

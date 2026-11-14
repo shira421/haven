@@ -1,0 +1,53 @@
+# XcodeGen spec for the Haven iOS app. CI runs `xcodegen generate` after copying
+# the built web app into ios/web (see .github/workflows/release.yml).
+name: Haven
+options:
+  bundleIdPrefix: com.shira421
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+targets:
+  Haven:
+    type: application
+    platform: iOS
+    sources:
+      - path: Haven
+      - path: web
+        type: folder
+        buildPhase: resources
+    info:
+      path: Haven/Info.plist
+      properties:
+        CFBundleDisplayName: Haven
+        CFBundleName: Haven
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSRequiresIPhoneOS: true
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UIViewControllerBasedStatusBarAppearance: true
+        UIRequiresFullScreen: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.shira421.haven
+        PRODUCT_NAME: Haven
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_BITCODE: NO
+    scheme: {}
