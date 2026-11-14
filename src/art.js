@@ -353,8 +353,41 @@ const animals = {
     + L('M43 45L35 58H51ZM35 58L25 70L21 78M51 58L61 70L65 78M35 58L39 72H47L51 58M39 72L37 79M47 72L49 79', '#8fd0a4', 1.5, ' opacity=".85"'),
 };
 
+// ——— Nature ———
+
+const STONE = '#a9adb8';
+const nature = {
+  tallgrass: () => shadow(22) + [[-50, 26, '#5a9a4c'], [42, 28, '#5a9a4c'], [-30, 38, '#6fae55'], [26, 40, '#6fae55'], [-12, 48, '#7fbd5e'], [10, 46, '#6fae55'], [0, 54, '#8fcf68'], [-64, 16, '#6fae55'], [60, 18, '#7fbd5e']].map(([d, len, c]) => leaf(50 + d * 0.12, 90, len, 3.2, d * 0.5, c)).join('')
+    + L('M42 90C40 70 36 58 34 50', '#b9a36a', 1.2) + E(33.5, 46, 2.2, 5, '#d9c78e') + L('M58 90C60 72 63 62 66 56', '#b9a36a', 1.2) + E(66.6, 52, 2, 4.6, '#d9c78e'),
+  stump: () => shadow(26) + P('M26 90C22 90 20 86 24 84L30 60H70L76 84C80 86 78 90 74 90Z', '#8a5f41') + P('M54 60H70L76 84C80 86 78 90 74 90H56Z', '#73492f')
+    + E(50, 60, 20, 7.5, '#d9b88a') + E(50, 60, 13, 4.8, 'none', ' stroke="#b98f5f" stroke-width="1.2"') + E(50, 60, 6, 2.2, 'none', ' stroke="#b98f5f" stroke-width="1.2"')
+    + L('M34 72v10M44 74v12M64 72v8', '#6a4428', 1.2) + leaf(26, 88, 12, 3, -40, GREEN) + leaf(74, 88, 10, 3, 44, LIME) + C(70, 62, 3, '#e8d9c0') + C(73.4, 64, 2, '#e8d9c0'),
+  boulder: () => shadow(30) + P('M16 90C12 76 18 58 32 52C44 46 62 44 72 54C84 62 90 76 84 90Z', STONE) + P('M56 46C64 46 70 50 72 54C84 62 90 76 84 90H60C70 78 68 58 56 46Z', tone(STONE, -0.16))
+    + P('M28 64C32 58 40 55 46 55C40 58 34 62 30 68Z', tone(STONE, 0.3)) + L('M40 70l6 8l-3 8M62 62l4 10', tone(STONE, -0.28), 1.1) + E(28, 86, 9, 3.4, '#6fae55') + E(70, 87, 7, 2.8, '#5a9a4c') + C(24, 83, 1.4, '#f6c445'),
+  log: () => shadow(32) + P('M18 68H74C84 68 88 74 88 80C88 86 84 90 74 90H18Z', '#8a5f41') + P('M18 82H80C84 82 87 81 88 80C88 86 84 90 74 90H18Z', '#73492f')
+    + E(18, 79, 8, 11, '#d9b88a') + E(18, 79, 4.6, 6.8, '#4a3122') + P('M30 68C36 62 48 62 54 68Z', '#6fae55') + P('M58 68C62 64 70 64 74 68Z', '#7fbd5e') + L('M40 76h10M58 82h12M34 86h8', '#6a4428', 1.1)
+    + C(66, 66, 3.4, '#d9453c') + P('M62.6 66a3.4 3.4 0 0 1 6.8 0Z', '#d9453c') + L('M66 66v4', '#f6ecd9', 1.6) + leaf(84, 90, 9, 2.6, 30, GREEN),
+  burrow: () => shadow(30) + P('M14 90C16 72 30 60 50 60C70 60 84 72 86 90Z', '#8fbf62') + P('M50 60C70 60 84 72 86 90H62C68 78 62 66 50 60Z', '#7aab52')
+    + P('M34 90C34 78 41 70 50 70C59 70 66 78 66 90Z', '#3d2a20') + P('M38 90C38 80 43 74 50 74C57 74 62 80 62 90Z', '#2a1c16') + E(50, 90, 18, 3, '#a47a57')
+    + leaf(22, 84, 9, 2.4, -24, '#5a9a4c') + leaf(78, 84, 10, 2.4, 20, '#5a9a4c') + C(30, 70, 2, '#fffdf7') + C(30, 70, 0.8, '#f4b730') + C(70, 68, 1.8, '#f6a8c6'),
+  birdhouse: () => shadow(16) + P('M47.5 90V52H52.5V90Z', '#8a5f41') + P('M50.5 90V52H52.5V90Z', '#73492f') + P('M36 54H64V30H36Z', '#e9c98f') + P('M54 54H64V30H54Z', '#d6b071')
+    + P('M30 32L50 14L70 32L66 36L50 22L34 36Z', '#c2553f') + P('M50 14L70 32L66 36L50 22Z', '#a5432f') + C(50, 40, 5, '#4a3122') + L('M44 49h12', '#8a5f41', 1.8) + leaf(46, 90, 8, 2.4, -40, GREEN) + leaf(54, 90, 8, 2.4, 40, LIME),
+  beehive: () => shadow(22) + P('M30 90V84H70V90Z', '#8a5f41') + P('M26 84H74V80H26Z', '#a57650')
+    + [[18, 80, 26], [16, 70, 24], [12, 60, 20], [8, 50, 14]].map(([y0, y, w], i) => P(`M${50 - w} ${y + 10}C${50 - w - 2} ${y + 4} ${50 - w + 2} ${y} ${50 - w + 6} ${y}H${50 + w - 6}C${50 + w - 2} ${y} ${50 + w + 2} ${y + 4} ${50 + w} ${y + 10}Z`, i % 2 ? '#eeb53c' : '#f6c655') + P(`M${50 + w * 0.3} ${y}H${50 + w - 6}C${50 + w - 2} ${y} ${50 + w + 2} ${y + 4} ${50 + w} ${y + 10}H${50 + w * 0.5}Z`, i % 2 ? '#d99c26' : '#e3ad3a')).reverse().join('')
+    + P('M44 50C44 44 56 44 56 50Z', '#f6c655') + E(50, 76, 5, 4, '#4a3122') + E(64, 40, 3, 2.2, '#f6c132') + E(63, 38.6, 2.4, 1.3, '#dff1fb', ' opacity=".9"') + E(34, 54, 3, 2.2, '#f6c132') + E(35, 52.6, 2.4, 1.3, '#dff1fb', ' opacity=".9"'),
+  lantern: () => shadow(20) + P('M38 90H62L59 82H41Z', STONE) + P('M45 82H55V62H45Z', tone(STONE, 0.1)) + P('M51 82H55V62H51Z', tone(STONE, -0.14)) + P('M36 62H64L60 56H40Z', STONE)
+    + P('M40 56H60V38H40Z', tone(STONE, 0.12)) + `<rect class="glow" x="44" y="41" width="12" height="12" rx="2" fill="#f9d77a"/>` + L('M50 41v12M44 47h12', tone(STONE, -0.2), 1.4)
+    + P('M30 40L50 24L70 40L66 42H34Z', tone(STONE, -0.18)) + P('M50 24L70 40L66 42H50Z', tone(STONE, -0.3)) + C(50, 22, 3.4, STONE) + E(36, 88, 8, 2.6, '#6fae55'),
+  campfire: () => shadow(28) + [[26, 86], [38, 90], [62, 90], [74, 86], [50, 91]].map(([x, y]) => E(x, y, 6, 4, STONE) + E(x - 1.4, y - 1.2, 2.6, 1.4, tone(STONE, 0.3))).join('')
+    + rot(P('M22 78H78V86H22Z', '#8a5f41'), -14, 50, 82) + rot(P('M22 78H78V86H22Z', '#73492f'), 14, 50, 82) + rot(E(76, 82, 3.4, 4, '#d9b88a'), -14, 50, 82) + rot(E(24, 82, 3.4, 4, '#d9b88a'), 14, 50, 82)
+    + `<g class="flame">${P('M50 82C36 82 32 68 40 58C42 64 46 64 46 58C46 48 52 44 52 36C62 44 70 56 66 68C64 78 58 82 50 82Z', '#f08a2c') + P('M50 82C42 82 40 72 45 66C47 70 50 68 51 60C57 66 60 72 58 77C56 80 54 82 50 82Z', '#f9c846') + P('M50 82C46 82 45 77 48 74C49 76 51 75 51 72C54 75 55 78 54 80C53 81 52 82 50 82Z', '#fff3bf')}</g>`,
+  pond: () => E(50, 80, 46, 14, '#8fbf62') + E(50, 79, 42, 12, '#5aa9cf') + E(50, 78, 38, 10, '#7fc4dc') + E(44, 76, 22, 5, '#a5dbea', ' opacity=".7"') + L('M30 78q5 -2 10 0M56 82q5 -2 10 0', '#e3f5fa', 1.1)
+    + E(12, 78, 6, 4, STONE) + E(86, 82, 5, 3.4, tone(STONE, -0.1)) + E(22, 88, 4, 2.6, STONE) + P('M66 76L77 75A11 3.6 0 1 0 76 78Z', '#4f9f61') + C(71, 74.6, 2, '#f6a8c6')
+    + leaf(84, 76, 20, 2.4, 8, '#6f9f4f') + leaf(88, 78, 16, 2.4, 24, '#7fae55') + L('M86 77V58', '#7a9a4c', 1.4) + E(86, 60, 2.2, 6, '#7b4b2a') + leaf(10, 76, 14, 2.2, -14, '#7fae55'),
+};
+
 /** Every species id → a function returning its drawing. */
-export const ART = { ...plants, ...animals };
+export const ART = { ...plants, ...animals, ...nature };
 
 // ——— Stages of growing ———
 
@@ -363,6 +396,7 @@ const stages = {
   seed: () => shadow(16) + mound + E(50, 85.5, 3.2, 2.4, '#d9b98a') + E(49.2, 85, 1, 0.7, '#f0dcba'),
   sprout: () => shadow(16) + mound + L('M50 87C50 80 50 76 50 71', '#4f9a54', 2) + leaf(50, 73, 11, 4.2, -52, '#69b866') + leaf(50, 73, 10, 4, 50, '#58a85c'),
   tracks: () => shadow(14) + [[40, 86, -14], [52, 80, 10], [44, 72, -12], [56, 66, 12]].map(([x, y, d]) => rot(E(x, y, 2.4, 3.2, '#8b8fab') + [-2.4, 0, 2.4].map(o => C(x + o, y - 4.2, 1, '#8b8fab')).join(''), d, x, y)).join(''),
+  patch: () => shadow(20) + E(50, 88, 24, 6.5, '#8a6245') + E(50, 87, 18, 4.2, '#a47a57') + P('M62 88V62H64V88Z', '#8a5f41') + P('M64 63L76 66.5L64 70Z', '#f6b73c') + E(40, 86, 4, 2, '#8f7a66') + E(48, 89, 3, 1.6, '#75624f'),
   bush: () => shadow(24) + canopy([[36, 76, 13], [64, 76, 13], [50, 66, 16], [50, 80, 12]], '#58a85c') + E(50, 70, 11, 6.5, '#2f5a3a') + eye(45, 70, 2.3) + eye(55, 70, 2.3),
 };
 
@@ -371,10 +405,11 @@ export function stageAt(fraction) {
   return fraction >= 0.85 ? 3 : fraction >= 0.45 ? 2 : fraction >= 0.15 ? 1 : 0;
 }
 
-/** The inside of the SVG for a species at a stage. */
+/** The inside of the SVG for a species at a stage. Nature starts as a marked patch of earth. */
 export function drawing(id, { kind = 'plant', stage = 3, withered = false } = {}) {
   const art = ART[id];
   if (!art) return stages.seed();
+  if (kind === 'nature') return withered || stage <= 1 ? stages.patch() : stage === 2 ? G(art(), 'translate(50 90) scale(.62) translate(-50 -90)') : art();
   if (withered) {
     if (kind === 'animal') return stages.tracks();
     return `<g filter="url(#hv-wither)">${G(art(), 'rotate(-7 50 90)')}</g>`;

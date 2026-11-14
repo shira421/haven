@@ -1,5 +1,7 @@
 // Every plant and animal that can live in a haven. Art for each id is in art.js.
+// kind: plant, animal, or nature (things built into the land: a pond, a log, a campfire).
 // price: coins to unlock (0 = yours from the start).
+// minMinutes: the shortest session that makes it. Nature takes real work.
 // goal: a way to earn it without coins. season: months (1-12) when it is free to grow.
 
 export const HABITATS = {
@@ -10,10 +12,12 @@ export const HABITATS = {
   tropics: 'Tropics',
   frost: 'Frost',
   home: 'Home',
+  landscape: 'Landscape',
 };
 
 const plant = (id, name, habitat, price, blurb, extra = {}) => ({ id, kind: 'plant', name, habitat, price, blurb, ...extra });
 const animal = (id, name, habitat, price, blurb, extra = {}) => ({ id, kind: 'animal', name, habitat, price, blurb, ...extra });
+const nature = (id, name, price, minMinutes, blurb) => ({ id, kind: 'nature', name, habitat: 'landscape', price, minMinutes, blurb });
 
 export const SPECIES = [
   // Plants
@@ -73,6 +77,18 @@ export const SPECIES = [
   animal('capybara', 'Capybara', 'pond', 1300, 'Gets along with nearly every other animal.', { goal: { type: 'friends', n: 3 } }),
   animal('bear', 'Bear', 'woodland', 1400, 'Sleeps through winter and wakes up hungry.', { goal: { type: 'streak', n: 7 } }),
   animal('panda', 'Panda', 'tropics', 2500, 'Eats bamboo for most of its waking hours.', { goal: { type: 'hours', n: 50 } }),
+
+  // Nature
+  nature('tallgrass', 'Tall grass', 60, 10, 'Somewhere small things can hide.'),
+  nature('stump', 'Tree stump', 120, 15, 'A seat, a table and a lookout.'),
+  nature('boulder', 'Boulder', 200, 25, 'Warm in the sun, and good for basking on.'),
+  nature('log', 'Mossy log', 260, 25, 'Hollow inside, and home to many.'),
+  nature('burrow', 'Burrow', 300, 30, 'A dry bed underground.'),
+  nature('birdhouse', 'Bird house', 380, 40, 'A perch and a roof for anything with wings.'),
+  nature('beehive', 'Beehive', 450, 45, 'Where the bees bring what they find.'),
+  nature('lantern', 'Stone lantern', 520, 45, 'Lights itself when evening comes.'),
+  nature('campfire', 'Campfire', 600, 50, 'Animals gather round it after dark.'),
+  nature('pond', 'Pond', 800, 60, 'Water to drink, and to swim in.'),
 ];
 
 const BY_ID = new Map(SPECIES.map(s => [s.id, s]));
@@ -80,6 +96,9 @@ export const speciesById = id => BY_ID.get(id) || null;
 export const STARTERS = SPECIES.filter(s => s.price === 0).map(s => s.id);
 export const PLANTS = SPECIES.filter(s => s.kind === 'plant');
 export const ANIMALS = SPECIES.filter(s => s.kind === 'animal');
+export const NATURE = SPECIES.filter(s => s.kind === 'nature');
+export const KINDS = [['plant', 'Plants', PLANTS], ['animal', 'Animals', ANIMALS], ['nature', 'Nature', NATURE]];
+export const ofKind = kind => (KINDS.find(k => k[0] === kind) || KINDS[0])[2];
 
 /** True when the species is free to grow this month. */
 export function inSeason(species, month) {

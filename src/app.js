@@ -18,8 +18,9 @@ import * as settings from './views/settings.js';
 /* global __HAVEN_API__, __HAVEN_VERSION__ */
 const VERSION = typeof __HAVEN_VERSION__ === 'string' ? __HAVEN_VERSION__ : 'dev';
 const BUILD_API = typeof __HAVEN_API__ === 'string' ? __HAVEN_API__ : '';
-const PAGES = { focus, haven, collection, friends, journal };
-const TABS = [['focus', 'Focus'], ['haven', 'Haven'], ['collection', 'Collection'], ['friends', 'Friends'], ['journal', 'Journal']];
+// The home screen is the haven itself, with the focus controls under it.
+const PAGES = { focus, collection, friends, journal };
+const TABS = [['focus', 'Haven', 'haven'], ['collection', 'Collection', 'collection'], ['friends', 'Friends', 'friends'], ['journal', 'Journal', 'journal']];
 const views = [focus, haven, collection, friends, journal, settings];
 const merge = key => Object.assign({}, ...views.map(v => v[key] || {}));
 const actions = merge('actions'), forms = merge('forms'), inputs = merge('inputs'), changes = merge('changes');
@@ -46,8 +47,8 @@ function safeStorage() {
 function shell() {
   document.getElementById('app').innerHTML = `<svg width="0" height="0" class="defs" aria-hidden="true"><defs>${WITHER_FILTER}</defs></svg>
 <a class="skip" href="#view">Skip to content</a>
-<header class="topbar"><button class="brand" data-action="go" data-page="focus" aria-label="Haven, go to Focus"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="13" r="7" fill="var(--sun)"/><path d="M3 22c5-5 9-5 13-1 4-4 8-4 13 1v5a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3Z" fill="var(--leaf)"/></svg><span>Haven</span></button>
-<nav class="tabs" aria-label="Screens">${TABS.map(([id, label]) => `<button data-action="go" data-page="${id}">${icon(id)}<span>${label}</span></button>`).join('')}</nav>
+<header class="topbar"><button class="brand" data-action="go" data-page="focus" aria-label="Haven, go to your haven"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="13" r="7" fill="var(--sun)"/><path d="M3 22c5-5 9-5 13-1 4-4 8-4 13 1v5a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3Z" fill="var(--leaf)"/></svg><span>Haven</span></button>
+<nav class="tabs" aria-label="Screens">${TABS.map(([id, label, glyph]) => `<button data-action="go" data-page="${id}">${icon(glyph)}<span>${label}</span></button>`).join('')}</nav>
 <div class="top-actions"><button class="coins" data-action="go" data-page="collection">${icon('coin')}<b id="coins">0</b><span class="sr-only"> coins. Open the collection</span></button>
 <button class="iconbutton" data-action="settings" aria-label="Settings">${icon('settings')}</button></div></header>
 <main id="view" tabindex="-1"></main>
@@ -66,12 +67,14 @@ function render() {
   $('#coins').textContent = store.state.coins;
   document.body.classList.toggle('in-session', Boolean(store.state.active || store.state.cycle?.breakUntil));
   document.body.dataset.page = app.ui.page;
+  page.mounted?.(app);
 }
 
 function go(page) {
+  if (page === 'haven') page = 'focus';
   if (!PAGES[page]) return;
   if (dialogOpen()) closeDialog();
-  if (page !== 'haven') app.ui.edit = { on: false, picked: null, item: null };
+  if (page !== 'focus' || app.ui.page !== 'focus') app.ui.edit = { on: false, picked: null, item: null };
   const changed = app.ui.page !== page;
   app.ui.page = page;
   render();
@@ -130,6 +133,7 @@ function wire() {
 function listen() {
   store.subscribe(what => {
     if (what === 'away') return;
+    if (what === 'care') { app.social.scheduleBackup(); if (app.ui.page === 'focus') render(); else $('#coins').textContent = store.state.coins; return; }
     if (what === 'haven' || what === 'session' || what === 'collection' || what === 'sessions' || what === 'state') { app.social.pushCard(); if (what !== 'haven') app.social.scheduleBackup(); }
     if (what === 'state') applyTheme();
     if (store.saveError && !listen.warned) { listen.warned = true; toast('This phone is not letting Haven save. Free some space, or your progress may be lost.'); }
@@ -139,11 +143,11 @@ function listen() {
   app.timer.on((type, payload) => {
     if (type === 'tick') return focus.tick(app, payload);
     if (type === 'break-tick') return focus.tickBreak(app, payload);
-    if (type === 'started') { if (dialogOpen()) closeDialog(); if (app.ui.page !== 'focus') go('focus'); else render(); return; }
+    if (type === 'started') { if (dialogOpen()) closeDialog(); app.ui.edit = { on: false, picked: null, item: null }; if (app.ui.page !== 'focus') go('focus'); else render(); return; }
     if (type === 'finished') { render(); focus.resultDialog(app, payload); if (document.visibilityState === 'hidden') notifyDone(payload); return; }
     if (type === 'failed') { render(); focus.failedDialog(app, payload); return; }
     if (type === 'cancelled') { render(); toast('Session cancelled.'); return; }
-    if (type === 'short') { render(); toast(`Under 10 min, so nothing grew this time. You focused for ${payload.minutes} min.`); return; }
+    if (type === 'short') { render(); toast(`Under ${payload.least} min, so nothing grew this time. You focused for ${payload.minutes} min.`); return; }
     if (type === 'break-over') { render(); toast('Break over. Start the next round when you are ready.'); return; }
     if (type === 'cycle-done') { render(); toast('Pomodoro run finished.'); }
   });
@@ -176,7 +180,7 @@ function inbox(item) {
   }
   if (item.kind === 'gift') {
     const got = store.receiveGift(item.data.species, from, item.id), sp = speciesById(item.data.species);
-    if (got && sp) toast(`${from} sent you a ${sp.name.toLowerCase()}. It is in your haven.`);
+    if (got && sp) toast(`${from} sent you a ${sp.name.toLowerCase()}. ${store.state.haven.spots[got.id] ? 'It is in your haven.' : 'It is in storage.'}`);
   } else if (item.kind === 'cheer') toast(`${from} cheered you on.`);
   else if (item.kind === 'nudge') toast(`${from} is nudging you to focus.`);
   if (store.state.settings.haptics) device.haptic('light');
@@ -202,6 +206,7 @@ async function boot() {
   app.social = new Social({ store, storage, base: null });
   app.timer = new Timer({ store, social: app.social, sound });
   wire();
+  haven.wire(app);
   listen();
   const add = /[#&]add=([A-Za-z0-9-]{8,9})/.exec(location.hash);
   if (add) { app.ui.pendingAdd = add[1]; app.ui.page = 'friends'; history.replaceState(null, '', location.pathname + location.search); }

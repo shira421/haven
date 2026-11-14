@@ -1,6 +1,7 @@
 name: CI
 
-# Pull requests: the rules, the friends server on the real Workers runtime, and the app in a browser.
+# Pull requests: the rules, the friends server on the real Workers runtime, the app in a browser,
+# and both phone apps built (the iOS app is also started in a simulator).
 on:
   pull_request:
 
@@ -19,6 +20,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: dist
+          retention-days: 3
       - name: Browser test (two people, headless Chrome, the real friends server run locally)
         run: npm run test:browser
       - uses: actions/upload-artifact@v4
@@ -49,3 +55,77 @@ jobs:
       - name: Build Android APK
         working-directory: android
         run: gradle :app:assembleDebug
+
+  ios:
+    needs: test
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: dist
+      - name: Boot an iPhone simulator early (warm by the time the app is built)
+        run: |
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c "import json,sys;d=json.load(sys.stdin)['devices'];print(next(x['udid'] for r,l in sorted(d.items(),reverse=True) if 'iOS' in r for x in l if x['name'].startswith('iPhone')))")
+          echo "SIM_DEVICE=$DEVICE" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEVICE" || true
+      - name: Generate the Xcode project
+        run: |
+          rm -rf ios/web && cp -R dist ios/web
+          brew install xcodegen
+          cd ios && xcodegen generate
+          xcodebuild -version
+      - name: Build unsigned iPhone app (for AltStore / SideStore / Sideloadly)
+        run: |
+          set -o pipefail
+          cd ios
+          xcodebuild -project Haven.xcodeproj -scheme Haven -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build | tail -40
+          rm -rf Payload && mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/Haven.app Payload/
+          zip -qry ../Haven-iOS-unsigned.ipa Payload
+          ls -la ../Haven-iOS-unsigned.ipa
+      - name: Simulator smoke test (app launches, web app loads, the device bridge is there, nothing throws)
+        run: |
+          set -o pipefail
+          cd ios
+          xcodebuild -project Haven.xcodeproj -scheme Haven -configuration Release \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath simbuild \
+            CODE_SIGNING_ALLOWED=NO build | tail -5
+          DEVICE="$SIM_DEVICE"
+          xcrun simctl bootstatus "$DEVICE" -b | tail -2
+          xcrun simctl install "$DEVICE" simbuild/Build/Products/Release-iphonesimulator/Haven.app
+          for i in $(seq 1 30); do xcrun simctl get_app_container "$DEVICE" com.shira421.haven >/dev/null 2>&1 && break; sleep 1; done
+          # A launch sent before the Home Screen has registered a new install can be dropped.
+          sleep 5
+          for attempt in 1 2 3; do
+            xcrun simctl launch --console-pty --terminate-running-process "$DEVICE" com.shira421.haven -HavenSelfTest > ../selftest.log 2>&1 &
+            for i in $(seq 1 40); do grep -q 'HAVEN_EVENT page loaded' ../selftest.log && break; sleep 1; done
+            if grep -q 'HAVEN_EVENT page loaded' ../selftest.log; then echo "App up on attempt $attempt"; break; fi
+            echo "::warning::Launch attempt $attempt: the app did not come to the front within 40 s, launching again"
+            xcrun simctl terminate "$DEVICE" com.shira421.haven || true
+            sleep 3
+          done
+          sleep 25
+          xcrun simctl io "$DEVICE" screenshot ../ios-simulator.png || true
+          xcrun simctl terminate "$DEVICE" com.shira421.haven || true
+          cat ../selftest.log
+          grep -q 'HAVEN_SELFTEST.*"loaded":true' ../selftest.log
+          grep -q 'HAVEN_SELFTEST.*"bridge":true' ../selftest.log
+          grep -q 'HAVEN_SELFTEST t=20.*"errors":\[\]' ../selftest.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pr-ios-app
+          path: |
+            Haven-iOS-unsigned.ipa
+            ios-simulator.png
+            selftest.log
+          if-no-files-found: warn
+          retention-days: 7

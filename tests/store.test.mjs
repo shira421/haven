@@ -30,8 +30,10 @@ test('finishing a session gives coins, a plant in the haven, and achievements', 
   assert.equal(r.coins, 60);
   assert.equal(r.item.s, 'clover');
   assert.equal(r.item.z, 2);
-  assert.match(r.placedAt, /^\d,\d$/);
-  assert.equal(store.state.haven.tiles[r.placedAt], r.item.id);
+  assert.equal(r.treats, 2);
+  assert.equal(store.state.food, 5, 'three to start with, two earned');
+  assert.deepEqual(store.state.haven.spots[r.item.id], r.placedAt);
+  assert.ok(r.placedAt.every(n => n >= 0.4 && n <= 4.6), 'it stands on the land');
   assert.deepEqual(r.achievements.map(a => a.id), ['first']);
   assert.equal(store.state.coins, 60 + 50);
   assert.equal(store.state.active, null);
@@ -128,38 +130,124 @@ test('unlocking: with coins, in season, by goal, and never twice', () => {
   assert.equal(store.unlock('nothing').ok, false);
 });
 
-test('placing, moving, swapping and storing', () => {
+test('things stand anywhere on the land, can be moved, stored and let go', () => {
   const { store, clock } = make();
   store.set({ autoPlace: false });
   const a = run(store, clock, 25).item, b = run(store, clock, 25).item;
-  assert.equal(a.z, 2);
   assert.equal(store.stored().length, 2);
-  assert.equal(store.place(a.id, 0, 0).ok, true);
-  assert.equal(store.place(b.id, 9, 9).ok, false, 'outside the land');
+  assert.deepEqual(store.place(a.id, 1.234, 3.777).at, [1.23, 3.78]);
+  assert.deepEqual(store.place(a.id, -4, 99).at, [0.4, 4.6], 'a point off the land is pulled back onto it');
   assert.equal(store.place('nope', 1, 1).ok, false);
+  assert.equal(store.place(b.id, NaN, 1).ok, false);
   assert.equal(store.place(b.id, 1, 1).ok, true);
-  assert.equal(store.place(a.id, 1, 1).ok, true, 'moving onto a taken tile swaps');
-  assert.equal(store.state.haven.tiles['1,1'], a.id);
-  assert.equal(store.state.haven.tiles['0,0'], b.id);
-  const c = run(store, clock, 25).item;
-  const swap = store.place(c.id, 1, 1);
-  assert.equal(swap.displaced, a.id, 'a stored item takes the tile and the old one goes to storage');
+  assert.equal(store.stored().length, 0);
+  assert.equal(store.unplace(a.id).ok, true);
+  assert.equal(store.unplace(a.id).ok, false);
   assert.deepEqual(store.stored().map(i => i.id), [a.id]);
-  assert.equal(store.unplace(0, 0).ok, true);
-  assert.equal(store.unplace(0, 0).ok, false);
-  store.release(c.id);
-  assert.equal(store.state.haven.tiles['1,1'], undefined);
-  assert.equal(store.item(c.id), null);
+  store.release(b.id);
+  assert.equal(store.state.haven.spots[b.id], undefined);
+  assert.equal(store.item(b.id), null);
 });
 
-test('a full haven keeps new plants in storage', () => {
+test('a session grows where it was planted, and a full land keeps new arrivals in storage', () => {
   const { store, clock } = make();
-  for (let i = 0; i < 25; i++) store.state.items.push({ id: 'x' + i, s: 'clover', z: 1, at: T0 });
-  for (let i = 0; i < 25; i++) assert.ok(store.placeAnywhere('x' + i));
-  assert.equal(store.freeTiles().length, 0);
-  const r = run(store, clock, 10);
-  assert.equal(r.placedAt, null);
+  const started = store.begin({ minutes: 25, species: 'clover', tag: 'study' }).active;
+  assert.equal(started.spot.length, 2);
+  clock.t += 25 * 60000;
+  const r = store.finish();
+  assert.deepEqual(r.placedAt, started.spot);
+  for (let i = 0; i < 24; i++) { store.state.items.push({ id: 'x' + i, s: 'clover', z: 1, at: T0 }); assert.ok(store.placeAnywhere('x' + i)); }
+  assert.equal(store.room(), 0);
+  assert.equal(store.capacity(), 25);
+  assert.equal(store.begin({ minutes: 10, species: 'clover', tag: 'study' }).active.spot, undefined);
+  clock.t += 10 * 60000;
+  const full = store.finish();
+  assert.equal(full.placedAt, null);
   assert.equal(store.stored().length, 1);
+  assert.match(store.place(full.item.id, 2, 2).error, /Your land is full\. It holds 25 things/);
+  assert.equal(store.place('x3', 2, 2).ok, true, 'something already standing can still be moved');
+});
+
+test('new spots keep their distance from what is already there', () => {
+  const { store } = make();
+  for (let i = 0; i < 10; i++) { store.state.items.push({ id: 'x' + i, s: 'clover', z: 1, at: T0 }); store.placeAnywhere('x' + i); }
+  const spots = Object.values(store.state.haven.spots);
+  let closest = 99;
+  for (let i = 0; i < spots.length; i++) for (let j = 0; j < i; j++) closest = Math.min(closest, Math.hypot(spots[i][0] - spots[j][0], spots[i][1] - spots[j][1]));
+  assert.ok(closest > 0.5, `nothing is planted on top of anything else (closest ${closest.toFixed(2)})`);
+  assert.deepEqual(store.suggestSpot('same'), store.suggestSpot('same'), 'the same seed gives the same spot');
+});
+
+test('nature items need a long enough session', () => {
+  const { store, clock } = make();
+  store.state.unlocked.push('pond');
+  assert.match(store.begin({ minutes: 25, species: 'pond', tag: 'study' }).error, /Pond takes at least 60 min/);
+  assert.equal(store.begin({ minutes: 60, species: 'pond', tag: 'study' }).ok, true);
+  clock.t += 60 * 60000;
+  assert.equal(store.finish().item.s, 'pond');
+  store.begin({ minutes: 0, species: 'pond', tag: 'study', mode: 'stopwatch' });
+  clock.t += 40 * 60000;
+  const short = store.finish();
+  assert.equal(short.short, true);
+  assert.equal(short.least, 60);
+});
+
+test('feeding: treats, hunger, bond levels and their rewards', () => {
+  const { store, clock } = make();
+  const rabbit = run(store, clock, 25, { species: 'rabbit' }).item;
+  assert.equal(rabbit.bond, 0);
+  assert.equal(rabbit.fed, rabbit.at, 'animals arrive fed');
+  assert.match(store.feed(rabbit.id).error, /It is full/);
+  assert.match(store.feed('nope').error, /Only animals eat/);
+  assert.deepEqual(store.hungry(), []);
+  clock.t += 7 * 3600000;
+  assert.equal(store.hungry().length, 1);
+  const food = store.state.food, coins = store.state.coins;
+  const r = store.feed(rabbit.id);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.achievements.map(a => a.id), ['feed1']);
+  assert.equal(store.state.food, food - 1);
+  assert.equal(store.item(rabbit.id).bond, 4);
+  assert.equal(store.state.coins, coins + 50);
+  for (let i = 0; i < 3; i++) { clock.t += 21 * 3600000; store.state.food = 5; store.feed(rabbit.id); }
+  assert.equal(store.item(rabbit.id).bond, 22, 'a hungry animal bonds a little more when fed');
+  clock.t += 21 * 3600000;
+  store.item(rabbit.id).bond = 18;
+  const up = store.feed(rabbit.id);
+  assert.deepEqual(up.bond, { level: 1, coins: 40 });
+  store.state.food = 0;
+  clock.t += 21 * 3600000;
+  assert.match(store.feed(rabbit.id).error, /no treats/);
+});
+
+test('feeding everyone goes hungriest first and stops when treats run out', () => {
+  const { store, clock } = make();
+  const a = run(store, clock, 10, { species: 'rabbit' }).item;
+  clock.t += 3600000;
+  const b = run(store, clock, 10, { species: 'rabbit' }).item;
+  clock.t += 22 * 3600000;
+  store.state.food = 1;
+  const r = store.feedAll();
+  assert.deepEqual(r.fed, [a.id]);
+  assert.equal(r.left, 1);
+  assert.equal(store.feedAll().ok, false);
+  store.state.food = 4;
+  assert.deepEqual(store.feedAll().fed, [b.id]);
+  assert.equal(store.state.food, 3);
+});
+
+test('petting counts once an hour, and animals can be named', () => {
+  const { store, clock } = make();
+  const rabbit = run(store, clock, 25, { species: 'rabbit' }).item;
+  assert.equal(store.pet(rabbit.id).counted, true);
+  assert.equal(store.pet(rabbit.id).counted, false);
+  assert.equal(store.item(rabbit.id).bond, 1);
+  clock.t += 61 * 60000;
+  assert.equal(store.pet(rabbit.id).counted, true);
+  store.rename(rabbit.id, '  Mochi   the   Brave and Long Named ');
+  assert.equal(store.nameOf(store.item(rabbit.id)), 'Mochi the Brave and');
+  store.rename(rabbit.id, '');
+  assert.equal(store.nameOf(store.item(rabbit.id)), 'Rabbit');
 });
 
 test('gifts: paying, refunding and receiving once', () => {
@@ -175,6 +263,7 @@ test('gifts: paying, refunding and receiving once', () => {
   assert.equal(store.state.coins, 160);
   const item = store.receiveGift('fox', 'Mei', 7);
   assert.equal(item.s, 'fox');
+  assert.equal(item.bond, 0, 'a gifted animal can be cared for like any other');
   assert.equal(item.from, 'Mei');
   assert.equal(store.receiveGift('fox', 'Mei', 7), null, 'the same gift is not added twice');
   assert.equal(store.receiveGift('dragon', 'Mei', 8), null);
@@ -206,11 +295,14 @@ test('settings are kept inside their limits', () => {
 
 test('broken or hostile stored data falls back safely', () => {
   assert.deepEqual(migrate('nonsense', T0).unlocked, ['clover', 'fern', 'rabbit']);
-  const s = migrate({ coins: -50, unlocked: ['dragon', 'fox'], items: [{ id: 'a', s: 'fox', z: 9 }, { id: 'b', s: 'dragon' }, 5], haven: { tiles: { '0,0': 'a', '1,1': 'a', 'x': 'a', '2,2': 'zzz' } }, sessions: [{ id: 1 }, { id: 'ok', start: T0, status: 'done', minutes: 9999, species: 'dragon' }], tags: [{ id: 'a', name: '   ' }], settings: { pomodoro: { focus: 0 } }, achieved: { first: 'x' } }, T0);
+  const s = migrate({ coins: -50, unlocked: ['dragon', 'fox'], items: [{ id: 'a', s: 'fox', z: 9, bond: 900, name: 5 }, { id: 'b', s: 'dragon' }, 5], food: -4, haven: { tiles: { '0,0': 'a', '1,1': 'a', 'x': 'a', '2,2': 'zzz' } }, sessions: [{ id: 1 }, { id: 'ok', start: T0, status: 'done', minutes: 9999, species: 'dragon' }], tags: [{ id: 'a', name: '   ' }], settings: { pomodoro: { focus: 0 } }, achieved: { first: 'x' } }, T0);
   assert.equal(s.coins, 0);
   assert.deepEqual(s.unlocked, ['clover', 'fern', 'rabbit', 'fox']);
-  assert.deepEqual(s.items.map(i => [i.id, i.z]), [['a', 3]]);
-  assert.deepEqual(s.haven.tiles, { '0,0': 'a' }, 'an item stands on one tile only');
+  assert.deepEqual(s.items.map(i => [i.id, i.z, i.bond, i.name]), [['a', 3, 100, undefined]]);
+  assert.equal(s.food, 0);
+  assert.deepEqual(s.haven.spots, { a: [0.5, 0.5] }, 'a haven saved as tiles is carried over, each item once');
+  assert.deepEqual(migrate({ items: [{ id: 'a', s: 'fern' }], haven: { spots: { a: [2.5, 99], zzz: [1, 1] } } }, T0).haven.spots, {}, 'a spot off the land is dropped');
+  assert.deepEqual(migrate({ items: [{ id: 'a', s: 'fern' }], haven: { spots: { a: [2.25, 3.5] } } }, T0).haven.spots, { a: [2.25, 3.5] });
   assert.equal(s.sessions.length, 1);
   assert.equal(s.sessions[0].minutes, 180);
   assert.equal(s.sessions[0].species, 'clover');
@@ -253,5 +345,6 @@ test('what friends can see holds no private data', () => {
   assert.deepEqual(Object.keys(card).sort(), ['best', 'level', 'minutes', 'of', 'sessions', 'side', 'species', 'streak', 'tiles']);
   assert.equal(card.tiles.length, 1);
   assert.equal(card.tiles[0][2], 'clover');
+  assert.equal(card.tiles[0].length, 4);
   assert.equal(card.of, SPECIES.length);
 });

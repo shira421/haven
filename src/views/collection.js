@@ -1,7 +1,9 @@
 // The Collection screen: every plant and animal, and how to get each one.
 import { e, $, icon, segmented, openDialog, closeDialog, toast, avatar } from '../ui.js';
 import { availability, facts, goalProgress } from '../core.js';
-import { PLANTS, ANIMALS, HABITATS, speciesById, seasonText, goalText, inSeason } from '../catalog.js';
+import { KINDS, ofKind, HABITATS, speciesById, seasonText, goalText, inSeason } from '../catalog.js';
+import { pickSpecies } from './focus.js';
+import { traitsOf } from '../world.js';
 import { sprite } from '../art.js';
 
 function status(app, sp) {
@@ -13,13 +15,21 @@ function status(app, sp) {
 }
 
 export function render(app) {
-  const { store } = app, kind = app.ui.collection, list = kind === 'plant' ? PLANTS : ANIMALS;
+  const { store } = app, kind = app.ui.collection, list = ofKind(kind);
   const owned = list.filter(sp => store.state.unlocked.includes(sp.id)).length;
   const cards = list.map(sp => { const st = status(app, sp); return `<button class="species-card ${st.how}" data-action="species" data-id="${sp.id}">${sprite(sp.id, { kind: sp.kind })}<b>${e(sp.name)}</b><small>${st.how === 'owned' ? '' : st.how === 'locked' ? icon('lock') : ''}${e(st.text)}</small></button>`; }).join('');
   return `<section class="page collection" data-page="collection"><h1 class="page-title">Collection</h1>
-<p class="lead">${owned} of ${list.length} ${kind === 'plant' ? 'plants' : 'animals'} unlocked. You have ${store.state.coins} coins.</p>
-${segmented('collection-tab', [['plant', 'Plants'], ['animal', 'Animals']], kind, 'Plants or animals')}
+<p class="lead">${owned} of ${list.length} ${kind === 'plant' ? 'plants' : kind === 'animal' ? 'animals' : 'nature items'} unlocked. You have ${store.state.coins} coins.${kind === 'nature' ? ' Nature is built with longer sessions, and animals come to use it.' : ''}</p>
+${segmented('collection-tab', KINDS.map(([id, label]) => [id, label]), kind, 'Plants, animals or nature')}
 <div class="species-grid">${cards}</div></section>`;
+}
+
+/** Who likes it, or what it likes: the reason to have both. */
+function extra(sp) {
+  const names = ids => [...new Set(ids.map(id => speciesById(id)?.name).filter(Boolean))].slice(0, 4).join(', ');
+  if (sp.kind === 'animal') { const likes = names(traitsOf(sp.id).likes); return likes ? `<div><dt>Likes</dt><dd>${likes}</dd></div>` : ''; }
+  const fans = names(ofKind('animal').filter(a => traitsOf(a.id).likes.includes(sp.id)).map(a => a.id));
+  return fans ? `<div><dt>Liked by</dt><dd>${fans}</dd></div>` : '';
 }
 
 export function speciesDialog(app, id) {
@@ -33,12 +43,12 @@ export function speciesDialog(app, id) {
   }
   const short = sp.price - store.state.coins;
   const buttons = st.how === 'owned'
-    ? `<button class="secondary" data-action="gift-start" data-id="${id}" ${social.signedIn && social.data.friends.length ? '' : 'disabled'}>${icon('gift')}Send to a friend</button><button class="primary" data-action="grow-next" data-id="${id}">Grow this next</button>`
+    ? `<button class="secondary" data-action="gift-start" data-id="${id}" ${social.signedIn && social.data.friends.length ? '' : 'disabled'}>${icon('gift')}Send to a friend</button><button class="primary" data-action="grow-next" data-id="${id}">${sp.kind === 'nature' ? 'Build' : 'Grow'} this next</button>`
     : st.how === 'locked' ? `<button class="primary wide" disabled>You need ${short} more coins</button>`
     : `<button class="primary wide" data-action="unlock" data-id="${id}">${st.how === 'buy' ? `Unlock for ${sp.price} coins` : 'Unlock free'}</button>`;
   openDialog(sp.name, `<div class="result-art${st.how === 'locked' ? ' dim' : ''}">${sprite(id, { kind: sp.kind, label: sp.name })}</div>
 <p class="lead">${e(sp.blurb)}</p>
-<dl class="facts"><div><dt>Lives in</dt><dd>${HABITATS[sp.habitat]}</dd></div>${st.how === 'owned' ? `<div><dt>You have grown</dt><dd>${have}</dd></div>` : ''}</dl>
+<dl class="facts"><div><dt>${sp.kind === 'nature' ? 'Part of the' : 'Lives in'}</dt><dd>${HABITATS[sp.habitat]}</dd></div>${sp.minMinutes ? `<div><dt>Takes</dt><dd>A session of ${sp.minMinutes} min or more</dd></div>` : ''}${extra(sp)}${st.how === 'owned' ? `<div><dt>You have grown</dt><dd>${have}</dd></div>` : ''}</dl>
 ${ways.length ? `<ul class="plain">${ways.map(w => `<li>${e(w)}</li>`).join('')}</ul>` : ''}
 ${st.how === 'owned' && !(social.signedIn && social.data.friends.length) ? '<p class="note">Add a friend to send gifts.</p>' : ''}
 <div class="button-row">${buttons}</div>`);
@@ -59,7 +69,7 @@ export const actions = {
     app.announce(r.achievements, `Unlocked: ${speciesById(d.id).name}.`);
     speciesDialog(app, d.id);
   },
-  'grow-next'(app, d) { app.store.set({ species: d.id }); app.social.roomSpecies(d.id); closeDialog(); app.go('focus'); toast(`Growing next: ${speciesById(d.id).name}.`); },
+  'grow-next'(app, d) { closeDialog(); app.go('focus'); toast(`${speciesById(d.id).kind === 'nature' ? 'Building' : 'Growing'} next: ${speciesById(d.id).name}.`); pickSpecies(app, d.id); },
   'gift-start': (app, d) => giftDialog(app, d.id),
   'gift-send': async (app, d, el) => {
     const paid = app.store.payForGift(d.id);

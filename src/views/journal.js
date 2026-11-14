@@ -1,6 +1,6 @@
 // The Journal screen: what you did in a day, week, month or year, and what you have earned.
 import { e, icon, segmented, openDialog, closeDialog, empty, field, toast } from '../ui.js';
-import { period, shiftPeriod, summarise, formatMinutes, streaks, facts, ACHIEVEMENTS, doneSessions } from '../core.js';
+import { period, shiftPeriod, summarise, formatMinutes, streaks, facts, ACHIEVEMENTS, doneSessions, landSide } from '../core.js';
 import { speciesById } from '../catalog.js';
 import { sprite } from '../art.js';
 
@@ -25,11 +25,16 @@ export function render(app) {
   const tags = Object.entries(sum.byTag).sort((a, b) => b[1] - a[1]);
   const tagBars = tags.map(([id, m]) => `<li><span><i class="dot" style="background:${store.tagColour(id)}"></i>${e(store.tagName(id))}</span><span class="meter"><i style="width:${Math.round(m / sum.minutes * 100)}%;background:${store.tagColour(id)}"></i></span><b>${formatMinutes(m)}</b></li>`).join('');
   const grown = sum.grown.slice(-40).map(g => { const sp = speciesById(g.species); return `<span class="grown z${g.size}" title="${e(sp.name)}">${sprite(g.species, { kind: sp.kind })}</span>`; }).join('');
-  const sessions = [...sum.sessions].reverse().slice(0, 60).map(s => { const sp = speciesById(s.species); return `<li class="row ${s.status}"><button class="row-main pick" data-action="session" data-id="${e(s.id)}"><span class="avatar">${sprite(s.species, { kind: sp.kind, withered: s.status === 'failed' })}</span><span><b>${s.status === 'done' ? formatMinutes(s.minutes) : sp.kind === 'animal' ? 'Wandered off' : 'Withered'}${s.others ? `, with ${s.others} ${s.others === 1 ? 'friend' : 'friends'}` : ''}</b><small>${j.kind === 'day' ? '' : dayText(s.start) + ', '}${timeText(s.start)}, ${e(store.tagName(s.tag))}${s.note ? `. ${e(s.note)}` : ''}</small></span></button></li>`; }).join('');
+  const sessions = [...sum.sessions].reverse().slice(0, 60).map(s => { const sp = speciesById(s.species); return `<li class="row ${s.status}"><button class="row-main pick" data-action="session" data-id="${e(s.id)}"><span class="avatar">${sprite(s.species, { kind: sp.kind, withered: s.status === 'failed' })}</span><span><b>${s.status === 'done' ? formatMinutes(s.minutes) : sp.kind === 'animal' ? 'Wandered off' : sp.kind === 'nature' ? 'Not finished' : 'Withered'}${s.others ? `, with ${s.others} ${s.others === 1 ? 'friend' : 'friends'}` : ''}</b><small>${j.kind === 'day' ? '' : dayText(s.start) + ', '}${timeText(s.start)}, ${e(store.tagName(s.tag))}${s.note ? `. ${e(s.note)}` : ''}</small></span></button></li>`; }).join('');
   const f = facts(store.state, now);
   const earned = ACHIEVEMENTS.filter(a => store.state.achieved[a.id]).length;
   const achievements = ACHIEVEMENTS.map(a => { const got = store.state.achieved[a.id], of = !got && a.of ? a.of(f) : null; return `<li class="row ${got ? 'got' : 'todo'}"><span class="badge">${icon(got ? 'check' : 'lock')}</span><div class="row-main"><b>${e(a.name)}</b><span>${e(a.text)}${of ? `. ${Math.min(of[0], of[1])} of ${of[1]}` : ''}</span></div><div class="row-end"><span class="minutes">${got ? 'Earned' : `${a.coins} coins`}</span></div></li>`; }).join('');
+  const level = store.level(), side = store.side();
+  const levelCard = `<div class="level"><div class="level-head"><b>Level ${level.level}</b><span>${formatMinutes(level.need - level.into)} to level ${level.level + 1}</span></div>
+<div class="meter" role="progressbar" aria-label="Progress to the next level" aria-valuemin="0" aria-valuemax="${level.need}" aria-valuenow="${level.into}"><i style="width:${Math.round(level.into / level.need * 100)}%"></i></div>
+<p class="note">Your land is ${side} by ${side} and holds ${store.capacity()} things.${side < 10 ? ` It grows at level ${level.level + (level.level % 2 === 0 ? 1 : 2)}.` : ''}</p></div>`;
   return `<section class="page journal" data-page="journal"><h1 class="page-title">Journal</h1>
+${levelCard}
 ${segmented('journal-kind', KINDS, j.kind, 'Period')}
 <div class="stepper"><button class="iconbutton" data-action="journal-step" data-step="-1" aria-label="Earlier">${icon('prev')}</button><b aria-live="polite">${e(p.label)}</b><button class="iconbutton" data-action="journal-step" data-step="1" aria-label="Later" ${future ? 'disabled' : ''}>${icon('next')}</button></div>
 <dl class="facts wide"><div><dt>Focused</dt><dd>${formatMinutes(sum.minutes)}</dd></div><div><dt>Sessions</dt><dd>${sum.done} finished${sum.failed ? `, ${sum.failed} not` : ''}</dd></div>${total ? `<div><dt>Finished</dt><dd>${Math.round(sum.done / total * 100)}%</dd></div>` : ''}${sum.bestHour !== null && j.kind !== 'day' ? `<div><dt>Best hour</dt><dd>Around ${hourText(sum.bestHour)}</dd></div>` : ''}<div><dt>Streak</dt><dd>${streak.current} ${streak.current === 1 ? 'day' : 'days'} now, ${streak.best} best</dd></div></dl>

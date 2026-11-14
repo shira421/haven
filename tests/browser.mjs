@@ -43,7 +43,8 @@ const ok = name => console.log(`ok ${++step} - ${name}`);
 const tab = (page, name) => page.click(`.tabs [data-page="${name}"]`);
 /** Wait until the toast says something that matches. */
 const toastSays = (page, pattern) => page.waitForFunction(source => new RegExp(source).test(document.querySelector('#toast.visible')?.textContent || ''), pattern.source, { timeout: 8000 });
-const shot = (page, name) => (MEDIA ? page.screenshot({ path: `${shots}${name}.png` }) : Promise.resolve());
+const KEEP = ['session', 'friends', 'room', 'journal'];
+const shot = (page, name) => (MEDIA && KEEP.includes(name) ? page.screenshot({ path: `${shots}${name}.png` }) : Promise.resolve());
 async function noOverflow(page, where) {
   const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.ok(wide <= 1, `${where}: the page scrolls sideways by ${wide}px`);
@@ -62,9 +63,11 @@ try {
   // ——— One person, no network needed ———
   assert.equal(await ana.title(), 'Haven');
   assert.equal(await ana.locator('.clock').textContent(), '25:00');
-  await noOverflow(ana, 'Focus');
+  await noOverflow(ana, 'Haven');
+  assert.equal(await ana.locator('.tabs button').count(), 4);
+  assert.equal(await ana.locator('.world .land').count(), 1, 'the land is there before anything grows');
   await shot(ana, 'focus');
-  ok('the app opens on Focus with a 25 min timer');
+  ok('the app opens on the haven with a 25 min timer');
 
   await ana.click('[data-action="choose-length"].chooser');
   await ana.click('.chip[data-value="45"]');
@@ -85,49 +88,108 @@ try {
   assert.match(await ana.locator('[data-action="give-up"]').textContent(), /Cancel \(\d+\)/);
   await forward(12 * 60000, ana, ben);
   assert.equal(await ana.locator('.clock').textContent(), '13:00');
-  assert.equal(await ana.locator('.plot').getAttribute('data-stage'), '2');
+  assert.equal(await ana.locator('.ent.sprouting').getAttribute('data-stage'), '2', 'the fern is growing where it was planted');
   await shot(ana, 'session');
   await forward(13 * 60000, ana, ben);
   await ana.waitForSelector('#dialog[open]');
   assert.equal(await ana.locator('#dialog-title').textContent(), 'Session finished');
   assert.match(await ana.locator('#dialog .lead').textContent(), /25 min focused. The fern is fully grown. It is in your haven\./);
-  assert.match(await ana.locator('#dialog .facts').textContent(), /Coins\+60/);
+  assert.match(await ana.locator('#dialog .facts').textContent(), /Coins\+60Treats\+2/);
   assert.match(await ana.locator('#dialog .facts').textContent(), /First session\+50 coins/);
   await shot(ana, 'finished');
   await ana.click('#dialog [data-action="close-dialog"]');
   assert.equal(await ana.locator('#coins').textContent(), '110');
   ok('a full session grows the plant, pays coins and records the achievement');
 
-  await tab(ana, 'haven');
-  assert.equal(await ana.locator('.island .thing').count(), 1);
-  assert.match(await ana.locator('.page.haven .lead').textContent(), /1 plant and 0 animals live here\./);
+  // ——— A living haven ———
+  assert.equal(await ana.locator('.world .ent[data-ent]').count(), 1);
+  const fern = await ana.evaluate(() => Object.keys(window.__haven.app.store.state.haven.spots)[0]);
+  const spotOf = id => ana.evaluate(i => window.__haven.app.store.state.haven.spots[i], id);
+  const planted = await spotOf(fern);
   await ana.click('[data-action="arrange"]');
-  const from = await ana.evaluate(() => Object.keys(window.__haven.app.store.state.haven.tiles)[0]);
-  const [fr, fc] = from.split(',');
-  await ana.locator(`.tile[data-r="${fr}"][data-c="${fc}"]`).dispatchEvent('click');
-  const target = from === '0,0' ? ['4', '4'] : ['0', '0'];
-  await ana.locator(`.tile[data-r="${target[0]}"][data-c="${target[1]}"]`).dispatchEvent('click');
-  assert.deepEqual(await ana.evaluate(() => Object.keys(window.__haven.app.store.state.haven.tiles)), [target.join(',')]);
-  await ana.click('.edit-bar [data-action="arrange"]');
-  await noOverflow(ana, 'Haven');
-  ok('the plant stands in the haven and can be moved');
+  const box = await ana.locator(`.ent[data-ent="${fern}"]`).boundingBox(), land = await ana.locator('.world').boundingBox();
+  await ana.mouse.move(box.x + box.width / 2, box.y + box.height * 0.8);
+  await ana.mouse.down();
+  await ana.mouse.move(land.x + land.width * 0.5, land.y + land.height * 0.55, { steps: 6 });
+  await ana.mouse.up();
+  const after = await spotOf(fern);
+  assert.notDeepEqual(after, planted, 'dragging moved the fern');
+  assert.ok(after.every(n => n >= 0.4 && n <= 4.6), 'and it is still on the land');
+  await ana.click('.panel [data-action="arrange"]');
+  await noOverflow(ana, 'Arranging');
+  ok('the plant stands where it grew and can be dragged anywhere on the land');
+
+  await ana.click('[data-action="choose-species"]');
+  await ana.click('.segmented [data-value="animal"]');
+  await ana.click('.species-card[data-id="rabbit"]');
+  await ana.click('[data-action="start"]');
+  await ana.waitForSelector('.page.focus.running');
+  await forward(25 * 60000, ana, ben);
+  await ana.waitForSelector('#dialog[open]');
+  assert.match(await ana.locator('#dialog .lead').textContent(), /A rabbit has moved in/);
+  await ana.click('#dialog [data-action="close-dialog"]');
+  const rabbit = await ana.evaluate(() => window.__haven.app.store.state.items.find(i => i.s === 'rabbit').id);
+  const where = () => ana.locator(`.ent[data-ent="${rabbit}"]`).evaluate(el => el.style.left + ' ' + el.style.top);
+  const start = await where();
+  let roamed = false;
+  for (let i = 0; i < 12 && !roamed; i++) { await ana.clock.runFor(2500); roamed = (await where()) !== start; }
+  assert.ok(roamed, 'the rabbit left the spot it arrived at');
+  await shot(ana, 'haven');
+  ok('an animal moves in and roams the haven');
+
+  // Seven hours later the rabbit is peckish.
+  await ana.evaluate(id => { const s = window.__haven.app.store; s.item(id).fed -= 7 * 3600000; s.commit('care'); }, rabbit);
+  await ana.locator(`.ent[data-ent="${rabbit}"]`).dispatchEvent('click');
+  await ana.waitForSelector('#dialog [data-action="feed"]');
+  assert.match(await ana.locator('#dialog .lead').textContent(), /Peckish\. Likes burrow, clover, tall grass and daisy\./);
+  const coinsThen = Number(await ana.locator('#coins').textContent());
+  await ana.click('#dialog [data-action="feed"]');
+  await toastSays(ana, /Rabbit ate\. Earned: First meal\. \+50 coins\./);
+  assert.equal(Number(await ana.locator('#coins').textContent()), coinsThen + 50);
+  assert.match(await ana.locator('#dialog .facts').textContent(), /HungerFull/);
+  assert.equal(await ana.locator('#dialog [data-action="feed"]').count(), 0, 'a full animal is not offered food');
+  await ana.click('#dialog [data-action="pet"]');
+  await toastSays(ana, /Rabbit liked that/);
+  await ana.fill('#dialog form[data-form="rename"] input', 'Mochi');
+  await ana.click('#dialog form[data-form="rename"] button');
+  assert.equal(await ana.locator('#dialog-title').textContent(), 'Mochi');
+  await shot(ana, 'care');
+  await ana.keyboard.press('Escape');
+  assert.equal(await ana.locator(`.ent[data-ent="${rabbit}"]`).getAttribute('aria-label'), 'Mochi');
+  assert.deepEqual(await ana.evaluate(id => { const i = window.__haven.app.store.item(id); return [i.bond, window.__haven.app.store.state.food]; }, rabbit), [5, 6]);
+  ok('an animal can be fed, petted and named, and its bond grows');
 
   await tab(ana, 'collection');
   await ana.click('.species-card[data-id="daisy"]');
+  const purse = Number(await ana.locator('#coins').textContent());
   await ana.click('#dialog [data-action="unlock"]');
   await toastSays(ana, /Unlocked: Daisy/);
-  assert.equal(await ana.locator('#coins').textContent(), '30');
+  assert.equal(Number(await ana.locator('#coins').textContent()), purse - 80);
   await ana.keyboard.press('Escape');
   await ana.click('.species-card[data-id="pumpkin"]');
   assert.match(await ana.locator('#dialog .plain').textContent(), /Free from October to November\. That is now\./);
   await ana.click('#dialog [data-action="unlock"]');
   await ana.keyboard.press('Escape');
-  assert.equal(await ana.locator('#coins').textContent(), '30', 'a seasonal unlock is free');
+  assert.equal(Number(await ana.locator('#coins').textContent()), purse - 80, 'a seasonal unlock is free');
   await ana.click('.segmented [data-value="animal"]');
   assert.equal(await ana.locator('.species-card').count(), 27);
+  await ana.click('.segmented [data-value="nature"]');
+  assert.equal(await ana.locator('.species-card').count(), 10);
+  await ana.click('.species-card[data-id="tallgrass"]');
+  assert.match(await ana.locator('#dialog .facts').textContent(), /TakesA session of 10 min or more/);
+  assert.match(await ana.locator('#dialog .facts').textContent(), /Liked byRabbit, Snail, Ladybird, Hedgehog/);
+  await ana.click('#dialog [data-action="unlock"]');
+  await ana.click('#dialog [data-action="grow-next"]');
+  await toastSays(ana, /Building next: Tall grass/);
+  assert.match(await ana.locator('.chooser[data-action="choose-species"]').textContent(), /BuildingTall grass/);
+  await ana.click('[data-action="choose-species"]');
+  await ana.click('.segmented [data-value="plant"]');
+  await ana.click('.species-card[data-id="fern"]');
+  await tab(ana, 'collection');
+  await ana.click('.segmented [data-value="animal"]');
   await noOverflow(ana, 'Collection');
   await shot(ana, 'collection');
-  ok('species unlock with coins and free in season');
+  ok('plants, animals and nature unlock with coins, and free in season');
 
   // Leaving Haven in deep focus withers the plant.
   await tab(ana, 'focus');
@@ -218,8 +280,8 @@ try {
   await ana.click('.segmented [data-value="board"]');
   await ana.click('.segmented [data-value="today"]');
   await ana.waitForSelector('ol.rows .row');
-  // Ana's first session was finished before she had a profile; it was sent to the server afterwards.
-  assert.equal(await ana.locator('ol.rows').textContent(), '1You2 sessions50 min2Ben2 sessions50 min');
+  // Ana's first two sessions were finished before she had a profile; they were sent to the server afterwards.
+  assert.equal(await ana.locator('ol.rows').textContent(), '1You3 sessions1 h 15 min2Ben2 sessions50 min');
   await ana.click('.page.friends .segmented [data-value="activity"]');
   await ana.waitForSelector('.page.friends ul.rows .row');
   assert.match(await ana.locator('.page.friends ul.rows').textContent(), /with friends, grew a/);
@@ -229,8 +291,8 @@ try {
   await ben.waitForTimeout(400);
   await ana.click('.page.friends .segmented [data-value="friends"]');
   await ana.click('.row.friend [data-action="friend"]');
-  await ana.waitForSelector('#dialog .island');
-  assert.equal(await ana.locator('#dialog .island .thing').count(), 2, "Ben's two plants show in his haven");
+  await ana.waitForSelector('#dialog .world');
+  assert.equal(await ana.locator('#dialog .world .ent').count(), 2, "Ben's two plants show in his haven");
   await shot(ana, 'friend-haven');
   await ana.click('#dialog [data-action="gift-pick"]');
   const before = Number(await ana.locator('#coins').textContent());
@@ -265,8 +327,9 @@ try {
 
   // ——— The rest of the app ———
   await tab(ana, 'journal');
-  assert.match(await ana.locator('.page.journal .facts').textContent(), /Focused50 min/);
-  assert.match(await ana.locator('.page.journal .facts').textContent(), /2 finished, 2 not/);
+  assert.match(await ana.locator('.page.journal .facts').textContent(), /Focused1 h 15 min/);
+  assert.match(await ana.locator('.page.journal .facts').textContent(), /3 finished, 2 not/);
+  assert.match(await ana.locator('.page.journal .level').textContent(), /Level 2/);
   assert.equal(await ana.locator('.chart rect').count(), 7);
   await noOverflow(ana, 'Journal');
   await shot(ana, 'journal');
@@ -301,9 +364,9 @@ try {
   await ana.waitForSelector('.page.focus');
   assert.ok(Number(await ana.locator('#coins').textContent()) > 0, 'coins are kept across a reload');
   await ana.setViewportSize({ width: 360, height: 640 });
-  for (const p of ['focus', 'haven', 'collection', 'friends', 'journal']) { await tab(ana, p); await noOverflow(ana, `${p} at 360px`); }
+  for (const p of ['focus', 'collection', 'friends', 'journal']) { await tab(ana, p); await noOverflow(ana, `${p} at 360px`); }
   await ana.setViewportSize({ width: 1280, height: 800 });
-  await tab(ana, 'haven');
+  await tab(ana, 'focus');
   assert.equal(await ana.evaluate(() => getComputedStyle(document.querySelector('.tabs')).position), 'static', 'on a wide screen the tabs sit in the top bar');
   await shot(ana, 'haven-wide');
   ok('everything is kept across a reload and fits narrow and wide screens');

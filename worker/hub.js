@@ -3,7 +3,7 @@
 // person's open connections, and a way to ask whether someone is connected; worker.js supplies those.
 import { speciesById } from '../src/catalog.js';
 
-export const VERSION = '1.0.0';
+export const VERSION = '1.1.0';
 const MIN = 60000;
 export const RULES = {
   maxFriends: 200,

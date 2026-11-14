@@ -1,23 +1,31 @@
 # Haven
 
-A focus timer that grows a sanctuary. Set a time, stay with it, and a plant grows or an animal moves in to your haven. Leave early and it withers. Friends see each other focus live, grow together in rooms, cheer each other on and send gifts.
+A focus timer that grows a living sanctuary. Set a time, stay with it, and a plant grows, an animal moves in, or a pond gets dug in your haven. Leave early and it is lost. The animals are not ornaments: they wander, visit the plants and places they like, greet each other, sleep at night, and get hungry. Friends see each other focus live, grow together in rooms, cheer each other on and send gifts.
 
 One web app runs everywhere: in a browser, installed from the browser on iPhone and Android, and inside small native apps for iOS and Android. Everything is unlocked for everyone. There is nothing to buy.
 
-| Focus | A session | Friends, live | Your haven |
+| Your haven by day | By night | A session | Caring for an animal |
 | --- | --- | --- | --- |
-| ![Focus screen](docs/media/focus.png) | ![A session in progress](docs/media/session.png) | ![Friends screen](docs/media/friends.png) | ![A haven on a wide screen](docs/media/haven-wide.png) |
+| ![The haven by day](docs/media/haven-day.png) | ![The haven at night](docs/media/haven-night.png) | ![A session in progress](docs/media/session.png) | ![An animal's care screen](docs/media/animal.png) |
+
+| Friends, live | A room | Journal |
+| --- | --- | --- |
+| ![Friends screen](docs/media/friends.png) | ![A room about to start](docs/media/room.png) | ![Journal](docs/media/journal.png) |
 
 ## What it does
 
-- **Timer, stopwatch and pomodoro.** 5 to 180 minutes, a count-up stopwatch that grows something from 10 minutes, or pomodoro rounds with short and long breaks.
-- **54 plants and animals**, all drawn for Haven. Longer sessions grow bigger ones. Unlock them with coins, earn some through goals (a 7-day streak brings a bear), and get seasonal ones free in their months.
-- **Your haven.** An island that fills as you focus and grows with your level, from 5 by 5 tiles to 10 by 10. Arrange it how you like.
-- **Deep focus.** Leave Haven for longer than the time you allow and the plant withers. In the apps, locking the phone does not count as leaving.
-- **Friends, live.** Add people by code, username or invite link. See who is focusing right now and for how long. Cheer or nudge them. Visit their haven. Send them a plant or an animal.
+- **The haven is the home screen.** Your land floats under a sky that follows the time of day. Start a session and a day passes over it: the sun rises, crosses and sets as the time runs, while the new plant grows where it was planted.
+- **Animals with lives of their own.** 27 animals roam freely. Each has its own way of moving and its own likes: frogs and ducks go into the pond, birds and squirrels perch in trees, bees work the flowers, the fox sleeps by the burrow, and after dark the day animals sleep while owls, foxes and hedgehogs stay up. They greet each other and play chase.
+- **Care.** Every finished session earns treats. Feed and pet your animals, name them, and watch the bond grow through five levels, each paying coins. A hungry animal is slow and glum, and says so. Nothing ever dies or leaves because you were away.
+- **Nature you build.** A pond, a campfire, a burrow, a beehive, a bird house and more. Each needs a session of a minimum length (a pond takes 60 min), and animals come to use them. The fire and the lantern glow at night.
+- **27 plants** too, from clover to cherry blossom. Longer sessions grow bigger ones. Things unlock with coins, through goals (a 7-day streak brings a bear), or free in their season.
+- **Timer, stopwatch and pomodoro.** 5 to 180 minutes, a count-up stopwatch, or pomodoro rounds with breaks.
+- **Deep focus.** Leave Haven for longer than the time you allow and the session is lost. In the apps, locking the phone does not count as leaving.
+- **Arrange freely.** Drag anything anywhere on the land. The land grows with your level, from room for 25 things to room for 100.
+- **Friends, live.** Add people by code, username or invite link. See who is focusing right now and for how long. Cheer or nudge them. Visit their haven. Send them a plant, an animal or a piece of nature.
 - **Focus together.** Open a room, invite friends, and everyone starts at the same moment. Choose whether one person leaving ends it for everyone or only for them. Finishing together earns more coins.
 - **Board and activity.** Rank yourself and your friends for today, the week, the month or all time, and see what everyone grew.
-- **Journal.** Day, week, month and year views with a chart, time by tag, best hour, streaks, every session, and 25 achievements.
+- **Journal.** Day, week, month and year views with a chart, time by tag, best hour, streaks, every session, and 29 achievements.
 - **Sounds.** Rain, stream, wind, night crickets, campfire, brown and white noise, made on the device, so they work offline.
 - **Yours to keep.** Works offline. Light and dark. Backup file, server backup, and moving to another device with a one-time code.
 
@@ -75,7 +83,7 @@ npm start          # app on http://localhost:4173, friends server on http://loca
 `npm start` runs the real friends server on your machine, on the same runtime Cloudflare uses, so two browser windows can add each other and focus together.
 
 ```sh
-npm test               # rules, storage, session controller, catalogue, and the friends server
+npm test               # rules, storage, the animal simulation, session controller, catalogue, and the friends server
 npm run test:browser   # two people in headless Chrome against the local friends server
 npm run media          # the same run, saving the screenshots in docs/media
 npm run icons          # redraw the app icons

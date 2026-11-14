@@ -1,7 +1,7 @@
 process.env.TZ = 'Asia/Singapore';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { LIMITS, coinsFor, sizeFor, levelFor, landSide, dayKey, startOfWeek, streaks, progress, awayVerdict, formatClock, formatMinutes, formatAgo, period, shiftPeriod, summarise, facts, goalProgress, availability, ACHIEVEMENTS, newAchievements, escapeHTML, newId } from '../src/core.js';
+import { CARE, treatsFor, hungerOf, bondLevel, bondReward, canPet, moodOf, isNight, LIMITS, coinsFor, sizeFor, levelFor, landSide, dayKey, startOfWeek, streaks, progress, awayVerdict, formatClock, formatMinutes, formatAgo, period, shiftPeriod, summarise, facts, goalProgress, availability, ACHIEVEMENTS, newAchievements, escapeHTML, newId } from '../src/core.js';
 import { freshState } from '../src/store.js';
 import { speciesById, SPECIES } from '../src/catalog.js';
 
@@ -164,6 +164,29 @@ test('achievements are found once', () => {
   for (const a of ACHIEVEMENTS) assert.ok(a.coins > 0 && a.name && a.text, a.id);
   const all = ACHIEVEMENTS.find(a => a.id === 'collectAll');
   assert.equal(all.test({ species: SPECIES.length }), true);
+});
+
+test('treats, hunger, mood and bond levels', () => {
+  assert.deepEqual([5, 14, 15, 25, 60, 180].map(treatsFor), [1, 1, 2, 2, 5, 13]);
+  const now = at(2026, 11, 14, 12), h = 3600000;
+  assert.equal(hungerOf({ fed: now - 5 * h }, now), 'full');
+  assert.equal(hungerOf({ fed: now - 7 * h }, now), 'peckish');
+  assert.equal(hungerOf({ fed: now - 21 * h }, now), 'hungry');
+  assert.equal(hungerOf({ at: now - h }, now), 'full', 'an animal that has never been fed counts from when it arrived');
+  assert.deepEqual([0, 19, 20, 59, 60, 100, 400].map(bondLevel), [0, 0, 1, 2, 3, 5, 5]);
+  assert.equal(bondReward(3), 120);
+  assert.equal(canPet({ pet: now - 59 * 60000 }, now), false);
+  assert.equal(canPet({ pet: now - 60 * 60000 }, now), true);
+  assert.equal(canPet({}, now), true);
+  assert.equal(moodOf({ fed: now - 30 * h }, now), 'Hungry');
+  assert.equal(moodOf({ fed: now - 30 * h }, now, true), 'Hungry', 'hunger shows even at night');
+  assert.equal(moodOf({ fed: now }, now, true), 'Sleepy');
+  assert.equal(moodOf({ fed: now - 8 * h }, now), 'Peckish');
+  assert.equal(moodOf({ fed: now, pet: now - h }, now), 'Happy');
+  assert.equal(moodOf({ fed: now, bond: 70 }, now), 'Happy');
+  assert.equal(moodOf({ fed: now }, now), 'Content');
+  assert.deepEqual([[5, 50], [6, 0], [12, 0], [18, 20], [18, 30], [23, 0]].map(([hh, mm]) => isNight(at(2026, 11, 14, hh, mm))), [true, false, false, false, true, true]);
+  assert.equal(CARE.maxBond / CARE.levels, 20);
 });
 
 test('escaping and ids', () => {
