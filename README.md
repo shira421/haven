@@ -1,4 +1,4 @@
-# Haven
+# Haven (vibe coded)
 
 A focus timer that grows a living sanctuary. Set a time, stay with it, and a plant grows, an animal moves in, or a pond gets dug in your haven. Leave early and it is lost. The animals are not ornaments: they wander, visit the plants and places they like, greet each other, sleep at night, and get hungry. Friends see each other focus live, grow together in rooms, cheer each other on and send gifts.
 
