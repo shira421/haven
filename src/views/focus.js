@@ -24,7 +24,8 @@ function world(app, stage = null) {
 function awayText(settings, species) {
   if (!settings.deep) return 'Deep focus is off. You can use other apps while the timer runs.';
   const what = species.kind === 'animal' ? `the ${lower(species)} leaves` : species.kind === 'nature' ? `the ${lower(species)} is left unfinished` : `the ${lower(species)} withers`;
-  const lock = bridge() || phoneBrowser() ? ' Locking the phone is fine.' : '';
+  if (!bridge() && phoneBrowser()) return `Deep focus is on. Locking your phone is fine. More than ${formatAway(settings.allowance)} in another app and ${what}.`;
+  const lock = bridge() ? ' Locking the phone is fine.' : '';
   return `Deep focus is on. Away from Haven for more than ${formatAway(settings.allowance)} and ${what}.${lock}`;
 }
 
@@ -72,7 +73,7 @@ function running(app) {
   const room = active.room ? social.data.room : null;
   const label = active.mode === 'pomodoro' && active.round ? `Round ${active.round} of ${store.state.cycle?.rounds || store.state.settings.pomodoro.rounds}` : active.room ? 'Focusing together' : active.planned ? '' : 'Stopwatch';
   const verb = species.kind === 'animal' ? `Waiting for a ${lower(species)}.` : species.kind === 'nature' ? `Building a ${lower(species)}.` : `Growing a ${lower(species)}.`;
-  const rule = active.deep ? ` Stay in Haven: more than ${formatAway(active.allowance)} away and ${species.kind === 'animal' ? 'it leaves' : species.kind === 'nature' ? 'the work is lost' : 'it withers'}.` : ' You can use other apps.';
+  const rule = active.deep && !bridge() && phoneBrowser() ? ` Lock your phone if you like. More than ${formatAway(active.allowance)} in another app and ${species.kind === 'animal' ? 'it leaves' : species.kind === 'nature' ? 'the work is lost' : 'it withers'}.` : active.deep ? ` Stay in Haven: more than ${formatAway(active.allowance)} away and ${species.kind === 'animal' ? 'it leaves' : species.kind === 'nature' ? 'the work is lost' : 'it withers'}.` : ' You can use other apps.';
   const members = room ? `<ul class="room-strip" aria-label="In this room">${room.members.map(m => `<li class="${m.status}">${avatar(m.avatar)}<span>${e(m.id === social.account?.id ? 'You' : m.name)}</span><small>${m.status === 'focusing' ? 'Focusing' : m.status === 'done' ? 'Finished' : 'Left'}</small></li>`).join('')}</ul>` : '';
   return `<section class="page focus running" data-page="focus"><h1 class="page-title sr-only">Focusing</h1>
 <div class="scene">${skyHTML({ t: p.fraction })}
@@ -202,19 +203,12 @@ export function resultDialog(app, result) {
 <div class="button-row"><button class="primary wide" data-action="close-dialog" autofocus>Done</button></div>`, { cls: 'result' });
 }
 
-/** Back after longer than allowed, in a phone's browser: ask whether the screen was simply off. */
-export function askAwayDialog(app, { away }) {
-  const species = speciesById(app.store.state.active?.species || 'clover');
-  const lost = species.kind === 'animal' ? `the ${lower(species)} leaves` : species.kind === 'nature' ? `the ${lower(species)} is left unfinished` : `the ${lower(species)} withers`;
-  openDialog('Welcome back', `<p class="lead">You were away for ${away >= 120 ? formatMinutes(away / 60) : `${away} s`}. Was your screen off, or were you using another app?</p>
-<p class="note">A browser cannot tell the two apart, so Haven asks. A locked screen is fine. Another app for this long and ${lost}.</p>
-<div class="button-row"><button class="secondary" data-action="away-answer" data-value="app">Another app</button><button class="primary" data-action="away-answer" data-value="off" autofocus>My screen was off</button></div>`, { locked: true });
-}
-
-export function failedDialog(app, { session, reason, away, who }) {
+export function failedDialog(app, { session, reason, away, who, judged }) {
   const species = speciesById(session.species), minutes = Math.floor((session.end - session.start) / 60000);
   const title = species.kind === 'animal' ? `The ${lower(species)} wandered off` : species.kind === 'nature' ? `The ${lower(species)} was not finished` : `The ${lower(species)} withered`;
-  const why = reason === 'left' ? `You were away from Haven for ${away >= 120 ? formatMinutes(away / 60) : `${away} s`}. Deep focus allows ${formatAway(app.store.state.settings.allowance)}.`
+  const long = away >= 120 ? formatMinutes(away / 60) : `${away} s`, allows = formatAway(app.store.state.settings.allowance);
+  const why = reason === 'left' && judged ? `Haven counted ${long} in another app. Deep focus allows ${allows}. ${judged.why}`
+    : reason === 'left' ? `You were away from Haven for ${long}. Deep focus allows ${allows}.`
     : reason === 'friend-left' ? `${who ? e(who) : 'Someone'} left the room. In this kind of room, one person leaving ends it for everyone.`
     : `You stopped after ${minutes < 1 ? 'less than a minute' : formatMinutes(minutes)}.`;
   openDialog(title, `<div class="result-art">${sprite(species.id, { kind: species.kind, withered: true })}</div>
@@ -235,8 +229,6 @@ export function pickSpecies(app, id) {
 }
 
 export const actions = {
-  // "Another app" replaces this dialog with the one saying what was lost, so only the other answer closes it.
-  'away-answer'(app, d) { if (d.value === 'off') closeDialog(); app.timer.answerAway(d.value === 'off'); },
   mode(app, d) { app.store.set({ mode: d.value }); },
   'choose-length': app => lengthDialog(app),
   'choose-species': app => speciesDialog(app),

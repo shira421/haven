@@ -3,10 +3,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Store } from '../src/store.js';
 import { Timer } from '../src/timer.js';
+import * as leave from '../src/leave.js';
 
 const T0 = new Date(2026, 10, 14, 9, 0).getTime(), MIN = 60000;
-function make({ native = false, social = {}, askAway = false } = {}) {
-  const clock = { t: T0 }, events = [], calls = [];
+function make({ native = false, social = {}, lockFree = false } = {}) {
+  // `m` is performance.now(): it moves while the phone is awake and stops while it sleeps.
+  const clock = { t: T0, m: 0 }, events = [], calls = [];
   const store = new Store({ now: () => clock.t });
   const fakeSocial = {
     account: { id: 'me' }, offset: 0, data: { room: null },
@@ -16,10 +18,11 @@ function make({ native = false, social = {}, askAway = false } = {}) {
     roomSessionId: room => room.code.toLowerCase() + 'me', ...social,
   };
   const sound = { start() {}, stop() {}, unlock() {}, chime() { calls.push(['chime']); } };
-  const timer = new Timer({ store, social: fakeSocial, sound, now: () => clock.t, native: () => native, askAway: () => askAway });
+  const timer = new Timer({ store, social: fakeSocial, sound, now: () => clock.t, native: () => native, lockFree: () => lockFree, mono: () => clock.m });
   timer.on((type, payload) => events.push([type, payload]));
   const stop = () => clearInterval(timer.interval);
-  return { store, timer, clock, events, calls, stop, names: () => events.map(e => e[0]).filter(n => n !== 'tick' && n !== 'break-tick') };
+  const awake = ms => { clock.t += ms; clock.m += ms; }, asleep = ms => { clock.t += ms; };
+  return { store, timer, clock, events, calls, stop, awake, asleep, names: () => events.map(e => e[0]).filter(n => n !== 'tick' && n !== 'break-tick') };
 }
 const settle = () => new Promise(resolve => setTimeout(resolve, 5));
 
@@ -199,31 +202,138 @@ test('a room the server says has failed cannot be finished', async () => {
   x.stop();
 });
 
-test('in a phone browser, coming back late asks whether the screen was off instead of failing', async () => {
-  const x = make({ askAway: true });
-  x.timer.start();
-  x.clock.t += MIN;
+// ——— A phone's browser: a locked screen never counts, another app does ———
+
+const swiped = (x, kind = 'cancel') => leave._reset({ lastTouch: { start: x.clock.t - 400, at: x.clock.t - 100, kind, edge: false } });
+const failedAway = x => x.events.filter(e => e[0] === 'failed').at(-1)?.[1].away;
+
+test('phone browser: the screen off for 10 minutes, phone asleep, keeps the plant', async () => {
+  leave._reset();
+  const x = make({ lockFree: true });
+  x.timer.start(); x.awake(MIN);
   x.timer.hidden();
-  x.clock.t += 3 * MIN;
+  x.awake(8000); x.asleep(10 * MIN);
   x.timer.tick();
   assert.ok(x.store.state.active, 'nothing is decided while away');
-  assert.equal(x.timer.warned, false, 'no come-back notification: the phone may only be locked');
+  assert.equal(x.timer.warned, false, 'no come-back notification for what looks like a lock');
   await x.timer.visible();
-  assert.deepEqual(x.names().slice(-1), ['ask-away']);
-  assert.equal(x.timer.asking.away, 180);
-  x.clock.t += 5000;
-  x.timer.tick();
-  assert.ok(x.store.state.active, 'the clock waits for the answer');
-  x.timer.answerAway(true);
-  assert.ok(x.store.state.active, 'a locked screen is not leaving');
+  assert.ok(x.store.state.active);
   assert.equal(x.store.state.active.hiddenAt, undefined);
-  // Away again, and this time it was another app.
+  assert.equal(x.timer.lastAway.counted, 0);
+  assert.ok(x.timer.lastAway.slept >= 10 * MIN);
+  x.stop();
+});
+
+test('phone browser: swiping to another app for 3 minutes withers the plant', async () => {
+  const x = make({ lockFree: true });
+  x.timer.start(); x.awake(MIN);
+  swiped(x);
   x.timer.hidden();
-  x.clock.t += 2 * MIN;
+  x.awake(15000); x.timer.tick();
+  assert.equal(x.timer.warned, true, 'a swipe out is warned like any other leaving');
+  x.awake(165000);
   await x.timer.visible();
-  x.timer.answerAway(false);
   assert.equal(x.store.state.active, null);
-  assert.equal(x.events.at(-1)[0], 'failed');
-  assert.equal(x.events.at(-1)[1].away, 120);
+  assert.equal(failedAway(x), 180);
+  assert.match(x.events.at(-1)[1].judged.why, /another app/);
+  x.stop();
+});
+
+test('phone browser: swiping out, then locking the phone, counts only the time awake', async () => {
+  const x = make({ lockFree: true });
+  x.timer.start(); x.awake(MIN);
+  swiped(x, 'start');
+  x.timer.hidden();
+  x.awake(20000); x.asleep(10 * MIN);
+  await x.timer.visible();
+  assert.ok(x.store.state.active, '20 s awake is within the 30 s allowed');
+  assert.equal(Math.round(x.timer.lastAway.counted / 1000), 20);
+  x.stop();
+});
+
+test('phone browser: no sign of another app and the phone stayed awake (music) is taken as a lock', async () => {
+  leave._reset();
+  const x = make({ lockFree: true });
+  x.timer.start(); x.awake(MIN);
+  x.timer.hidden();
+  x.awake(12 * MIN);
+  await x.timer.visible();
+  assert.ok(x.store.state.active);
+  assert.equal(x.timer.lastAway.counted, 0);
+  assert.match(x.timer.lastAway.why, /Taken as a locked screen/);
+  x.stop();
+});
+
+test('phone browser: a lock, then minutes awake in another app from the lock screen, counts', async () => {
+  leave._reset();
+  const x = make({ lockFree: true });
+  x.timer.start(); x.awake(MIN);
+  x.timer.hidden();
+  x.asleep(5 * MIN); x.awake(3 * MIN);
+  await x.timer.visible();
+  assert.equal(x.store.state.active, null);
+  // 8 min away, 3 awake; a locked phone may be awake 15 s + 20 % of the time (111 s), so 69 s count.
+  assert.equal(failedAway(x), 69);
+  x.stop();
+});
+
+test('phone browser: a session that runs out while in another app is judged on return, not finished', async () => {
+  const x = make({ lockFree: true });
+  x.timer.start(); x.awake(20 * MIN);
+  swiped(x);
+  x.timer.hidden();
+  x.awake(10 * MIN); x.timer.tick();
+  assert.ok(x.store.state.active, 'not finished while away');
+  await x.timer.visible();
+  assert.equal(x.store.state.sessions[0].status, 'failed');
+  assert.equal(failedAway(x), 300, 'only the 5 min until the session would have ended');
+  x.stop();
+});
+
+test('phone browser: a lock that runs past the end finishes the session on return', async () => {
+  leave._reset();
+  const x = make({ lockFree: true });
+  x.timer.start(); x.awake(MIN);
+  x.timer.hidden();
+  x.asleep(30 * MIN);
+  await x.timer.visible();
+  await settle();
+  assert.equal(x.store.state.active, null);
+  assert.equal(x.store.state.sessions[0].status, 'done');
+  x.stop();
+});
+
+test('phone browser: reopened after the browser dropped the page is taken as a lock', async () => {
+  leave._reset();
+  const x = make({ lockFree: true });
+  x.timer.start(); x.awake(MIN);
+  x.timer.hidden();
+  x.timer.leaveInfo = null; // what a reload loses
+  x.awake(10 * MIN);
+  await x.timer.visible();
+  assert.ok(x.store.state.active);
+  assert.match(x.timer.lastAway.why, /reopened/);
+  x.stop();
+});
+
+test('phone browser: Idle Detection saying the screen locked settles it', async () => {
+  const x = make({ lockFree: true });
+  x.timer.start(); x.awake(MIN);
+  const left = x.clock.t;
+  swiped(x);
+  leave._reset({ lastTouch: { start: left - 400, at: left - 100, kind: 'cancel' }, idleEvents: [{ at: left + 500, screen: 'locked' }] });
+  x.timer.hidden();
+  x.awake(10 * MIN);
+  await x.timer.visible();
+  assert.ok(x.store.state.active, 'locked, even though it looked like a swipe');
+  // Locked, then unlocked and spent 2 minutes elsewhere without coming back.
+  const left2 = x.clock.t;
+  leave._reset({ idleEvents: [{ at: left2 + 500, screen: 'locked' }, { at: left2 + 5 * MIN, screen: 'unlocked' }] });
+  x.timer.hidden();
+  x.asleep(5 * MIN); x.awake(2 * MIN);
+  await x.timer.visible();
+  assert.equal(x.store.state.active, null);
+  assert.equal(failedAway(x), 120);
+  leave._reset();
   x.stop();
 });
