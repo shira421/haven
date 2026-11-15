@@ -28,7 +28,7 @@ function quad(o) {
   const fur = o.fur, belly = o.belly ?? tone(fur, 0.5), dark = o.dark ?? tone(fur, -0.22), legFur = o.legFur ?? fur;
   const { len, bh, legH } = o, cx = o.cx ?? 47;
   const by = 90 - legH - bh * 0.7, hipY = by + bh * 0.3, lw = o.legW ?? 4;
-  const g = { cx, by, len, bh, fur, belly, dark };
+  const g = { cx, by, len, bh, fur, belly, dark, sx: cx + len * 0.64, sy: by - bh * 0.22 };
 
   const leg = (x, hind, isFar) => {
     const col = isFar ? tone(legFur, -0.18) : legFur, paw = isFar ? tone(o.paw ?? legFur, -0.18) : (o.paw ?? legFur), drop = 88 - hipY;
@@ -53,6 +53,7 @@ function quad(o) {
     ringed: () => L(`M${n(tx + 3)} ${n(ty)}C${n(tx - 8)} ${n(ty + 5)} ${n(tx - 18)} ${n(ty + 5)} ${n(tx - 25)} ${n(ty - 3)}`, tailFur, th) + L(`M${n(tx + 3)} ${n(ty)}C${n(tx - 8)} ${n(ty + 5)} ${n(tx - 18)} ${n(ty + 5)} ${n(tx - 25)} ${n(ty - 3)}`, o.ring ?? dark, th, ' stroke-dasharray="3.4 4.6" stroke-dashoffset="-3"', 'butt'),
     thick: () => P(`M${n(tx + 4)} ${n(ty - 4)}C${n(tx - 10)} ${n(ty - 3)} ${n(tx - 22)} ${n(ty + 7)} ${n(tx - 28)} ${n(ty + 14)}C${n(tx - 17)} ${n(ty + 14)} ${n(tx - 5)} ${n(ty + 10)} ${n(tx + 4)} ${n(ty + 5)}Z`, tailFur),
     stub: () => E(tx - 0.5, ty, 3.2, 2.4, o.tip ?? dark),
+    rope: () => L(`M${n(tx + 2)} ${n(ty)}C${n(tx - 3)} ${n(ty + 4)} ${n(tx - 4)} ${n(ty + 9)} ${n(tx - 3.4)} ${n(ty + Lt * 0.6)}`, tailFur, 1.6) + E(tx - 3.4, ty + Lt * 0.6 + 1.6, 1.4, 2.6, o.tip ?? dark),
     none: () => '',
   }[o.tail ?? 'none']();
 
@@ -75,6 +76,11 @@ function quad(o) {
       long: () => rot(E(x, y - eh / 2 + 2, ew / 2, eh / 2, col) + (isFar ? '' : E(x + 0.3, y - eh / 2 + 2.6, ew * 0.24, eh * 0.38, inner)), isFar ? -8 : -22, x, y + 2),
       leaf: () => rot(E(x, y - eh / 2 + 2, ew / 2, eh / 2, col) + (isFar ? '' : E(x, y - eh / 2 + 2.6, ew * 0.22, eh * 0.34, inner)), isFar ? -30 : -58, x, y + 2),
       small: () => C(x, y + 1.6, eh * 0.3, isFar ? tone(dark, -0.1) : dark),
+      // Hanging down the side of the head, like a retriever's.
+      drop: () => rot(P(`M${n(x - ew * 0.45)} ${n(y + 1)}C${n(x - ew * 0.6)} ${n(y + eh * 0.5)} ${n(x - ew * 0.35)} ${n(y + eh)} ${n(x + ew * 0.05)} ${n(y + eh)}C${n(x + ew * 0.45)} ${n(y + eh * 0.9)} ${n(x + ew * 0.5)} ${n(y + eh * 0.4)} ${n(x + ew * 0.4)} ${n(y + 0.5)}Z`, col), isFar ? 8 : 16, x, y + 1),
+      // A big flap behind the head, like an elephant's.
+      flap: () => isFar ? '' : P(`M${n(x + ew * 0.1)} ${n(y - eh * 0.1)}C${n(x - ew * 0.8)} ${n(y - eh * 0.25)} ${n(x - ew * 0.95)} ${n(y + eh * 0.5)} ${n(x - ew * 0.55)} ${n(y + eh * 0.95)}C${n(x - ew * 0.3)} ${n(y + eh * 1.15)} ${n(x + ew * 0.05)} ${n(y + eh * 1)} ${n(x + ew * 0.25)} ${n(y + eh * 0.7)}Z`, col)
+        + P(`M${n(x - ew * 0.05)} ${n(y + eh * 0.06)}C${n(x - ew * 0.6)} ${n(y + eh * 0.02)} ${n(x - ew * 0.72)} ${n(y + eh * 0.5)} ${n(x - ew * 0.45)} ${n(y + eh * 0.82)}C${n(x - ew * 0.3)} ${n(y + eh * 0.92)} ${n(x - ew * 0.05)} ${n(y + eh * 0.8)} ${n(x + ew * 0.08)} ${n(y + eh * 0.6)}Z`, inner, ' opacity=".55"'),
     }[o.ears ?? 'round']();
     return part(`ear${isFar ? ' far' : ''}`, x, y + 2, shape);
   };
@@ -99,7 +105,20 @@ const mammals = {
   squirrel: () => quad({ k: 1.45, fur: '#b5623a', belly: '#f3e0c6', len: 11.5, bh: 8.5, legH: 5, legW: 3.4, haunch: 2, head: 7, snout: 3.4, snoutH: 3.8, neckU: 4, ears: 'point', earH: 6, earW: 4.6, tail: 'squirrel', tailFur: '#a5542f', cheek: '#f3e0c6', eyeR: 1.7, dip: 34, cx: 50 }),
   cat: () => quad({ k: 1.32, fur: '#de9647', belly: '#f8e3c5', len: 16, bh: 8, legH: 14, legW: 3.6, head: 8.2, snout: 2.4, snoutH: 4, neckU: 5, ears: 'point', earH: 8, earW: 7, tail: 'thin', cheek: '#f8e3c5', nose: '#d98592', noseR: 1.1, paw: '#f8e3c5', dip: 40,
     mid: g => stripes(g, [-0.55, -0.25, 0.05, 0.35], '#a8642a'), face: g => L(`M${n(g.hx - 2)} ${n(g.hy - g.hr + 1.2)}v3M${n(g.hx + 1)} ${n(g.hy - g.hr + 0.8)}v3`, '#a8642a', 1, ' opacity=".6"') + L(`M${n(g.tipX - 1)} ${n(g.snoutY)}l5 -1.2M${n(g.tipX - 1)} ${n(g.snoutY + 1)}l5 .6`, '#fff', 0.4, ' opacity=".8"') }),
-  shiba: () => quad({ k: 1.32, fur: '#d8934a', belly: '#fff4e0', len: 16, bh: 9, legH: 15, legW: 4, head: 8.6, snout: 5.4, snoutH: 4.2, snoutFur: '#fff4e0', neckU: 7, neckF: 1, ears: 'point', earH: 8, earW: 6.5, inner: '#f1c9a5', tail: 'curl', cheek: '#fff4e0', paw: '#fff4e0', dip: 46 }),
+  // Dogs: one animal, several breeds. "dog" is the mixed breed a new dog starts as.
+  dog: () => quad({ k: 1.3, fur: '#a8754a', belly: '#f6ece0', len: 16, bh: 9, legH: 14, legW: 4, head: 8.6, snout: 5.6, snoutH: 4.2, snoutFur: '#f6ece0', neckU: 7, neckF: 1, ears: 'drop', earH: 10, earW: 6.4, earFur: '#6e4a2f', tail: 'thin', tailFur: '#a8754a', cheek: '#f6ece0', paw: '#f6ece0', dip: 46,
+    mid: g => E(g.cx - g.len * 0.3, g.by - g.bh * 0.35, g.len * 0.32, g.bh * 0.5, '#f6ece0', ' opacity=".9"'), face: g => E(g.eyeX - 0.2, g.eyeY, g.hr * 0.42, g.hr * 0.36, '#6e4a2f', ' opacity=".55"') }),
+  'dog:shiba': () => quad({ k: 1.32, fur: '#d8934a', belly: '#fff4e0', len: 16, bh: 9, legH: 15, legW: 4, head: 8.6, snout: 5.4, snoutH: 4.2, snoutFur: '#fff4e0', neckU: 7, neckF: 1, ears: 'point', earH: 8, earW: 6.5, inner: '#f1c9a5', tail: 'curl', cheek: '#fff4e0', paw: '#fff4e0', dip: 46 }),
+  'dog:golden': () => quad({ k: 1.28, fur: '#dba65c', belly: '#f2d29c', len: 17, bh: 9.6, legH: 15, legW: 4.2, head: 8.8, snout: 6, snoutH: 4.4, neckU: 7, neckF: 1, ears: 'drop', earH: 11, earW: 7, earFur: '#c98f45', tail: 'bushy', tailL: 17, tailW: 6, tailA: -34, tip: '#e8bb73', tailFur: '#d39a4f', cheek: '#e8bb73', dip: 46,
+    ruff: g => P(`M${n(g.hx - 3)} ${n(g.hy + g.hr * 0.5)}l-4 8l4 -1.6l1 4l4 -6Z`, '#e8bb73') }),
+  'dog:corgi': () => quad({ k: 1.34, fur: '#dc8a40', belly: '#fff6ea', len: 16, bh: 9, legH: 5.5, legW: 4.2, haunch: 1.4, head: 8.6, snout: 5, snoutH: 4, snoutFur: '#fff6ea', neckU: 6, neckF: 1, ears: 'point', earH: 11, earW: 8, inner: '#f3c49d', tail: 'stub', tip: '#dc8a40', cheek: '#fff6ea', paw: '#fff6ea', dip: 34,
+    face: g => L(`M${n(g.hx - 1)} ${n(g.hy - g.hr + 0.4)}l1.6 ${n(g.hr * 0.9)}`, '#fff6ea', 2, ' opacity=".9"') }),
+  'dog:husky': () => quad({ k: 1.28, fur: '#7d8592', belly: '#f4f5f7', len: 17, bh: 9.4, legH: 15, legW: 4.2, head: 8.8, snout: 5.8, snoutH: 4.2, snoutFur: '#f4f5f7', neckU: 7, neckF: 1, ears: 'point', earH: 9, earW: 7, inner: '#f4f5f7', tail: 'curl', tip: '#f4f5f7', cheek: '#f4f5f7', paw: '#f4f5f7', dip: 46,
+    face: g => E(g.eyeX - 0.6, g.eyeY - 2.8, 2.4, 1.3, '#f4f5f7') + C(g.eyeX, g.eyeY, 2.6, '#9fd0f0') }),
+  'dog:dalmatian': () => quad({ k: 1.26, fur: '#f7f5f0', belly: '#f7f5f0', len: 17, bh: 9, legH: 17, legW: 3.8, head: 8.4, snout: 6, snoutH: 4, neckU: 8, neckF: 1, ears: 'drop', earH: 10, earW: 6, earFur: '#2b2a30', tail: 'thin', tailFur: '#f7f5f0', dip: 48,
+    mid: g => spots(g, [[-0.7, -0.4], [-0.45, -0.7], [-0.2, -0.2], [0.05, -0.6], [0.3, -0.25], [0.5, -0.65], [-0.6, 0.1], [0.15, 0.1], [0.65, -0.1]], '#2b2a30', 1.5),
+    face: g => C(g.hx - 2.6, g.hy - 2.4, 1.1, '#2b2a30') + C(g.hx + 1.6, g.hy + 2.6, 0.9, '#2b2a30') }),
+  'dog:dachshund': () => quad({ k: 1.34, fur: '#8c4a25', belly: '#a65d33', len: 20, bh: 7.4, legH: 5.5, legW: 3.8, haunch: 1.3, head: 7.6, snout: 6.8, snoutH: 3.6, neckU: 5, neckF: 1, ears: 'drop', earH: 12, earW: 6.4, earFur: '#6e3618', tail: 'thin', tailFur: '#8c4a25', dip: 30, cx: 49 }),
   raccoon: () => quad({ k: 1.25, fur: '#8d8b95', belly: '#d6d5dc', dark: '#3d3b46', legFur: '#4c4a55', len: 15, bh: 10.5, legH: 8, legW: 4, hump: true, head: 8.4, snout: 5, snoutH: 3.8, snoutFur: '#efedf2', neckU: 1, ears: 'round', earH: 7, inner: '#efedf2', tail: 'ringed', tailW: 7.5, tailFur: '#a9a7b1', ring: '#3d3b46', dip: 30,
     face: g => E(g.eyeX - 0.4, g.eyeY + 0.6, g.hr * 0.52, g.hr * 0.36, '#3d3b46') + L(`M${n(g.eyeX - 4)} ${n(g.eyeY - 3.4)}q4 -2 8 -.4`, '#efedf2', 1.6) }),
   fox: () => quad({ k: 1.15, fur: '#d8662e', belly: '#fff1e0', legFur: '#3b2f33', haunchFur: '#d8662e', len: 17, bh: 8.2, legH: 14, legW: 3.4, head: 7.8, snout: 7.6, snoutH: 3.6, neckU: 6, neckF: 1, ears: 'point', earH: 10.5, earW: 7, inner: '#3b2f33', tail: 'bushy', tailL: 26, tailW: 9.5, tailA: -10, cheek: '#fff1e0', dip: 46, cx: 50,
@@ -117,6 +136,18 @@ const mammals = {
   panda: () => quad({ k: 1.25, fur: '#f7f6f1', belly: '#ecebe4', dark: '#2a2830', legFur: '#2a2830', len: 19, bh: 13.5, legH: 11, legW: 6.6, head: 10.5, snout: 4, snoutH: 4.6, neckU: 1, neckF: 2, ears: 'round', earH: 8, earFur: '#2a2830', inner: '#2a2830', tail: 'stub', tip: '#f7f6f1', noseR: 1.9, dip: 34, cx: 44,
     mid: g => rot(E(g.cx + g.len * 0.6, g.by - g.bh * 0.02, g.len * 0.25, g.bh * 0.99, '#2a2830'), 8, g.cx + g.len * 0.6, g.by),
     face: g => rot(E(g.eyeX - 0.2, g.eyeY + 0.6, 3, 3.8, '#2a2830'), 24, g.eyeX, g.eyeY) }),
+  giraffe: () => quad({ k: 1, fur: '#e6b968', belly: '#f3dcb0', len: 15, bh: 9, legH: 32, legW: 2.6, haunch: 1.6, paw: '#3f3029', head: 5.4, snout: 6.2, snoutH: 3.2, snoutFur: '#efd2a0', neckU: 34, neckF: 8, neckW: 6, ears: 'leaf', earH: 7, earW: 3.6, inner: '#f3dcb0', tail: 'rope', tailL: 22, tip: '#5a3a26', eyeR: 1.4, dip: 62, shadow: 15,
+    mid: g => [[-0.62, -0.48, 2.3], [-0.28, -0.66, 2.4], [0.06, -0.58, 2.4], [0.4, -0.6, 2.2], [-0.48, -0.02, 2.2], [-0.12, -0.16, 2.4], [0.24, -0.12, 2.2], [0.56, -0.12, 1.9], [-0.8, -0.12, 1.8]].map(([dx, dy, r], i) => rot(P(`M${-r} ${-r * 0.5}L${-r * 0.2} ${-r}L${r} ${-r * 0.6}L${r * 0.8} ${r * 0.7}L${-r * 0.3} ${r}L${-r} ${r * 0.4}Z`, '#a8622e'), i * 23, 0, 0).replace('<g', `<g transform="translate(${n(g.cx + g.len * dx)} ${n(g.by + g.bh * dy)})"><g`) + '</g>').join(''),
+    ruff: g => {
+      const pts = [0.15, 0.32, 0.5, 0.68, 0.84].map(t => [g.sx + (g.hx - g.sx) * t, g.sy + (g.hy - g.sy) * t]);
+      return L(`M${n(g.sx - 2)} ${n(g.sy - 1)}L${n(g.hx - 3.6)} ${n(g.hy + 1)}`, '#8a5530', 2.2) + pts.map(([x, y], i) => E(x + (i % 2 ? 0.8 : -0.6), y, 1.7, 1.3, '#a8622e')).join('');
+    },
+    crown: g => L(`M${n(g.hx - 1.6)} ${n(g.hy - g.hr + 0.6)}l-.6 -4.2M${n(g.hx + 0.8)} ${n(g.hy - g.hr + 0.4)}l.2 -4.2`, '#8a5530', 1.4) + C(g.hx - 2.2, g.hy - g.hr - 3.8, 1, '#3f3029') + C(g.hx + 1, g.hy - g.hr - 3.9, 1, '#3f3029') }),
+  elephant: () => quad({ k: 1, fur: '#9ea0aa', belly: '#9497a2', len: 22, bh: 15, legH: 14, legW: 7.4, haunch: 1.1, paw: '#8a8c96', hump: true, head: 11, snout: 2.4, snoutH: 6, neckU: 1, neckF: -2, neckW: 14, ears: 'flap', earH: 22, earW: 17, inner: '#c9a7ad', tail: 'rope', tailL: 18, noseR: 0.01, nose: '#9ea0aa', eyeR: 1.4, dip: 24, cx: 44, shadow: 26,
+    face: g => L(`M${n(g.tipX - 2)} ${n(g.snoutY - 1)}C${n(g.tipX + 3)} ${n(g.snoutY + 6)} ${n(g.tipX + 2)} ${n(g.snoutY + 15)} ${n(g.tipX - 1)} ${n(g.snoutY + 21)}`, '#9ea0aa', 5.4)
+      + L(`M${n(g.tipX - 1)} ${n(g.snoutY + 21)}q2 2 4 .6`, '#8a8c96', 3)
+      + L(`M${n(g.tipX)} ${n(g.snoutY + 6)}c1 4 1 8 0 11`, '#868893', 0.6, ' opacity=".6"')
+      + P(`M${n(g.hx + g.hr * 0.5)} ${n(g.snoutY + 3)}c3 1 6 3 7.4 6c-3 0 -6 -1.6 -8.4 -4Z`, '#f6f1e2') }),
   hedgehog: () => creature(20, 48, part('leg hl far', 36, 84, E(37, 87.6, 3, 2.2, '#b99a78')) + part('leg fl far', 58, 84, E(59, 87.6, 3, 2.2, '#b99a78'))
     + part('torso', 46, 80, P('M22 84C22 70 32 62 46 62C58 62 66 70 67 82C60 88 30 90 22 84Z', '#5f4a3c')
       + [[24, 78, -150], [25, 71, -130], [30, 65, -115], [37, 61.5, -100], [45, 60.5, -88], [53, 62, -72], [60, 66, -55], [65, 72, -40]].map(([x, y, a]) => rot(P(`M${x - 2.4} ${y}L${x + 6} ${y}L${x} ${y + 3}Z`, '#4a382d'), a, x, y)).join('')

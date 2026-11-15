@@ -43,11 +43,21 @@ const ok = name => console.log(`ok ${++step} - ${name}`);
 const tab = (page, name) => page.click(`.tabs [data-page="${name}"]`);
 /** Wait until the toast says something that matches. */
 const toastSays = (page, pattern) => page.waitForFunction(source => new RegExp(source).test(document.querySelector('#toast.visible')?.textContent || ''), pattern.source, { timeout: 8000 });
-const KEEP = ['session', 'friends', 'room', 'journal'];
+const KEEP = ['session', 'friends', 'room', 'journal', 'sanctuary'];
 const shot = (page, name) => (MEDIA && KEEP.includes(name) ? page.screenshot({ path: `${shots}${name}.png` }) : Promise.resolve());
 async function noOverflow(page, where) {
   const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.ok(wide <= 1, `${where}: the page scrolls sideways by ${wide}px`);
+}
+/** Move a page's clock on in small steps until something shows: for waits that are timers in the app. */
+async function until(page, selector, ms = 15000) {
+  const ready = typeof selector === 'function' ? () => page.evaluate(selector) : async () => (await page.locator(selector).count()) > 0;
+  for (let spent = 0; spent < ms; spent += 250) {
+    if (await ready()) return;
+    await page.clock.runFor(250);
+    await page.waitForTimeout(50);
+  }
+  if (typeof selector === 'function') assert.ok(await ready(), 'waited for the page'); else await page.waitForSelector(selector, { timeout: 2000 });
 }
 async function register(page, name, handle) {
   await tab(page, 'friends');
@@ -190,7 +200,7 @@ try {
   await ana.keyboard.press('Escape');
   assert.equal(Number(await ana.locator('#coins').textContent()), purse - 80, 'a seasonal unlock is free');
   await ana.click('.segmented [data-value="animal"]');
-  assert.equal(await ana.locator('.species-card').count(), 27);
+  assert.equal(await ana.locator('.species-card').count(), 29, 'two new animals: the giraffe and the elephant');
   await ana.click('.segmented [data-value="nature"]');
   assert.equal(await ana.locator('.species-card').count(), 10);
   await ana.click('.species-card[data-id="tallgrass"]');
@@ -220,11 +230,11 @@ try {
   await hide(ana, false);
   assert.equal(await ana.locator('.page.focus.running').count(), 1, 'ten seconds away is forgiven');
   await hide(ana, true);
-  await forward(20000, ana, ben);
+  await forward(40000, ana, ben);
   await hide(ana, false);
   await ana.waitForSelector('#dialog[open]');
   assert.equal(await ana.locator('#dialog-title').textContent(), 'The fern withered');
-  assert.match(await ana.locator('#dialog .lead').textContent(), /away from Haven for (1[5-9]|20) s\. Deep focus allows 15 s\./);
+  assert.match(await ana.locator('#dialog .lead').textContent(), /away from Haven for (3[0-9]|40) s\. Deep focus allows 30 s\./);
   await ana.click('#dialog [data-action="close-dialog"]');
   ok('deep focus forgives a short absence and withers the plant after a long one');
 
@@ -384,11 +394,62 @@ try {
   assert.match(await phone2.locator('.row.friend').textContent(), /Ben/);
   ok('another device signs in with a one-time code and the haven comes with it');
 
+  // Both devices stay in step: a move on one shows on the other, live, without signing out.
+  const moved = await phone2.evaluate(() => { const { store } = window.__haven.app; const id = Object.keys(store.state.haven.spots)[0]; store.place(id, 1.2, 1.3); return id; });
+  await phone2.evaluate(() => window.__haven.app.social.sync());
+  await ana.waitForFunction(id => JSON.stringify(window.__haven.app.store.state.haven.spots[id]) === '[1.2,1.3]', moved, { timeout: 8000 });
+  const released = await ana.evaluate(() => { const { store } = window.__haven.app; const id = store.state.items.at(-1).id; store.release(id); return id; });
+  await ana.evaluate(() => window.__haven.app.social.sync());
+  await phone2.waitForFunction(id => !window.__haven.app.store.item(id), released, { timeout: 8000 });
+  assert.deepEqual(await phone2.evaluate(() => window.__haven.app.store.state.coins), await ana.evaluate(() => window.__haven.app.store.state.coins));
+  await phone2.close();
+  ok('two devices on one profile stay in step: moves and releases on either reach the other');
+
+  // A sanctuary: Ana makes one, a loading screen shows, then her haven as the first plot.
+  await tab(ana, 'friends');
+  await ana.click('.segmented [data-value="sanctuary"]');
+  await ana.click('[data-action="sanct-new"]');
+  await ana.fill('form[data-form="sanct-new"] input[name="name"]', 'Study club');
+  await ana.click('form[data-form="sanct-new"] button[type="submit"]');
+  await ana.waitForSelector('.page.sanctuary .sanct-loading', { timeout: 5000 });
+  assert.match(await ana.locator('.sanct-loading p').textContent(), /Gathering havens|Joining the land|Waking the animals/);
+  await until(ana, '#dialog[open] [data-action="sanct-invite-friend"]');
+  assert.equal(await ana.locator('.sanctuary-land .plot-sign').count(), 1);
+  assert.equal(await ana.locator('.tabs [aria-current="page"]').getAttribute('data-page'), 'friends', 'Friends stays lit');
+  await ana.click('#dialog [data-action="sanct-invite-friend"]');
+  await ana.click('#dialog [data-action="close-dialog"]');
+  // Ben is asked, joins, and both see one land of two havens.
+  await ben.waitForSelector('#dialog[open] [data-action="sanct-accept"]', { timeout: 8000 });
+  await ben.click('#dialog [data-action="sanct-accept"]');
+  await until(ben, '.page.sanctuary .sanctuary-land');
+  assert.equal(await ben.locator('.sanctuary-land .plot-sign').count(), 2);
+  await until(ana, () => document.querySelectorAll('.sanctuary-land .plot-sign').length === 2);
+  const signs = await ana.locator('.sanctuary-land .plot-sign').allTextContents();
+  assert.deepEqual(signs, ['Ana', 'Ben']);
+  const animal = await ana.locator('.sanctuary-land .ent.animal').count();
+  assert.ok(animal > 0, 'animals live in the sanctuary');
+  const placesBefore = await ana.evaluate(() => [...document.querySelectorAll('.sanctuary-land .ent.animal')].map(el => el.style.left + el.style.top).join());
+  await ana.clock.runFor(3000);
+  assert.notEqual(await ana.evaluate(() => [...document.querySelectorAll('.sanctuary-land .ent.animal')].map(el => el.style.left + el.style.top).join()), placesBefore, 'the animals move about');
+  await noOverflow(ana, 'sanctuary');
+  await shot(ana, 'sanctuary');
+  await ana.click('[data-action="sanct-back"]');
+  await ana.waitForSelector('.page.friends .sanct-card');
+  ok('a sanctuary joins two havens into one land, after a loading screen, and its animals move');
+  await tab(ana, 'focus');
+
   await ana.reload();
   await ana.waitForSelector('.page.focus');
   assert.ok(Number(await ana.locator('#coins').textContent()) > 0, 'coins are kept across a reload');
   await ana.setViewportSize({ width: 360, height: 640 });
   for (const p of ['focus', 'collection', 'friends', 'journal']) { await tab(ana, p); await noOverflow(ana, `${p} at 360px`); }
+  // The smallest phones: every Friends section, and the five section buttons each in one piece.
+  await ana.setViewportSize({ width: 320, height: 640 });
+  await tab(ana, 'friends');
+  for (const section of ['friends', 'together', 'sanctuary', 'board', 'activity']) { await ana.click(`.segmented [data-value="${section}"]`); await noOverflow(ana, `friends, ${section}, at 320px`); }
+  const squeezed = await ana.evaluate(() => [...document.querySelectorAll('.segmented button')].filter(b => b.scrollWidth > b.clientWidth + 1).map(b => b.textContent));
+  assert.deepEqual(squeezed, [], 'no section name is cut off at 320px');
+  await ana.click('.segmented [data-value="friends"]');
   await ana.setViewportSize({ width: 1280, height: 800 });
   await tab(ana, 'focus');
   assert.equal(await ana.evaluate(() => getComputedStyle(document.querySelector('.tabs')).position), 'static', 'on a wide screen the tabs sit in the top bar');

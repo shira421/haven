@@ -103,11 +103,16 @@ test('friend requests arrive live, and accepting makes both friends', async () =
   assert.equal((await ok('GET', '/api/me', b.token)).incoming[0].id, a.id);
   assert.equal((await ok('GET', '/api/me', a.token)).outgoing[0].id, b.id);
   assert.equal((await ok('GET', `/api/find?q=${a.code}`, b.token)).relation, 'incoming');
+  // A phone checking in while Haven is closed hears about the request.
+  const news = (await ok('GET', '/api/news?since=0', b.token)).news;
+  assert.deepEqual(news.map(n => [n.kind, n.name]), [['request', 'Asha']]);
+  assert.deepEqual((await ok('GET', `/api/news?since=${news[0].created}`, b.token)).news, [], 'nothing twice');
   await ok('POST', '/api/friends/request', a.token, { id: b.id });
   assert.equal(sb.messages.filter(m => m.t === 'request').length, 1, 'asking twice does not notify twice');
   const acc = await ok('POST', '/api/friends/respond', b.token, { id: a.id, accept: true });
   assert.equal(acc.status, 'friends');
   assert.equal((await sa.next(m => m.t === 'accepted')).by.name, 'Ben');
+  assert.deepEqual((await ok('GET', '/api/news?since=0', a.token)).news.map(n => [n.kind, n.name]), [['accepted', 'Ben']], 'and so does the person who asked');
   const mine = await ok('GET', '/api/me', a.token);
   assert.equal(mine.friends.length, 1);
   assert.equal(mine.friends[0].online, true);
@@ -401,6 +406,11 @@ test('moving to another device with a one-time code, and backing up', async () =
   const put = await ok('PUT', '/api/state', a.token, { state });
   assert.equal(put.at, T);
   assert.deepEqual((await ok('GET', '/api/state', claimed.token)).state, state);
+  // Saves carry the revision they were based on, so two devices cannot overwrite each other.
+  assert.equal(put.rev, 1);
+  assert.equal((await ok('GET', '/api/state', claimed.token)).rev, 1);
+  assert.equal((await api('PUT', '/api/state', claimed.token, { state, base: 0 })).status, 409, 'a save based on an old copy is refused');
+  assert.equal((await ok('PUT', '/api/state', claimed.token, { state, base: 1 })).rev, 2);
   assert.equal((await ok('GET', '/api/me', a.token)).me.backupAt, T);
   assert.equal((await api('PUT', '/api/state', a.token, { state: { big: 'x'.repeat(610000) } })).status, 413);
   await ok('POST', '/api/logout', claimed.token);
@@ -447,4 +457,58 @@ test('a deployed server ignores a caller who tries to set the clock', async () =
     const r = await real.call('GET', '/health', { now: 12345 });
     assert.ok(Math.abs(r.body.now - Date.now()) < 5000);
   } finally { await real.stop(); }
+});
+
+test('sanctuaries: make one, invite a friend, join by code, see every haven, leave', async () => {
+  const a = await person('Kit'), b = await person('Lu'), c = await person('Mo'), stranger = await person('Ned');
+  await friends(a, b);
+  const made = (await ok('POST', '/api/sanctuaries', a.token, { name: '  Study  club ' })).sanctuary;
+  assert.equal(made.name, 'Study club');
+  assert.equal(made.owner, a.id);
+  assert.equal((await api('POST', '/api/sanctuaries', a.token, { name: '' })).status, 400);
+
+  // A friend is invited, hears about it, and joins with the code.
+  const sb = await live(b);
+  await ok('POST', '/api/sanctuaries/invite', a.token, { id: made.id, to: b.id });
+  const invite = await sb.next(m => m.t === 'inbox' && m.item.kind === 'sanctuary');
+  assert.equal(invite.item.data.name, 'Study club');
+  assert.equal((await api('POST', '/api/sanctuaries/invite', a.token, { id: made.id, to: c.id })).status, 403, 'only friends can be invited');
+  await ok('POST', '/api/sanctuaries/join', b.token, { code: invite.item.data.code });
+  assert.deepEqual((await ok('GET', '/api/me', b.token)).inbox.filter(i => i.kind === 'sanctuary'), [], 'joining clears the invitation');
+  await ok('POST', '/api/sanctuaries/join', c.token, { code: made.code.toLowerCase() });
+
+  // Members see each other's havens; others cannot.
+  await ok('POST', '/api/profile', b.token, { card: { level: 3, side: 6, tiles: [[1, 1, 'dog', 2, 'corgi']] } });
+  const sa = await live(a);
+  await ok('POST', '/api/profile', b.token, { card: { level: 3, side: 6, tiles: [[2, 2, 'dog', 2, 'corgi']] } });
+  assert.equal((await sa.next(m => m.t === 'haven')).id, b.id, 'a change to a member’s haven is heard live');
+  const full = (await ok('GET', `/api/sanctuaries/${made.id}`, a.token)).sanctuary;
+  assert.deepEqual(full.members.map(m => m.name), ['Kit', 'Lu', 'Mo']);
+  assert.deepEqual(full.members[1].card.tiles, [[2, 2, 'dog', 2, 'corgi']]);
+  assert.equal((await api('GET', `/api/sanctuaries/${made.id}`, stranger.token)).status, 404);
+  assert.equal((await ok('GET', '/api/sanctuaries', c.token)).sanctuaries[0].members.length, 3);
+
+  // Only the person looking after it can rename it or ask someone to leave.
+  assert.equal((await api('POST', '/api/sanctuaries/edit', b.token, { id: made.id, name: 'Mine now' })).status, 403);
+  await ok('POST', '/api/sanctuaries/edit', a.token, { id: made.id, name: 'Night owls', remove: c.id });
+  assert.deepEqual((await ok('GET', '/api/sanctuaries', c.token)).sanctuaries, []);
+
+  // When the owner leaves, the next person looks after it; when the last leaves, it is gone.
+  await ok('POST', '/api/sanctuaries/leave', a.token, { id: made.id });
+  const left = (await ok('GET', '/api/sanctuaries', b.token)).sanctuaries[0];
+  assert.equal(left.name, 'Night owls');
+  assert.equal(left.owner, b.id);
+  await ok('POST', '/api/sanctuaries/leave', b.token, { id: made.id });
+  assert.equal((await api('POST', '/api/sanctuaries/join', c.token, { code: made.code })).status, 404);
+  sa.close(); sb.close();
+});
+
+test('sanctuaries have limits: nine havens each, five each person', async () => {
+  const owner = await person('Owner');
+  const s = (await ok('POST', '/api/sanctuaries', owner.token, { name: 'Big' })).sanctuary;
+  for (let i = 0; i < 8; i++) { const p = await person('P' + i); await ok('POST', '/api/sanctuaries/join', p.token, { code: s.code }); }
+  const late = await person('Late');
+  assert.match((await api('POST', '/api/sanctuaries/join', late.token, { code: s.code })).body.error, /full/);
+  for (let i = 0; i < 4; i++) await ok('POST', '/api/sanctuaries', owner.token, { name: 'More ' + i });
+  assert.match((await api('POST', '/api/sanctuaries', owner.token, { name: 'Too many' })).body.error, /up to 5/);
 });

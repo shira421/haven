@@ -8,20 +8,22 @@ import { Ambience } from './sound.js';
 import { WITHER_FILTER } from './art.js';
 import { speciesById } from './catalog.js';
 import * as device from './device.js';
+import { newsText, syncReminders, syncNewsAccount } from './notices.js';
 import * as focus from './views/focus.js';
 import * as haven from './views/haven.js';
 import * as collection from './views/collection.js';
 import * as friends from './views/friends.js';
 import * as journal from './views/journal.js';
 import * as settings from './views/settings.js';
+import * as sanctuary from './views/sanctuary.js';
 
 /* global __HAVEN_API__, __HAVEN_VERSION__ */
 const VERSION = typeof __HAVEN_VERSION__ === 'string' ? __HAVEN_VERSION__ : 'dev';
 const BUILD_API = typeof __HAVEN_API__ === 'string' ? __HAVEN_API__ : '';
 // The home screen is the haven itself, with the focus controls under it.
-const PAGES = { focus, collection, friends, journal };
+const PAGES = { focus, collection, friends, journal, sanctuary };
 const TABS = [['focus', 'Haven', 'haven'], ['collection', 'Collection', 'collection'], ['friends', 'Friends', 'friends'], ['journal', 'Journal', 'journal']];
-const views = [focus, haven, collection, friends, journal, settings];
+const views = [focus, haven, collection, friends, journal, settings, sanctuary];
 const merge = key => Object.assign({}, ...views.map(v => v[key] || {}));
 const actions = merge('actions'), forms = merge('forms'), inputs = merge('inputs'), changes = merge('changes');
 
@@ -64,7 +66,9 @@ function render() {
   paintRanges(view);
   view.scrollTop = scroll;
   if (key) [...view.querySelectorAll('[data-action]')].find(el => [el.dataset.action, el.dataset.id, el.dataset.value, el.dataset.page].join('|') === key)?.focus({ preventScroll: true });
-  for (const tab of document.querySelectorAll('.tabs button')) { if (tab.dataset.page === app.ui.page) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current'); }
+  // A sanctuary is reached from Friends, so Friends stays lit while it is open.
+  const lit = app.ui.page === 'sanctuary' ? 'friends' : app.ui.page;
+  for (const tab of document.querySelectorAll('.tabs button')) { if (tab.dataset.page === lit) tab.setAttribute('aria-current', 'page'); else tab.removeAttribute('aria-current'); }
   $('#coins').textContent = store.state.coins;
   document.body.classList.toggle('in-session', Boolean(store.state.active || store.state.cycle?.breakUntil));
   document.body.dataset.page = app.ui.page;
@@ -135,11 +139,27 @@ function wire() {
 
 // ——— Events from the store, the timer and the server ———
 
+/** Reminders depend on sessions and animals; work them out again shortly after either changes. */
+let reminderTimer = null;
+function remindersSoon() { clearTimeout(reminderTimer); reminderTimer = setTimeout(() => syncReminders(store, app.now()), 1500); }
+
+/** A friend did something. In the app it is a message; with Haven in the background, a notification. */
+function news(item) {
+  const text = newsText(item);
+  if (!text) return;
+  if (document.visibilityState === 'hidden') { if (store.state.settings.notify[text.kind]) device.notifyNow(text.title, text.body, 'news-' + (item.id || item.kind)); return; }
+  toast(text.body);
+}
+
 function listen() {
   store.subscribe(what => {
     if (what === 'away') return;
+    if (['session', 'sessions', 'care', 'haven', 'state'].includes(what)) remindersSoon();
+    if (what === 'settings') { remindersSoon(); syncNewsAccount(app.social, store); }
     if (what === 'care') { app.social.scheduleBackup(); if (app.ui.page === 'focus') render(); else $('#coins').textContent = store.state.coins; return; }
-    if (what === 'haven' || what === 'session' || what === 'collection' || what === 'sessions' || what === 'state') { app.social.pushCard(); if (what !== 'haven') app.social.scheduleBackup(); }
+    if (what === 'haven' || what === 'session' || what === 'collection' || what === 'sessions' || what === 'state') app.social.pushCard();
+    // Every change reaches this account's other devices a few seconds later.
+    if (what !== 'cycle') app.social.scheduleBackup();
     if (what === 'state') applyTheme();
     if (store.saveError && !listen.warned) { listen.warned = true; toast('This phone is not letting Haven save. Free some space, or your progress may be lost.'); }
     render();
@@ -149,7 +169,7 @@ function listen() {
     if (type === 'tick') return focus.tick(app, payload);
     if (type === 'break-tick') return focus.tickBreak(app, payload);
     if (type === 'started') { if (dialogOpen()) closeDialog(); app.ui.edit = { on: false, picked: null, item: null }; if (app.ui.page !== 'focus') go('focus'); else render(); return; }
-    if (type === 'finished') { render(); focus.resultDialog(app, payload); if (document.visibilityState === 'hidden') notifyDone(payload); return; }
+    if (type === 'finished') { render(); focus.resultDialog(app, payload); if (document.visibilityState === 'hidden' && store.state.settings.notify.done) notifyDone(payload); return; }
     if (type === 'failed') { render(); focus.failedDialog(app, payload); return; }
     if (type === 'cancelled') { render(); toast('Session cancelled.'); return; }
     if (type === 'short') { render(); toast(`Under ${payload.least} min, so nothing grew this time. You focused for ${payload.minutes} min.`); return; }
@@ -159,6 +179,8 @@ function listen() {
 
   app.social.subscribe((type, payload) => {
     if (type === 'toast') return toast(payload);
+    if (type === 'news') return news(payload);
+    if (type === 'status') syncNewsAccount(app.social, store);
     if (type === 'friends-count') return app.announce(store.setFriendCount(payload));
     if (type === 'status' || type === 'change') {
       if (app.ui.page === 'friends' || (app.ui.page === 'focus' && !store.state.active)) { if (!document.activeElement?.closest?.('#view form')) render(); }
@@ -166,6 +188,7 @@ function listen() {
       return;
     }
     if (type === 'inbox') return inbox(payload);
+    if (type === 'sanctuary') return sanctuary.changed(app, payload);
     if (type === 'room') return roomChanged(payload);
     if (type === 'friend-focus' && app.ui.page !== 'friends' && !store.state.active) toast(`${payload.name} started focusing.`);
   });
@@ -181,13 +204,18 @@ function inbox(item) {
   const from = item.from.name;
   if (item.kind === 'invite') {
     if (store.state.active || app.social.data.room) { app.social.ack([item.id]); return; }
+    if (document.visibilityState === 'hidden') news(item);
     return friends.inviteReceived(app, item);
+  }
+  if (item.kind === 'sanctuary') {
+    if (document.visibilityState === 'hidden') news(item);
+    return sanctuary.invited(app, item);
   }
   if (item.kind === 'gift') {
     const got = store.receiveGift(item.data.species, from, item.id), sp = speciesById(item.data.species);
     if (got && sp) toast(`${from} sent you a ${sp.name.toLowerCase()}. ${store.state.haven.spots[got.id] ? 'It is in your haven.' : 'It is in storage.'}`);
-  } else if (item.kind === 'cheer') toast(`${from} cheered you on.`);
-  else if (item.kind === 'nudge') toast(`${from} is nudging you to focus.`);
+    if (got && document.visibilityState === 'hidden') news(item);
+  } else news(item);
   if (store.state.settings.haptics) device.haptic('light');
   app.social.ack([item.id]);
 }
@@ -225,6 +253,8 @@ async function boot() {
     if (app.social.signedIn) { await app.social.connect(); if (app.ui.pendingAdd) { const code = app.ui.pendingAdd; app.ui.pendingAdd = null; friends.addDialog(app, code); } }
   }
   syncReminder();
+  syncReminders(store, app.now());
+  syncNewsAccount(app.social, store);
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('./sw.js').catch(() => {});
   // Refresh presence text ("12 min left") once a minute while it is on screen.
   setInterval(() => { if (app.ui.page === 'friends' && document.visibilityState === 'visible' && !dialogOpen() && !document.activeElement?.closest?.('#view form')) render(); }, 60000);

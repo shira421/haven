@@ -5,6 +5,7 @@
 
 import { n, tone, E, C, P, L, G, rot, mirror, shadow, INK } from './shapes.js';
 import { animals } from './creatures.js';
+import { artOf } from './catalog.js';
 export { tone };
 
 
@@ -87,6 +88,28 @@ const plants = {
     const spike = (x, top, bend) => stem(x, 90, top + 12, '#7d9e6a', bend, 1.3) + Array.from({ length: 7 }, (_, i) => E(x + bend * 0.6 + (i % 2 ? 1.4 : -1.4), top + 13 - i * 2.6, 2.3 - i * 0.14, 1.9, i % 3 === 0 ? '#9a7ad6' : '#8463c9')).join('');
     return shadow(21) + leaf(44, 90, 18, 2, -34, '#8fae7a') + leaf(56, 90, 18, 2, 34, '#8fae7a') + leaf(50, 90, 16, 2, 8, '#8fae7a')
       + spike(32, 44, -6) + spike(68, 46, 6) + spike(41, 32, -3) + spike(59, 34, 3) + spike(50, 24, 0);
+  },
+  lily() {
+    // Six petals curling back from a long throat, with stamens reaching out.
+    const bloom = (x, y, s, deg, c) => {
+      const petal = a => rot(P('M0 0C-3 -4 -3.4 -11 0 -17C3.4 -11 3 -4 0 0Z', c) + L('M0 -2V-13', tone(c, -0.14), 0.6, ' opacity=".7"'), a, 0, 0);
+      const spots = [[-2, -6], [2, -7], [-1, -9], [1.6, -4.4]].map(([a, b]) => C(a, b, 0.45, tone(c, -0.4))).join('');
+      return G([-150, -100, -50, 50, 100, 150].map(petal).join('') + petal(-15) + petal(15) + spots + C(0, 0, 2, tone(c, -0.2))
+        + [-14, 0, 14].map(a => rot(L('M0 0V-12', '#7da25a', 0.6) + E(0, -12.4, 0.7, 1.4, '#b35a2c'), a, 0, 0)).join(''), `translate(${x} ${y}) rotate(${deg}) scale(${s})`);
+    };
+    const bud = (x, y, deg) => rot(E(x, y, 2.2, 6, '#f6d8e2') + E(x + 0.6, y, 1.2, 5.4, '#eebccc'), deg, x, y);
+    return shadow(19) + stem(50, 90, 30, DEEP, -2, 2) + stem(50, 90, 46, DEEP, 9, 1.8)
+      + leaf(50, 86, 16, 2.6, -48, GREEN) + leaf(50, 80, 15, 2.4, 56, LIME) + leaf(49.5, 70, 14, 2.2, -60, GREEN) + leaf(49, 60, 12, 2, 58, LIME) + leaf(48.6, 48, 10, 1.8, -54, GREEN)
+      + bud(56, 42, 24) + bloom(46.5, 31, 1.15, -18, '#fbeef2') + bloom(62, 47, 0.9, 30, '#f7c7d6');
+  },
+  bougainvillea() {
+    // A woody shrub covered in clusters of three papery bracts, each round a tiny white flower.
+    const bract = (x, y, s, deg, c) => G([0, 120, 240].map(a => rot(P('M0 0C-4 -2 -5 -7 0 -9C5 -7 4 -2 0 0Z', c) + L('M0 -1.4V-7', tone(c, -0.16), 0.5), a, 0, 0)).join('') + C(0, 0, 1.1, '#fffbe8'), `translate(${n(x)} ${n(y)}) rotate(${deg}) scale(${s})`);
+    const pinks = ['#d6338a', '#e24c9b', '#c72a7c', '#ee6aad'];
+    const spots = [[30, 52, 0.95], [40, 40, 1.1], [52, 32, 1.15], [64, 38, 1.05], [72, 52, 0.95], [44, 56, 1], [58, 50, 1.1], [36, 66, 0.85], [66, 64, 0.85], [50, 44, 0.9], [24, 64, 0.8], [77, 64, 0.8], [58, 26, 0.85], [44, 28, 0.85]];
+    return shadow(27) + L('M50 90C49 80 46 74 40 66M50 90C51 80 55 74 62 64M47 78C44 72 34 70 28 62M53 76C58 70 68 70 74 60', '#7a5238', 2.4)
+      + canopy([[34, 58, 10], [66, 58, 10], [50, 44, 14], [40, 46, 11], [60, 44, 11], [50, 60, 10], [26, 66, 7], [74, 66, 7]], '#4f9454')
+      + spots.map(([x, y, k], i) => bract(x, y, k, i * 37, pinks[i % pinks.length])).join('');
   },
   blueberry() {
     const berry = (x, y) => C(x, y, 3.1, '#4c67c9') + C(x - 0.9, y - 0.9, 1, '#93a6ee') + C(x + 0.6, y + 0.4, 0.7, '#2f437f');
@@ -253,7 +276,7 @@ export function stageAt(fraction) {
 
 /** The inside of the SVG for a species at a stage. Nature starts as a marked patch of earth. */
 export function drawing(id, { kind = 'plant', stage = 3, withered = false } = {}) {
-  const art = ART[id];
+  const art = ART[id] || ART[artOf(id)];
   if (!art) return stages.seed();
   if (kind === 'nature') return withered || stage <= 1 ? stages.patch() : stage === 2 ? G(art(), 'translate(50 90) scale(.62) translate(-50 -90)') : art();
   if (withered) {

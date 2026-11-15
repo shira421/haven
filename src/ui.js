@@ -56,8 +56,9 @@ export function paintRanges(root = document) {
 
 /** A species drawn at its natural size for lists and cards. */
 export function avatar(id, cls = '') {
-  const s = speciesById(id) || speciesById('rabbit');
-  return `<span class="avatar ${s.kind}${cls ? ' ' + cls : ''}">${sprite(s.id, { kind: s.kind })}</span>`;
+  // `id` is a species, or a species and breed ("dog:corgi").
+  const s = speciesById(String(id).split(':')[0]) || speciesById('rabbit');
+  return `<span class="avatar ${s.kind}${cls ? ' ' + cls : ''}">${sprite(String(id).includes(':') ? id : s.id, { kind: s.kind })}</span>`;
 }
 
 /** A choice among a few views. `items` is [[value, label], …]. */

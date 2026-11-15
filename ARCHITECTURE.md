@@ -37,6 +37,10 @@ The same `dist/` folder is served by GitHub Pages and packed into both phone app
 - **Care** is plain data on each animal (`fed`, `pet`, `bond`, `name`) with the rules in `core.js` (`hungerOf`, `bondLevel`, `moodOf`). Hunger is worked out from the clock, like sessions, so nothing needs to run while the app is closed.
 - **Drawing.** `art.js` returns SVG text for each species, built from a small set of shape helpers, so there are no image files. `scene.js` lays sprites on the land, back to front. Screens are template strings set as `innerHTML`, with every value escaped through `e()`. Clicks are routed by `data-action`.
 - **Offline.** `public/sw.js` keeps the app's own files. Sessions finished offline are sent to the server later.
+- **One haven on several devices.** `sync.js` keeps every device of a profile in step. The server holds one copy of the haven with a revision number. Each device remembers the last copy it agreed on (the base, under `haven-sync`). On opening, on coming back to the front, a few seconds after any change, and whenever the server says another device saved, the device fetches the server's copy and, if it is newer, joins it with its own in a three-way merge against the base: whatever either side changed since the base wins, so a move, a release, a purchase or a deleted session on one device is not undone by the other. Counters (coins, treats, feeds) add both sides' changes; an achievement, a level or a bond level reached on both is paid once. The device then saves the result with the revision it was based on; if another device saved first, the server refuses (409) and the device joins again. A running session stays with the device it runs on.
+- **Notifications.** `notices.js` schedules the streak and hunger reminders from the state each time it changes, and tells the phone which server to check for news. `timer.js` schedules the come-back notification when Haven goes to the background during a session; the native side withdraws it if the phone locked.
+- **Sanctuaries.** `scene.js` lays members' havens out as plots on a near-square grid (`sanctuaryLayout`) and draws them as one land (`sanctuaryHTML`). `world.js` takes a land made of plots: animals are kept off the outer edges only, so they walk from one plot into the next. `views/sanctuary.js` fetches, lays out and warms up the simulation behind a loading screen, then runs it with the same painter as the home screen.
+- **Breeds.** What an item is drawn as is its species, or species and breed (`dog:corgi`, see `artOf`). Old ids are mapped (`RENAMED`: a `shiba` is a `dog` of the shiba breed).
 
 ## The friends server
 
@@ -45,28 +49,32 @@ The same `dist/` folder is served by GitHub Pages and packed into both phone app
 Why one object: every friend request, presence change and room touches several people at once. One single-threaded object with one database makes each of those a plain transaction with nothing to reconcile, and lets a change be pushed straight to the sockets of the people it affects. It needs no database to create by hand: `wrangler deploy` makes it from `wrangler.toml`.
 
 - **Identity.** Registering returns a random 48-character token. The server stores only its SHA-256 hash. Every call sends the token as a bearer header. There are no cookies, so any origin may call the API (`Access-Control-Allow-Origin: *`) without cross-site risk.
-- **Live connection.** The app asks for a one-time ticket (30 s) over HTTPS, then opens `wss://…/api/live?ticket=…`. The long-lived token never appears in a URL. The server pushes small messages (`presence`, `request`, `accepted`, `inbox`, `room`, `feed`, `friends`); everything the app sends goes over HTTPS. If the socket drops, the app reconnects with backoff and refetches.
+- **Live connection.** The app asks for a one-time ticket (30 s) over HTTPS, then opens `wss://…/api/live?ticket=…`. The long-lived token never appears in a URL. The server pushes small messages (`presence`, `request`, `accepted`, `inbox`, `room`, `feed`, `friends`, `state`, `sanctuary`, `haven`); everything the app sends goes over HTTPS. If the socket drops, the app reconnects with backoff and refetches.
 - **Sessions.** The server stamps the start with its own clock and only accepts "finished" once the planned time has passed (30 s tolerance). Sessions done offline can be added for 7 days if they do not overlap others. This keeps the board honest among friends; it is not anti-cheat for strangers.
 - **Rooms.** The host's start sets one start time 5 s ahead on the server's clock. Each app shifts it by its measured clock offset, so everyone counts down together. In a "together" room, one person leaving marks every session in it failed and pushes that to the others.
 - **Limits.** Each sensitive route is rate-limited per person or per network address (five new profiles an hour per address, one cheer a minute per friend, and so on). Inputs are validated and sized. Old rows are cleaned hourly.
+- **Sanctuaries.** Two tables, `sanctuaries` and `keepers`. Only members can read a sanctuary, and reading it returns each member's public card (the same layout friends see on a visit). Joining is by code or by accepting an invitation from a friend. A change to a member's card is pushed to everyone who shares a sanctuary with them.
+- **Shared haven.** `PUT /api/state` takes the revision the device last saw (`base`) and refuses an older one with 409; each save is pushed to the person's other open devices as `state`. A save without `base` (an older app) is accepted.
+- **News.** `GET /api/news?since=` returns friend requests and inbox items since a time, small enough for a phone to check in the background.
 - **Test clock.** When the `TEST_CLOCK` binding is set (only by the test harness), requests may carry a time. `wrangler.toml` never sets it, and a test checks a server without it ignores the header.
 
 ### Routes
 
-`POST /api/register`, `POST /api/link/claim` (no token). With a token: `GET /api/me`, `POST /api/profile`, `GET /api/find`, `POST /api/friends/{request,respond,cancel,remove,block,unblock}`, `GET /api/blocks`, `GET /api/friends/:id`, `GET /api/board`, `GET /api/feed`, `POST /api/session/{start,end,log}`, `POST /api/cheer`, `POST /api/gift`, `POST /api/inbox/ack`, `POST /api/rooms`, `POST /api/rooms/{join,leave,invite,start,species}`, `GET /api/rooms/:code`, `POST /api/link`, `PUT|GET /api/state`, `POST /api/logout`, `POST /api/account/delete`, `POST /api/live/ticket`, `GET /api/live` (WebSocket), `GET /health`.
+`POST /api/register`, `POST /api/link/claim` (no token). With a token: `GET /api/me`, `POST /api/profile`, `GET /api/find`, `POST /api/friends/{request,respond,cancel,remove,block,unblock}`, `GET /api/blocks`, `GET /api/friends/:id`, `GET /api/board`, `GET /api/feed`, `POST /api/session/{start,end,log}`, `POST /api/cheer`, `POST /api/gift`, `POST /api/inbox/ack`, `POST /api/rooms`, `POST /api/rooms/{join,leave,invite,start,species}`, `GET /api/rooms/:code`, `POST /api/link`, `PUT|GET /api/state`, `GET /api/news`, `GET /api/sanctuaries`, `GET /api/sanctuaries/:id`, `POST /api/sanctuaries`, `POST /api/sanctuaries/{join,invite,leave,edit}`, `POST /api/logout`, `POST /api/account/delete`, `POST /api/live/ticket`, `GET /api/live` (WebSocket), `GET /health`.
 
 ### Known limits
 
 - One object handles requests one at a time and has a storage cap (see Cloudflare's current limits for the free plan). That is comfortable for thousands of people, not for millions. The step after that is one object per person plus one per room; `hub.js` keeps storage behind a single `sql` function to make that move possible.
 - The object lives in one region (hinted to Asia-Pacific on first use). People far away see more delay.
-- There is no server push to a closed app.
+- There is no server push to a closed app. The apps check `GET /api/news` in the background instead.
+- Columns added after the first release are added on start (`ADDED_COLUMNS`); adding one twice fails harmlessly.
 
 ## The phone apps
 
-Both show the bundled `dist/` from a private origin (`haven://app/` on iOS, `https://appassets.androidplatform.net/assets/` on Android) and expose one bridge (`havenDevice` / `HavenNative`) with these actions: `notifyPermission`, `schedule`, `notify`, `cancel`, `reminder`, `keepAwake`, `haptic`, `share`, `away`.
+Both show the bundled `dist/` from a private origin (`haven://app/` on iOS, `https://appassets.androidplatform.net/assets/` on Android) and expose one bridge (`havenDevice` / `HavenNative`) with these actions: `notifyPermission`, `schedule`, `notify`, `cancel`, `reminder`, `keepAwake`, `haptic`, `share`, `away`, `account`.
 
-- **iOS** (`ios/`, generated by XcodeGen): `AwayTracker` notes each move to the background and whether a screen-lock notification arrived with it. Notifications use `UNUserNotificationCenter`.
-- **Android** (`android/`): `onStop` records whether the screen was off or the keyguard up. `Notifier` posts alarms as notifications and restores the daily reminder after a restart.
+- **iOS** (`ios/`, generated by XcodeGen): `AwayTracker` notes each move to the background and whether a screen-lock notification arrived with it, and withdraws a pending come-back notification when the phone locks. Notifications use `UNUserNotificationCenter`. `NewsChecker` registers a background refresh task (`com.shira421.haven.news`) that checks `GET /api/news`; the sign-in token for it is kept in the Keychain.
+- **Android** (`android/`): `onStop` records whether the screen was off or the keyguard up, and cancels the come-back notification if so. `Notifier` posts alarms as notifications and restores the daily reminder after a restart. `Inbox` is a `JobService` run about every 15 minutes with a connection, which checks `GET /api/news` while Haven is not on screen.
 
 ## Finding the server
 

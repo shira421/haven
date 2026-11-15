@@ -3,14 +3,15 @@ import { e, $, icon, openDialog, closeDialog, toast, field, switchRow, formError
 import { ANIMALS } from '../catalog.js';
 import { SOUNDS } from '../sound.js';
 import { prettyCode } from '../social.js';
-import { formatAgo } from '../core.js';
+import { formatAgo, formatAway, warnAfter } from '../core.js';
 import * as device from '../device.js';
 
-const ALLOWANCES = [[5, '5 s'], [15, '15 s'], [30, '30 s'], [60, '1 min'], [120, '2 min'], [300, '5 min']];
+const ALLOWANCES = [[30, '30 s'], [45, '45 s'], [60, '1 min'], [90, '1.5 min'], [120, '2 min']];
 const select = (action, options, current) => `<select data-change="${action}">${options.map(([v, t]) => `<option value="${e(v)}" ${String(v) === String(current) ? 'selected' : ''}>${e(t)}</option>`).join('')}</select>`;
 
 export function settingsDialog(app, section = null) {
   const { store, social } = app, s = store.state.settings, native = device.bridge();
+  const notifySwitch = (kind, label, hint) => `<label class="switch-row"><span><b>${e(label)}</b>${hint ? `<small>${e(hint)}</small>` : ''}</span><input type="checkbox" data-change="notify" data-kind="${kind}" ${s.notify[kind] ? 'checked' : ''}></label>`;
   const lockNote = native ? 'Locking the phone does not count as leaving.' : 'A browser cannot tell a locked phone from a switched app, so keep the screen on, or use the iOS or Android app.';
   const profile = !social.base ? '<p class="note">Friends are not switched on for this copy of Haven.</p>'
     : social.signedIn ? `<div class="me-card">${avatar(social.account.avatar, 'large')}<div class="row-main"><b>${e(social.account.name)}</b><span>@${e(social.account.handle)}, code ${prettyCode(social.account.code)}</span></div></div>
@@ -21,15 +22,22 @@ export function settingsDialog(app, section = null) {
   openDialog('Settings', `<h3 class="group-title" id="set-focus">Focus</h3>
 ${switchRow('Deep focus', 'deep', s.deep, `Leaving Haven during a session withers the plant. ${lockNote}`)}
 ${field('Time away that is forgiven', select('allowance', ALLOWANCES, s.allowance), 'Enough to answer a message or change a song.')}
-${device.canKeepAwake() ? switchRow('Keep the screen on', 'keepAwake', s.keepAwake, 'While a session runs.') : ''}
+${device.canKeepAwake() ? switchRow('Keep the screen on', 'keepAwake', s.keepAwake, native ? 'While a session runs. Off lets the phone lock as usual, which is not leaving.' : 'While a session runs.') : ''}
 ${switchRow('Place new plants and animals for me', 'autoPlace', s.autoPlace, 'On a free tile. You can move them later.')}
 <h3 class="group-title">Sounds</h3>
 ${field('Background sound', select('sound', SOUNDS.map(x => [x.id, x.name]), s.sound))}
 <label class="form-field"><span>Volume</span><input type="range" min="0" max="1" step="0.05" value="${s.volume}" data-input="volume"></label>
 ${switchRow('Chime when a session finishes', 'chime', s.chime)}
 ${switchRow('Vibration', 'haptics', s.haptics)}
-<h3 class="group-title">Reminder</h3>
-${device.canSchedule() ? `${switchRow('Remind me to focus every day', 'reminder-on', s.reminder.on)}${field('At', `<input type="time" value="${s.reminder.time}" data-change="reminder-time">`)}` : '<p class="note">Daily reminders and a notification when a session ends need the iOS or Android app. In a browser, Haven can notify you only while it is open.</p><div class="button-row"><button class="secondary wide" data-action="allow-notify">Allow notifications</button></div>'}
+<h3 class="group-title" id="set-notify">Notifications</h3>
+${native ? '' : '<p class="note">In a browser, Haven can notify you only while it is open in a tab. Reminders need the iOS or Android app.</p><div class="button-row"><button class="secondary wide" data-action="allow-notify">Allow notifications</button></div>'}
+${notifySwitch('done', 'A session finishes', '')}
+${notifySwitch('away', 'Come back to Haven', `If you switch apps during a session, after ${formatAway(warnAfter(s.allowance))}.`)}
+${notifySwitch('friends', 'Friend requests and invitations', native ? 'Checked about every 15 minutes while Haven is closed.' : '')}
+${notifySwitch('social', 'Cheers, nudges and gifts', '')}
+${native ? `${notifySwitch('streak', 'Streak about to end', 'At 8 pm on a day you have not focused yet.')}
+${notifySwitch('hungry', 'Animals are hungry', 'Once a day at most, never at night.')}
+${switchRow('Remind me to focus every day', 'reminder-on', s.reminder.on)}${field('At', `<input type="time" value="${s.reminder.time}" data-change="reminder-time">`)}` : ''}
 <h3 class="group-title">Look</h3>
 ${field('Theme', select('theme', [['system', 'Same as the phone'], ['light', 'Light'], ['dark', 'Dark']], s.theme))}
 <h3 class="group-title">Profile</h3>${profile}
@@ -96,6 +104,10 @@ export const changes = {
   deep: (app, el) => app.store.set({ deep: el.checked }),
   allowance: (app, el) => app.store.set({ allowance: Number(el.value) }),
   keepAwake: (app, el) => app.store.set({ keepAwake: el.checked }),
+  notify: async (app, el) => {
+    if (el.checked && (await device.notificationPermission(true)) === 'denied') { el.checked = false; toast('Allow notifications for Haven in the phone settings first.'); return; }
+    app.store.set({ notify: { ...app.store.state.settings.notify, [el.dataset.kind]: el.checked } });
+  },
   autoPlace: (app, el) => app.store.set({ autoPlace: el.checked }),
   sound: (app, el) => { app.store.set({ sound: el.value }); if (app.store.state.active) app.sound.start(el.value, app.store.state.settings.volume); },
   chime: (app, el) => { app.store.set({ chime: el.checked }); if (el.checked) app.sound.chime(); },

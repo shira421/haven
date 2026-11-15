@@ -285,7 +285,9 @@ test('settings are kept inside their limits', () => {
   const { store } = make();
   store.set({ minutes: 999, allowance: 1, species: 'panda', theme: 'neon', volume: 4 });
   assert.equal(store.state.settings.minutes, 180);
-  assert.equal(store.state.settings.allowance, 5);
+  assert.equal(store.state.settings.allowance, 30);
+  store.set({ allowance: 600 });
+  assert.equal(store.state.settings.allowance, 120);
   assert.equal(store.state.settings.species, 'clover');
   assert.equal(store.state.settings.theme, 'system');
   assert.equal(store.state.settings.volume, 1);
@@ -347,4 +349,23 @@ test('what friends can see holds no private data', () => {
   assert.equal(card.tiles[0][2], 'clover');
   assert.equal(card.tiles[0].length, 4);
   assert.equal(card.of, SPECIES.length);
+});
+
+test('a shiba from before 1.3 becomes a dog that is still a shiba; new dogs are mixed', () => {
+  const old = migrate({ unlocked: ['clover', 'shiba'], items: [{ id: 'i1', s: 'shiba', z: 2, at: T0 }], haven: { spots: { i1: [1, 1] } }, sessions: [{ id: 's1', start: T0, end: T0, status: 'done', minutes: 25, species: 'shiba' }], settings: { species: 'shiba', keepAwake: true, allowance: 15 } }, T0);
+  assert.ok(old.unlocked.includes('dog') && !old.unlocked.includes('shiba'));
+  assert.deepEqual([old.items[0].s, old.items[0].breed], ['dog', 'shiba']);
+  assert.equal(old.sessions[0].species, 'dog');
+  assert.equal(old.settings.species, 'dog');
+  assert.equal(old.settings.keepAwake, false, 'the screen may lock now unless chosen again');
+  assert.equal(old.settings.allowance, 30, 'time away is from 30 s to 2 min');
+  const { store, clock } = make(old);
+  store.set({ keepAwake: true });
+  assert.equal(migrate(store.state, T0).settings.keepAwake, true, 'a choice made since sticks');
+  store.begin({ minutes: 25, species: 'dog', tag: 'study' }); clock.t += 25 * 60000;
+  const r = store.finish();
+  assert.equal(r.item.breed, 'mixed');
+  assert.equal(store.setBreed(r.item.id, 'corgi').ok, true);
+  assert.equal(store.setBreed(r.item.id, 'poodle').ok, false);
+  assert.equal(store.publicCard().tiles.find(t => t[2] === 'dog' && t[4] === 'corgi') !== undefined, true);
 });

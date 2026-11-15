@@ -5,8 +5,9 @@ import { speciesById } from '../catalog.js';
 import { inviteLink, prettyCode } from '../social.js';
 import { worldHTML, thingsFromCard } from '../scene.js';
 import { share, copyText } from '../device.js';
+import * as sanctuary from './sanctuary.js';
 
-const TABS = [['friends', 'Friends'], ['together', 'Together'], ['board', 'Board'], ['activity', 'Activity']];
+const TABS = [['friends', 'Friends'], ['together', 'Together'], ['sanctuary', 'Sanctuary'], ['board', 'Board'], ['activity', 'Activity']];
 const STATUS = { live: 'Live', connecting: 'Connecting', offline: 'Reconnecting', 'signed-out': '' };
 
 function presence(f, now) {
@@ -24,10 +25,9 @@ export function render(app) {
   if (!social.base) return `<section class="page friends" data-page="friends"><h1 class="page-title">Friends</h1>${empty('Friends are not switched on for this copy of Haven yet. Everything else works. The README in the repository explains how to switch them on.')}</section>`;
   if (!social.signedIn) return signedOut(app);
   const tab = app.ui.friendsTab, me = social.account;
-  const body = tab === 'friends' ? friendsTab(app) : tab === 'together' ? togetherTab(app) : tab === 'board' ? boardTab(app) : activityTab(app);
+  const body = tab === 'friends' ? friendsTab(app) : tab === 'together' ? togetherTab(app) : tab === 'sanctuary' ? sanctuary.tab(app) : tab === 'board' ? boardTab(app) : activityTab(app);
   return `<section class="page friends" data-page="friends"><h1 class="page-title">Friends</h1>
-<div class="me-card">${avatar(me.avatar, 'large')}<div class="row-main"><b>${e(me.name)}</b><span>@${e(me.handle)}</span></div>
-<span class="live ${social.status}" role="status">${STATUS[social.status]}</span>
+<div class="me-card">${avatar(me.avatar, 'large')}<div class="row-main"><b>${e(me.name)}</b><span>@${e(me.handle)}</span><span class="live ${social.status}" role="status">${STATUS[social.status]}</span></div>
 <button class="primary" data-action="add-friend">${icon('plus')}Add friend</button></div>
 ${social.status === 'offline' ? '<p class="note">Cannot reach the friends server. Sessions are saved on this phone and sent when you are back.</p>' : ''}
 ${segmented('friends-tab', TABS, tab, 'Friends sections')}${body}</section>`;
@@ -109,6 +109,7 @@ export async function load(app) {
   try {
     if (tab === 'board') { app.ui.board = await social.board(app.ui.boardPeriod); app.renderIf('friends'); }
     if (tab === 'activity') await social.feed();
+    if (tab === 'sanctuary') await sanctuary.loadList(app);
   } catch (error) { toast(error.message); }
 }
 

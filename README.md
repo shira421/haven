@@ -8,26 +8,30 @@ One web app runs everywhere: in a browser, installed from the browser on iPhone 
 | --- | --- | --- | --- |
 | ![The haven by day](docs/media/haven-day.png) | ![The haven at night](docs/media/haven-night.png) | ![A session in progress](docs/media/session.png) | ![An animal's care screen](docs/media/animal.png) |
 
-| Friends, live | A room | Journal |
-| --- | --- | --- |
-| ![Friends screen](docs/media/friends.png) | ![A room about to start](docs/media/room.png) | ![Journal](docs/media/journal.png) |
+| Friends, live | A room | A sanctuary | Journal |
+| --- | --- | --- | --- |
+| ![Friends screen](docs/media/friends.png) | ![A room about to start](docs/media/room.png) | ![Two havens joined in a sanctuary](docs/media/sanctuary.png) | ![Journal](docs/media/journal.png) |
 
 ## What it does
 
 - **The haven is the home screen.** Your land floats under a sky that follows the time of day. Start a session and a day passes over it: the sun rises, crosses and sets as the time runs, while the new plant grows where it was planted.
-- **Animals with lives of their own.** 27 animals, drawn in profile with legs, wings, tails and heads that move. They walk and trot, hop in arcs, fly and land, and steer round rocks and water. Frogs, ducks and otters swim in the pond with ripples round them; deer drink at its edge; rabbits and foxes go down the burrow; birds and squirrels sit up in the trees; bees land on the flower heads; cats lie by the fire. Plants rustle as animals brush past. After dark the day animals lie down and sleep while owls, foxes and hedgehogs stay up. Tap the ground and whoever is near comes over.
+- **Animals with lives of their own.** 29 animals, from a ladybird to an elephant, drawn in profile with legs, wings, tails and heads that move. They walk and trot, hop in arcs, fly and land, and steer round rocks and water. Frogs, ducks and otters swim in the pond with ripples round them; deer drink at its edge; rabbits and foxes go down the burrow; birds and squirrels sit up in the trees; bees land on the flower heads; cats lie by the fire. Plants rustle as animals brush past. After dark the day animals lie down and sleep while owls, foxes and hedgehogs stay up. Tap the ground and whoever is near comes over.
+- **Dogs, your way.** A dog can be any of seven breeds: mixed, shiba, golden retriever, corgi, husky, dalmatian or dachshund. Choose in its care sheet and change your mind any time.
 - **Care.** Every finished session earns treats. Feed and pet your animals, name them, and watch the bond grow through five levels, each paying coins. A hungry animal is slow and glum, and says so. Nothing ever dies or leaves because you were away.
 - **Nature you build.** A pond, a campfire, a burrow, a beehive, a bird house and more. Each needs a session of a minimum length (a pond takes 60 min), and animals come to use them. The fire and the lantern glow at night.
-- **27 plants** too, from clover to cherry blossom. Longer sessions grow bigger ones. Things unlock with coins, through goals (a 7-day streak brings a bear), or free in their season.
+- **29 plants** too, from clover to lily, bougainvillea and cherry blossom. Longer sessions grow bigger ones. Things unlock with coins, through goals (a 7-day streak brings a bear), or free in their season.
 - **Timer, stopwatch and pomodoro.** 5 to 180 minutes, a count-up stopwatch, or pomodoro rounds with breaks.
-- **Deep focus.** Leave Haven for longer than the time you allow and the session is lost. In the apps, locking the phone does not count as leaving.
+- **Deep focus.** Leave Haven for longer than the time you allow (30 s to 2 min) and the session is lost. A third of the way through, a notification asks you to come back. In the apps, the phone can lock as usual during a session: that does not count as leaving. Keeping the screen on is a setting.
 - **Arrange freely.** Drag anything anywhere on the land. The land grows with your level, from room for 25 things to room for 100.
 - **Friends, live.** Add people by code, username or invite link. See who is focusing right now and for how long. Cheer or nudge them. Visit their haven. Send them a plant, an animal or a piece of nature.
+- **Sanctuaries.** Make a group of up to nine friends and your havens are joined into one land, a square where it can be and a bay where it cannot. Everyone's animals wander from haven to haven. Opening one shows a short loading screen while the havens are fetched and joined.
 - **Focus together.** Open a room, invite friends, and everyone starts at the same moment. Choose whether one person leaving ends it for everyone or only for them. Finishing together earns more coins.
 - **Board and activity.** Rank yourself and your friends for today, the week, the month or all time, and see what everyone grew.
 - **Journal.** Day, week, month and year views with a chart, time by tag, best hour, streaks, every session, and 29 achievements.
 - **Sounds.** Rain, stream, wind, night crickets, campfire, brown and white noise, made on the device, so they work offline.
-- **Yours to keep.** Works offline. Light and dark. Backup file, server backup, and moving to another device with a one-time code.
+- **Notifications.** A session finishing, a reminder to come back, friend requests and acceptances, invitations, cheers, nudges and gifts, a streak about to end, hungry animals, and a daily reminder. Each can be switched off. While Haven is closed, the apps check for friends' news about every 15 minutes.
+- **One haven on every device.** Sign in a second device with a one-time code. From then on what you grow, move, feed, buy or let go on either one reaches the other within seconds when both are open, and on opening otherwise. Nothing is lost when both changed at once.
+- **Yours to keep.** Works offline. Light and dark. Backup file, server backup.
 
 [PRODUCT.md](PRODUCT.md) lists exactly what is built and what is not.
 
@@ -102,7 +106,7 @@ npm run icons          # redraw the app icons
 
 ## Privacy
 
-Without a profile nothing leaves your device. With a profile, the server stores your name, username, sessions (start, length, what grew), your haven's layout, your friends, and a backup of your haven if you make one. There is no email, no password, no advertising and no tracking. Delete your profile in Settings and the server removes all of it.
+Without a profile nothing leaves your device. With a profile, the server stores your name, username, sessions (start, length, what grew), your haven's layout, your friends, the sanctuaries you are in, and a copy of your haven so your devices stay in step. Everyone in a sanctuary with you can see your haven's layout. There is no email, no password, no advertising and no tracking. Delete your profile in Settings and the server removes all of it.
 
 ## Credits
 

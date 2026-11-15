@@ -15,8 +15,9 @@ People who study or work in focused blocks and want a reason to stay off their p
 | Timer | 5 to 180 min in 5 min steps. Cancel free in the first 10 s. |
 | Stopwatch | Counts up. Grows something from 10 min, stops by itself at 180 min. |
 | Pomodoro | Focus, short break, long break and rounds are all adjustable. The next round can start by itself. |
-| Deep focus | Away from Haven for longer than the allowance (5 s to 5 min) and the session fails. Can be turned off. |
-| Lock is not leaving | In the iOS and Android apps. A browser cannot tell the two apart, so the web app offers "Keep the screen on" instead. |
+| Deep focus | Away from Haven for longer than the allowance (30 s to 2 min, 30 s to start with) and the session fails. Can be turned off. |
+| Come back | A third of the way through the allowance (10 s of 30 s), a notification asks you to come back before the session is lost. Not sent when the phone was only locked. |
+| Lock is not leaving | In the iOS and Android apps the screen may turn off during a session, as it normally would. "Keep the screen on" is off unless you turn it on. A browser cannot tell a locked phone from a switched app, so there a locked phone counts as leaving. |
 | Tags | Up to 12, each with a colour, shown in the journal. |
 | Sounds | Seven background sounds and a finishing chime, generated on the device. |
 | Session survives a restart | A running session is stored and resumes, or is judged by how long Haven was closed. |
@@ -31,7 +32,7 @@ People who study or work in focused blocks and want a reason to stay off their p
 | Doing things | Swimming (sunk to the belly, with ripples), drinking at the bank, grazing, resting by the fire, hiding in the burrow, perching, landing on flowers, running when called or chased. |
 | Effects | A splash on entering water, dust when a big hop lands, leaves when something lands in a tree, plants rustling when brushed past. |
 | Calling | Tap the ground and up to three animals nearby come over. Fed animals stop to eat; petted ones jump. |
-| Likes | Each animal visits the plants and nature it likes: 27 sets of likes across flowers, trees, cover, water and built things. |
+| Likes | Each animal visits the plants and nature it likes: 29 sets of likes across flowers, trees, cover, water and built things. |
 | Into and onto things | Swimmers go into the pond. Perchers sit up in trees and on the bird house. Fliers hover over flowers. What is visited rustles. |
 | Each other | Animals walk up to greet each other and play chase. |
 | Day and night | After 6:30 pm day animals sleep where they are. Owls, foxes, raccoons, hedgehogs and fennecs stay up. The campfire and the lantern glow. |
@@ -40,6 +41,7 @@ People who study or work in focused blocks and want a reason to stay off their p
 | Petting | Any time. It counts toward the bond once an hour. |
 | Bond | Five levels. Each new level pays coins. Feeding a hungry animal bonds a little more. |
 | Names | Any animal can be named. |
+| Dog breeds | Mixed, shiba, golden retriever, corgi, husky, dalmatian, dachshund. Picked in the care sheet. Shibas from before 1.3 are dogs of the shiba breed. |
 | No punishment | A hungry animal is slow, stays close and asks for food. It never leaves, sickens or dies. |
 | Arranging | Drag anything to any point on the land, put it in storage, or let it go. |
 
@@ -47,7 +49,7 @@ People who study or work in focused blocks and want a reason to stay off their p
 
 | Feature | Notes |
 | --- | --- |
-| 27 plants and 27 animals | Original drawings. Four growth stages during a session. Three sizes by session length. |
+| 29 plants and 29 animals | Original drawings. Four growth stages during a session. Three sizes by session length. |
 | 10 nature items | Tall grass, tree stump, boulder, mossy log, burrow, bird house, beehive, stone lantern, campfire, pond. Each needs a session of 10 to 60 min or more. |
 | Coins | 2 a minute, more for longer sessions, streaks and friends. |
 | Unlocks | Coins, goals (for example a 120 min session for the bonsai) or free in season. Nothing costs money. |
@@ -68,7 +70,9 @@ People who study or work in focused blocks and want a reason to stay off their p
 | Rooms | Up to 8 people. Start together on the server's clock. "Ends for everyone" or "only they lose theirs". |
 | Board | You and your friends for today, week, month and all time. |
 | Activity | What you and your friends grew in the last 14 days. |
-| Other devices | A one-time code signs in a second device and brings the haven with it. |
+| Other devices | A one-time code signs in a second device and brings the haven with it. After that every change on one device reaches the others: within seconds when they are open, otherwise when they open. Changes made on two devices at once are joined, not overwritten. |
+| Sanctuaries | Groups of up to 9. Everyone's havens are joined into one land on a near-square grid, with stepping stones where two meet, and animals cross freely between them. A loading screen while the land is fetched and joined. Make, invite friends, join by code, leave; whoever made it can rename it and ask someone to leave. Up to 5 per person. |
+| Notifications | Session finished, come back, friend requests and acceptances, room and sanctuary invitations, cheers, nudges and gifts, streak about to end (8 pm), hungry animals (by day), daily reminder. Each can be switched off in Settings. |
 | Backup | To the server when signed in, or as a file. |
 
 ### How Forest's paid features map
@@ -90,11 +94,11 @@ People who study or work in focused blocks and want a reason to stay off their p
 
 - **Per-app allow list.** Letting chosen apps through needs Apple's Family Controls entitlement on iOS and usage-access permission with a background service on Android. Haven forgives a set time away instead.
 - **Planting real trees.**
-- **Animals in a friend's haven do not walk about.** A visit shows where things stand; they breathe and blink there, nothing more.
+- **Animals in a friend's haven do not walk about** on a visit. They do in a sanctuary.
 - **Animals do not interact with the session being grown**, and they do not breed, age or have different foods. There is one kind of treat.
 - **With reduced motion switched on in the phone's settings, animals stay still.** Care still works.
 - **Widgets, watch apps, and scheduled blocking.**
-- **Push notifications from the server.** A cheer reaches a closed app only when it is next opened. Session-end and reminder notifications are scheduled on the phone and do work while the app is closed, in the iOS and Android apps.
+- **Instant push from the server.** There is no Apple or Google push service behind Haven. While the app is closed, the phone checks for friends' news about every 15 minutes on Android, and when iOS allows it on iPhone (often less often). Session, come-back, streak, hunger and daily reminders are scheduled on the phone and arrive on time.
 - **Sounds while the phone is locked.**
 - **App Store and Play Store listings.** The apps are installed from the release page.
 - **Languages other than English.**
@@ -102,6 +106,7 @@ People who study or work in focused blocks and want a reason to stay off their p
 ## Limits to know
 
 - The friends server is one Durable Object. It suits a circle of friends up to a few thousand people. See ARCHITECTURE.md.
-- Coins, treats, bonds and the haven live on your device. The server checks session times for the board, not coins.
+- Coins, treats, bonds and the haven live on your devices, with a copy on the server that keeps them in step. The server checks session times for the board, not coins.
+- A sanctuary shows each haven as its owner last shared it. Animals there wander on their own; feeding happens in your own haven.
 - Where an animal is wandering is not saved. On opening the app each starts from where it was last put down.
 - A profile can only be reached from a device that is signed in. If every signed-in device is lost, so is access to the profile.

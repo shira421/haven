@@ -22,6 +22,7 @@ final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             permission(request: body["request"] as? Bool ?? false, reply: replyHandler)
         case "schedule":
             guard let id = body["id"] as? String, let at = body["at"] as? Double else { return replyHandler(nil, "Missing id or time.") }
+            if id == "away", AwayTracker.shared.recentlyLocked { return replyHandler(false, nil) }
             let seconds = max(1, at / 1000 - Date().timeIntervalSince1970)
             add(id: id, title: body["title"] as? String ?? "Haven", text: body["body"] as? String ?? "",
                 trigger: UNTimeIntervalNotificationTrigger(timeInterval: seconds, repeats: false), reply: replyHandler)
@@ -42,6 +43,11 @@ final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             when.minute = body["minute"] as? Int ?? 0
             add(id: "reminder", title: body["title"] as? String ?? "Time to focus", text: body["body"] as? String ?? "",
                 trigger: UNCalendarNotificationTrigger(dateMatching: when, repeats: true), reply: replyHandler)
+        case "account":
+            let kinds = body["kinds"] as? [String: Any]
+            NewsChecker.shared.setAccount(base: body["base"] as? String ?? "", token: body["token"] as? String ?? "",
+                                          friends: kinds?["friends"] as? Bool ?? true, social: kinds?["social"] as? Bool ?? true)
+            replyHandler(true, nil)
         case "keepAwake":
             UIApplication.shared.isIdleTimerDisabled = body["on"] as? Bool ?? false
             replyHandler(true, nil)

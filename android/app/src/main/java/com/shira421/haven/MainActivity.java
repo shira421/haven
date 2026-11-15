@@ -31,6 +31,8 @@ import org.json.JSONObject;
 public final class MainActivity extends Activity {
     private static final int REQUEST_NOTIFICATIONS = 1;
     private static final String PREFS = "haven-away";
+    /** True while Haven is on screen; background news checks then leave it to the app. */
+    static volatile boolean inFront = false;
     private WebView webView;
     private final List<String> notifyWaiting = new ArrayList<>();
 
@@ -55,10 +57,17 @@ public final class MainActivity extends Activity {
                 case "notifyPermission":
                     notificationPermission(id, m.optBoolean("request"));
                     break;
-                case "schedule":
-                    Notifier.schedule(this, m.optString("id", "session"), m.optLong("at"), m.optString("title", "Haven"), m.optString("body"));
+                case "schedule": {
+                    String which = m.optString("id", "session");
+                    // "Come back to Haven" is only for someone who switched apps, not for a locked phone.
+                    if ("away".equals(which) && phoneLocked()) {
+                        reply(id, false, null);
+                        break;
+                    }
+                    Notifier.schedule(this, which, m.optLong("at"), m.optString("title", "Haven"), m.optString("body"));
                     reply(id, true, null);
                     break;
+                }
                 case "notify":
                     Notifier.post(this, m.optString("id", "haven"), m.optString("title", "Haven"), m.optString("body"));
                     reply(id, true, null);
@@ -69,6 +78,11 @@ public final class MainActivity extends Activity {
                     break;
                 case "reminder":
                     Notifier.setReminder(this, m.optBoolean("on"), m.optInt("hour", 19), m.optInt("minute", 0), m.optString("title", "Time to focus"), m.optString("body"));
+                    reply(id, true, null);
+                    break;
+                case "account":
+                    // The friends server and this device's sign-in, for checking for news while Haven is closed.
+                    Inbox.setAccount(this, m.optString("base", ""), m.optString("token", ""), m.optJSONObject("kinds"));
                     reply(id, true, null);
                     break;
                 case "keepAwake":
@@ -196,12 +210,27 @@ public final class MainActivity extends Activity {
      * turned off: that does not count as leaving a session, while switching to another app does.
      */
     @Override
+    protected void onStart() {
+        super.onStart();
+        inFront = true;
+    }
+
+    @Override
     protected void onStop() {
         super.onStop();
+        inFront = false;
+        boolean locked = phoneLocked();
+        getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putLong("at", System.currentTimeMillis()).putBoolean("locked", locked).apply();
+        // The page may have asked for "come back" before the screen went dark. A locked phone is not leaving.
+        if (locked) Notifier.cancel(this, "away");
+        Inbox.schedule(this);
+    }
+
+    private boolean phoneLocked() {
         boolean screenOff = !getSystemService(PowerManager.class).isInteractive();
         boolean keyguard = getSystemService(KeyguardManager.class).isKeyguardLocked();
-        getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putLong("at", System.currentTimeMillis()).putBoolean("locked", screenOff || keyguard).apply();
+        return screenOff || keyguard;
     }
 
     // The page sees itself hidden and visible again through these.

@@ -1,9 +1,12 @@
 // The app's side of friends: the profile on this device, calls to the friends server, and the live
 // connection that brings requests, presence, rooms, cheers and gifts as they happen.
 import { startOfDay, startOfWeek, startOfMonth } from './core.js';
+import { mergeStates } from './store.js';
+import { threeWay, comparable } from './sync.js';
 
 export const SITE = 'https://shira421.github.io/haven/';
 const ACCOUNT_KEY = 'haven-account';
+const SYNC_KEY = 'haven-sync'; // {user, rev, base}: the last copy of the haven this device agreed on with the server
 
 export class SocialError extends Error {
   constructor(code, message) { super(message); this.code = code; }
@@ -42,7 +45,7 @@ export class Social {
     this.reset();
   }
 
-  reset() { this.data = { friends: [], incoming: [], outgoing: [], inbox: [], room: null, today: 0, backupAt: null, feed: null, loaded: false }; }
+  reset() { this.data = { friends: [], incoming: [], outgoing: [], inbox: [], room: null, today: 0, backupAt: null, feed: null, loaded: false, sanctuaries: null }; }
   subscribe(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
   emit(type, payload) { for (const fn of this.listeners) fn(type, payload); }
   setStatus(status) { if (this.status !== status) { this.status = status; this.emit('status', status); } }
@@ -81,7 +84,7 @@ export class Social {
   }
   forget() {
     this.account = null;
-    try { this.storage.removeItem(ACCOUNT_KEY); } catch { /* storage closed */ }
+    try { this.storage.removeItem(ACCOUNT_KEY); this.storage.removeItem(SYNC_KEY); } catch { /* storage closed */ }
     this.disconnect();
     this.reset();
     this.setStatus('signed-out');
@@ -100,7 +103,7 @@ export class Social {
     const r = await this.api('POST', '/api/link/claim', { code });
     this.saveAccount(r.user, r.token);
     this.setStatus('connecting');
-    await this.restore().catch(() => {});
+    await this.sync().catch(() => {});
     await this.connect();
     return r.user;
   }
@@ -119,22 +122,61 @@ export class Social {
     clearTimeout(this.cardTimer);
     this.cardTimer = setTimeout(() => { this.api('POST', '/api/profile', { card: this.store.publicCard() }).catch(() => {}); }, delay);
   }
-  /** Keep a copy of the haven on the server so another device, or a reinstall, can get it back. */
-  scheduleBackup(delay = 20000) {
-    if (!this.account || !this.base) return;
+  /** Share a change with the account's other devices soon after it is made. */
+  scheduleBackup(delay = 3000) {
+    if (!this.account || !this.base || this.adopting) return;
     clearTimeout(this.backupTimer);
-    this.backupTimer = setTimeout(() => { this.backup().catch(() => {}); }, delay);
+    this.backupTimer = setTimeout(() => { this.sync().catch(() => {}); }, delay);
   }
-  async backup() {
-    const r = await this.api('PUT', '/api/state', { state: this.store.exportState() });
-    this.data.backupAt = r.at;
-    this.emit('change');
-    return r.at;
+  backup() { return this.sync(); }
+
+  loadSync() {
+    try { const v = JSON.parse(this.storage.getItem(SYNC_KEY) || 'null'); return v && v.user === this.account?.id && Number.isInteger(v.rev) ? v : null; } catch { return null; }
   }
-  async restore() {
-    const r = await this.api('GET', '/api/state');
-    if (!r.state) return false;
-    return this.store.importState(r.state, { merge: true }).ok;
+  saveSync(rev, base) {
+    try { this.storage.setItem(SYNC_KEY, JSON.stringify({ user: this.account.id, rev, base })); } catch { /* full: the next sync falls back to joining everything */ }
+  }
+
+  /**
+   * Bring this device and the server to the same haven. Resolves when the server holds it.
+   * Only one runs at a time; a call made meanwhile runs once more afterwards.
+   */
+  sync() {
+    if (!this.account || !this.base) return Promise.resolve(null);
+    if (this.syncing) { this.syncAgain = true; return this.syncing; }
+    this.syncing = (async () => {
+      try { let at; do { this.syncAgain = false; at = await this.syncOnce(); } while (this.syncAgain && this.account); return at; }
+      finally { this.syncing = null; }
+    })();
+    return this.syncing;
+  }
+  async syncOnce() {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const remote = await this.api('GET', '/api/state');
+      if (!this.account) return null;
+      const saved = this.loadSync(), rev = Number.isInteger(remote.rev) ? remote.rev : 0;
+      const local = this.store.exportState();
+      let next = local;
+      // A copy saved by Haven before 1.3 (revision 0) may be an old backup: a device that already
+      // has a haven keeps its own rather than bringing back things let go since. A new device takes it.
+      const oldBackup = !saved && rev === 0 && (local.items.length || local.sessions.length);
+      if (remote.state && !(saved && saved.rev === rev) && !oldBackup) next = saved ? threeWay(saved.base, local, remote.state, this.now()) : mergeStates(local, remote.state, this.now());
+      if (comparable(next) !== comparable(local)) {
+        this.adopting = true;
+        try { this.store.adopt(next); } finally { this.adopting = false; }
+        this.emit('synced');
+      }
+      const mine = this.store.exportState();
+      if (remote.state && comparable(mine) === comparable(remote.state)) { this.saveSync(rev, mine); this.data.backupAt = remote.at; return remote.at; }
+      try {
+        const r = await this.api('PUT', '/api/state', { state: mine, base: rev });
+        this.saveSync(r.rev, mine);
+        this.data.backupAt = r.at;
+        this.emit('change');
+        return r.at;
+      } catch (error) { if (error.code !== 409) throw error; }
+    }
+    throw new SocialError('busy', 'Another device is saving at the same time. Try again in a moment.');
   }
 
   // ——— Live connection ———
@@ -166,6 +208,7 @@ export class Social {
     this.closeSocket();
     try {
       await this.refresh();
+      this.sync().catch(() => {});
       const { ticket } = await this.api('POST', '/api/live/ticket');
       if (!this.account) return;
       const ws = new this.WS(this.base.replace(/^http/, 'ws') + '/api/live?ticket=' + ticket);
@@ -198,7 +241,10 @@ export class Social {
     this.retryTimer = setTimeout(() => this.connect(), delay);
   }
   /** Try again now: the phone came back online or the app came back to the front. */
-  wake() { if (this.account && this.base && this.status !== 'live') { this.attempt = 0; this.connect(); } }
+  wake() {
+    if (!this.account || !this.base) return;
+    if (this.status !== 'live') { this.attempt = 0; this.connect(); } else this.sync().catch(() => {});
+  }
   closeSocket() {
     clearInterval(this.pingTimer); clearTimeout(this.pongTimer);
     const ws = this.ws;
@@ -225,11 +271,15 @@ export class Social {
       return;
     }
     if (m.t === 'friends') { this.refresh().catch(() => {}); return; }
-    if (m.t === 'request') { this.refresh().catch(() => {}); this.emit('toast', `${m.from.name} wants to be friends.`); return; }
-    if (m.t === 'accepted') { this.refresh().catch(() => {}); this.emit('toast', `${m.by.name} accepted your request.`); return; }
+    if (m.t === 'state') { if (m.rev !== this.loadSync()?.rev) this.sync().catch(() => {}); return; }
+    if (m.t === 'request') { this.refresh().catch(() => {}); this.emit('news', { kind: 'request', from: m.from }); return; }
+    // The acceptance also arrives in the inbox, which is where it is announced.
+    if (m.t === 'accepted') { this.refresh().catch(() => {}); return; }
     if (m.t === 'inbox') { this.data.inbox.push(m.item); this.deliver(m.item); return; }
     if (m.t === 'room') { this.data.room = m.room && ['lobby', 'running'].includes(m.room.state) ? m.room : null; this.emit('room', { room: m.room, by: m.by || null }); this.emit('change'); return; }
-    if (m.t === 'feed') { if (this.data.feed) this.data.feed.unshift(m.item); this.emit('change'); }
+    if (m.t === 'feed') { if (this.data.feed) this.data.feed.unshift(m.item); this.emit('change'); return; }
+    if (m.t === 'sanctuary') { this.loadSanctuaries().catch(() => {}); this.emit('sanctuary', { id: m.id }); return; }
+    if (m.t === 'haven') this.emit('sanctuary', { member: m.id });
   }
 
   // ——— Friends ———
@@ -249,6 +299,16 @@ export class Social {
   async feed() { this.data.feed = (await this.api('GET', '/api/feed')).feed; this.emit('change'); return this.data.feed; }
   cheer(to, kind = 'cheer') { return this.api('POST', '/api/cheer', { to, kind }); }
   gift(to, species) { return this.api('POST', '/api/gift', { to, species }); }
+
+  // ——— Sanctuaries ———
+
+  async loadSanctuaries() { this.data.sanctuaries = (await this.api('GET', '/api/sanctuaries')).sanctuaries; this.emit('change'); return this.data.sanctuaries; }
+  sanctuary(id) { return this.api('GET', `/api/sanctuaries/${id}`).then(r => r.sanctuary); }
+  async sanctuaryCreate(name) { const r = await this.api('POST', '/api/sanctuaries', { name }); await this.loadSanctuaries().catch(() => {}); return r.sanctuary; }
+  async sanctuaryJoin(code) { const r = await this.api('POST', '/api/sanctuaries/join', { code }); await this.loadSanctuaries().catch(() => {}); return r.sanctuary; }
+  sanctuaryInvite(id, to) { return this.api('POST', '/api/sanctuaries/invite', { id, to }); }
+  async sanctuaryLeave(id) { await this.api('POST', '/api/sanctuaries/leave', { id }); await this.loadSanctuaries().catch(() => {}); }
+  async sanctuaryEdit(id, patch) { const r = await this.api('POST', '/api/sanctuaries/edit', { id, ...patch }); await this.loadSanctuaries().catch(() => {}); return r.sanctuary; }
 
   // ——— Sessions ———
 

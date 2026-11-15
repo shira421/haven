@@ -2,7 +2,7 @@
 // arranged, and holds the care screens for feeding, petting and naming.
 import { e, $, icon, openDialog, closeDialog, toast, field, avatar, empty } from '../ui.js';
 import { hungerOf, moodOf, bondLevel, canPet, isNight, CARE } from '../core.js';
-import { speciesById, ANIMALS } from '../catalog.js';
+import { speciesById, ANIMALS, BREEDS, artOf } from '../catalog.js';
 import { sprite } from '../art.js';
 import { World, traitsOf } from '../world.js';
 import { project, unproject, thingsFromStore } from '../scene.js';
@@ -48,14 +48,19 @@ function frame(app, ts) {
 }
 
 /** Put every animal where the simulation says it is. */
-function paint(app) {
-  const side = app.world.side;
-  for (const a of app.world.animals.values()) {
-    const el = els.get(a.id);
+function paint(app) { paintStage({ root, world: app.world, els, dims: app.world.side }); }
+
+/**
+ * Draw a running world: move each animal's element to where the simulation has it, and play the
+ * effects it asked for. `dims` is the land's size, as for project(). Used by the haven and the sanctuary.
+ */
+export function paintStage({ root: at0, world, els: map, dims }) {
+  for (const a of world.animals.values()) {
+    const el = map.get(a.id);
     if (!el || drag?.id === a.id) continue;
     // The element stays on the ground under the animal; the drawing inside is what leaves it.
-    const at = project(side, a.u, a.v), over = a.over && app.world.things.get(a.over);
-    const depth = over ? Math.max(at.depth, project(side, over.u, over.v).depth + 1) : at.depth;
+    const at = project(dims, a.u, a.v), over = a.over && world.things.get(a.over);
+    const depth = over ? Math.max(at.depth, project(dims, over.u, over.v).depth + 1) : at.depth;
     const k = el._k ??= Number(el.style.getPropertyValue('--k')) || 50;
     const look = `${at.left.toFixed(2)}|${at.top.toFixed(2)}|${depth}|${((a.lift + a.wob) * k).toFixed(1)}|${a.tilt.toFixed(0)}|${a.act}|${a.face}|${a.air ? 1 : 0}|${a.state === 'sleep' ? 1 : 0}`;
     if (el._look !== look) {
@@ -73,13 +78,13 @@ function paint(app) {
     const emote = el.lastElementChild;
     if (emote && emote.dataset.kind !== (a.emote || '')) emote.dataset.kind = a.emote || '';
   }
-  for (const event of app.world.events.splice(0)) {
+  for (const event of world.events.splice(0)) {
     if (calm()) continue;
-    const el = event.id ? root.querySelector(`.ent[data-ent="${event.id}"]`) : null;
+    const el = event.id ? map.get(event.id) : null;
     if (event.type === 'rustle' && el) again(el, 'rustle');
-    else if (event.type === 'land') { if (el) again(el, 'landed'); if (!event.soft) effect(side, 'puff', event.u, event.v); }
-    else if (event.type === 'splash') effect(side, 'splash', event.u, event.v);
-    else if (event.type === 'leaves') for (let i = 0; i < 3; i++) effect(side, 'leaf', event.u, event.v, event.lift * (0.75 + i * 0.1), i);
+    else if (event.type === 'land') { if (el) again(el, 'landed'); if (!event.soft) effect(at0, dims, 'puff', event.u, event.v); }
+    else if (event.type === 'splash') effect(at0, dims, 'splash', event.u, event.v);
+    else if (event.type === 'leaves') for (let i = 0; i < 3; i++) effect(at0, dims, 'leaf', event.u, event.v, event.lift * (0.75 + i * 0.1), i);
   }
 }
 
@@ -87,13 +92,13 @@ function paint(app) {
 function again(el, cls) { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
 
 /** A short-lived effect on the land: a puff of dust, a splash, a falling leaf. It removes itself. */
-function effect(side, kind, u, v, lift = 0, i = 0) {
-  if (!root || root.querySelectorAll('.fx').length > 24) return;
-  const at = project(side, u, v, lift), fx = document.createElement('i');
+function effect(host, dims, kind, u, v, lift = 0, i = 0) {
+  if (!host || host.querySelectorAll('.fx').length > 24) return;
+  const at = project(dims, u, v, lift), fx = document.createElement('i');
   fx.className = `fx ${kind}`;
-  fx.style.cssText = `left:${at.left.toFixed(2)}%;top:${at.top.toFixed(2)}%;z-index:${project(side, u, v).depth + 2};--i:${i}`;
+  fx.style.cssText = `left:${at.left.toFixed(2)}%;top:${at.top.toFixed(2)}%;z-index:${project(dims, u, v).depth + 2};--i:${i}`;
   fx.addEventListener('animationend', () => fx.remove());
-  root.append(fx);
+  host.append(fx);
 }
 
 /** The point on the land under a pointer. */
@@ -197,14 +202,16 @@ function careDialog(app, id) {
   const feed = hunger === 'full' ? '<button class="primary" disabled>Full for now</button>'
     : store.state.food < 1 ? '<button class="primary" disabled>No treats left</button>'
     : `<button class="primary" data-action="feed" data-id="${e(id)}" autofocus>${icon('treat')}Feed</button>`;
-  openDialog(store.nameOf(item), `<div class="result-art small">${sprite(sp.id, { kind: sp.kind, label: sp.name })}</div>
-<p class="lead">${item.name ? `${e(sp.name)}. ` : ''}${moodOf(item, now, isNight(now))}. ${e(likesText(sp))}</p>
+  const breed = item.s === 'dog' ? `<fieldset class="avatar-pick breed-pick"><legend>Breed</legend>${BREEDS.map(([b, label]) => `<label title="${e(label)}"><input type="radio" name="breed" value="${b}" data-change="breed" data-id="${e(id)}" ${(item.breed || 'mixed') === b ? 'checked' : ''}><span class="sr-only">${e(label)}</span>${avatar(artOf('dog', b))}<small>${e(label)}</small></label>`).join('')}</fieldset>` : '';
+  const breedName = item.s === 'dog' && item.breed && item.breed !== 'mixed' ? BREEDS.find(b => b[0] === item.breed)?.[1] : null;
+  openDialog(store.nameOf(item), `<div class="result-art small">${sprite(artOf(item.s, item.breed), { kind: sp.kind, label: breedName || sp.name })}</div>
+<p class="lead">${item.name || breedName ? `${e(breedName || sp.name)}. ` : ''}${moodOf(item, now, isNight(now))}. ${e(likesText(sp))}</p>
 <dl class="facts"><div><dt>Bond</dt><dd><span class="hearts" role="img" aria-label="${level} of ${CARE.levels}">${hearts}</span></dd></div>
 <div><dt>Hunger</dt><dd>${HUNGER[hunger]}</dd></div><div><dt>${item.from ? 'A gift from' : 'Moved in'}</dt><dd>${item.from ? e(item.from) : dateText(item.at)}</dd></div></dl>
 ${level < CARE.levels ? `<div class="meter" role="progressbar" aria-label="Progress to the next bond level" aria-valuemin="0" aria-valuemax="20" aria-valuenow="${into}"><i style="width:${into * 5}%"></i></div><p class="note">Feeding and petting grow the bond. Each new level pays coins.</p>` : '<p class="note">You are as close as can be.</p>'}
 <div class="button-row"><button class="secondary" data-action="pet" data-id="${e(id)}">${icon('heart')}Pet</button>${feed}</div>
 <p class="note">You have ${store.state.food} ${store.state.food === 1 ? 'treat' : 'treats'}. Every finished session earns more.</p>
-<form data-form="rename" data-id="${e(id)}" class="inline-form">${field('Name', `<input name="name" maxlength="20" value="${e(item.name || '')}" placeholder="${e(sp.name)}" autocomplete="off">`)}<button class="secondary" type="submit">Save name</button></form>
+${breed}<form data-form="rename" data-id="${e(id)}" class="inline-form">${field('Name', `<input name="name" maxlength="20" value="${e(item.name || '')}" placeholder="${e(sp.name)}" autocomplete="off">`)}<button class="secondary" type="submit">Save name</button></form>
 <div class="button-row quiet"><button class="linklike" data-action="store-this" data-id="${e(id)}">Put in storage</button><button class="linklike danger" data-action="release-this" data-id="${e(id)}">Let it go</button></div>`);
 }
 
@@ -223,7 +230,7 @@ function careList(app) {
   const { store } = app, now = app.now(), night = isNight(now);
   const animals = store.animals().sort((a, b) => (a.fed || 0) - (b.fed || 0));
   const waiting = animals.filter(i => hungerOf(i, now) !== 'full').length;
-  const rows = animals.map(item => { const hunger = hungerOf(item, now); return `<li class="row"><button class="row-main pick" data-action="open-care" data-id="${e(item.id)}">${avatar(item.s)}<span><b>${e(store.nameOf(item))}</b><small>${moodOf(item, now, night)}, bond ${bondLevel(item.bond)} of ${CARE.levels}</small></span></button><div class="row-end">${hunger === 'full' ? '<span class="minutes">Full</span>' : `<button class="secondary" data-action="feed" data-id="${e(item.id)}" data-list="1" ${store.state.food < 1 ? 'disabled' : ''}>Feed</button>`}</div></li>`; }).join('');
+  const rows = animals.map(item => { const hunger = hungerOf(item, now); return `<li class="row"><button class="row-main pick" data-action="open-care" data-id="${e(item.id)}">${avatar(artOf(item.s, item.breed))}<span><b>${e(store.nameOf(item))}</b><small>${moodOf(item, now, night)}, bond ${bondLevel(item.bond)} of ${CARE.levels}</small></span></button><div class="row-end">${hunger === 'full' ? '<span class="minutes">Full</span>' : `<button class="secondary" data-action="feed" data-id="${e(item.id)}" data-list="1" ${store.state.food < 1 ? 'disabled' : ''}>Feed</button>`}</div></li>`; }).join('');
   openDialog('Care', `<p class="lead">You have ${store.state.food} ${store.state.food === 1 ? 'treat' : 'treats'}. Every finished session earns more: one, and one more for each 15 min.</p>
 ${rows ? `<ul class="rows">${rows}</ul>` : empty('No animals live here yet. Choose an animal to grow in your next session.')}
 ${waiting ? `<div class="button-row"><button class="primary wide" data-action="feed-all" ${store.state.food < 1 ? 'disabled' : ''}>Feed everyone who will eat</button></div>` : rows ? '<p class="note">Everyone is full. Animals get peckish after 6 hours. They never leave or come to harm if you are away.</p>' : ''}`);
@@ -290,6 +297,10 @@ export const actions = {
     if (r.counted) { careToast(app, '', `${app.store.nameOf(item)} liked that.`, r); careDialog(app, d.id); }
     else toast(`${app.store.nameOf(item)} liked that. Pats count toward the bond once an hour.`);
   },
+};
+
+export const changes = {
+  breed(app, el) { if (app.store.setBreed(el.dataset.id, el.value).ok) careDialog(app, el.dataset.id); },
 };
 
 export const forms = {

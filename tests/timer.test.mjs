@@ -58,15 +58,21 @@ test('in a browser, the plant withers the moment the allowance runs out while hi
   x.timer.start();
   x.clock.t += MIN;
   x.timer.hidden();
-  x.clock.t += 15000;
+  x.clock.t += 9000;
   x.timer.tick();
-  assert.ok(x.store.state.active, 'fifteen seconds is still allowed');
+  assert.equal(x.timer.warned, false, 'no warning yet');
+  x.clock.t += 1000;
+  x.timer.tick();
+  assert.equal(x.timer.warned, true, 'a third of the way through the time away, a "come back" notification');
+  x.clock.t += 19000;
+  x.timer.tick();
+  assert.ok(x.store.state.active, 'twenty-nine seconds is still allowed');
   x.clock.t += 1500;
   x.timer.tick();
   assert.equal(x.store.state.active, null);
   assert.equal(x.events.at(-1)[0], 'failed');
   assert.equal(x.events.at(-1)[1].reason, 'left');
-  assert.equal(x.events.at(-1)[1].away, 17);
+  assert.equal(x.events.at(-1)[1].away, 31);
   x.stop();
 });
 

@@ -47,6 +47,8 @@ export const SPECIES = [
   plant('lotus', 'Lotus', 'pond', 650, 'Rises clean out of muddy water.', { season: [6, 7, 8] }),
   plant('frostpine', 'Snow pine', 'frost', 800, 'A pine carrying a load of fresh snow.', { season: [12, 1, 2] }),
   plant('cherry', 'Cherry blossom', 'woodland', 900, 'Blooms for about two weeks each spring.', { season: [3, 4] }),
+  plant('lily', 'Lily', 'meadow', 340, 'Six curled petals on a tall stem, sweet-scented in the evening.'),
+  plant('bougainvillea', 'Bougainvillea', 'tropics', 460, 'The bright colour is papery leaves around tiny white flowers.'),
   plant('bonsai', 'Bonsai', 'home', 1500, 'A full tree kept small with years of patient care.', { goal: { type: 'longSession', n: 120 } }),
 
   // Animals
@@ -63,7 +65,7 @@ export const SPECIES = [
   animal('squirrel', 'Squirrel', 'woodland', 420, 'Buries nuts and forgets some, which plants trees.'),
   animal('turtle', 'Turtle', 'pond', 440, 'Its shell is part of its skeleton.'),
   animal('cat', 'Cat', 'home', 500, 'Sleeps most of the day and judges the rest.'),
-  animal('shiba', 'Shiba', 'home', 500, 'A small, alert dog with a curled tail.'),
+  animal('dog', 'Dog', 'home', 500, 'Loyal and curious. Choose its breed from its care sheet.'),
   animal('raccoon', 'Raccoon', 'woodland', 560, 'Feels food with its front paws before eating.'),
   animal('parrot', 'Parrot', 'tropics', 620, 'Learns sounds and repeats them back.'),
   animal('fox', 'Fox', 'woodland', 640, 'Hears a mouse move under snow.'),
@@ -71,6 +73,8 @@ export const SPECIES = [
   animal('fennec', 'Fennec fox', 'dryland', 720, 'Huge ears that let the heat out.'),
   animal('seal', 'Seal', 'frost', 740, 'Sleeps in the water with half its brain awake.'),
   animal('deer', 'Deer', 'woodland', 760, 'Grows new antlers every year.'),
+  animal('giraffe', 'Giraffe', 'dryland', 1100, 'Sleeps standing up, for a few minutes at a time.'),
+  animal('elephant', 'Elephant', 'dryland', 1600, 'Remembers friends and places for decades.'),
   animal('redpanda', 'Red panda', 'tropics', 980, 'Wraps its tail around itself to keep warm.'),
   animal('owl', 'Owl', 'woodland', 900, 'Flies almost without a sound.', { goal: { type: 'nightSessions', n: 5 } }),
   animal('otter', 'Otter', 'pond', 1200, 'Holds hands while sleeping so no one drifts off.', { goal: { type: 'groupSessions', n: 1 } }),
@@ -92,7 +96,22 @@ export const SPECIES = [
 ];
 
 const BY_ID = new Map(SPECIES.map(s => [s.id, s]));
-export const speciesById = id => BY_ID.get(id) || null;
+/** Species that were renamed, from the old id to the new one. Old backups and friends' cards still use them. */
+export const RENAMED = { shiba: 'dog' };
+export const speciesById = id => BY_ID.get(RENAMED[id] ?? id) || null;
+
+/** Dog breeds: how a dog looks. Every dog can be any breed; the first is the one a new dog has. */
+export const BREEDS = [
+  ['mixed', 'Mixed'], ['shiba', 'Shiba'], ['golden', 'Golden retriever'], ['corgi', 'Corgi'],
+  ['husky', 'Husky'], ['dalmatian', 'Dalmatian'], ['dachshund', 'Dachshund'],
+];
+export const BREED_IDS = BREEDS.map(b => b[0]);
+/** What an item is drawn as: its species, or species and breed ("dog:corgi"). Old ids are mapped. */
+export function artOf(speciesId, breed) {
+  if (RENAMED[speciesId] === 'dog' && !breed) return 'dog:' + speciesId;
+  const id = speciesById(speciesId)?.id || speciesId;
+  return breed && id === 'dog' && BREED_IDS.includes(breed) && breed !== 'mixed' ? `${id}:${breed}` : id;
+}
 export const STARTERS = SPECIES.filter(s => s.price === 0).map(s => s.id);
 export const PLANTS = SPECIES.filter(s => s.kind === 'plant');
 export const ANIMALS = SPECIES.filter(s => s.kind === 'animal');
