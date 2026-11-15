@@ -32,6 +32,7 @@ public final class Inbox extends JobService {
             .putBoolean("social", kinds == null || kinds.optBoolean("social", true)).apply();
         if (token.isEmpty()) context.getSystemService(JobScheduler.class).cancel(JOB);
         else schedule(context);
+        android.util.Log.i("Haven", "news check " + (token.isEmpty() ? "off" : "on"));
     }
 
     /** Haven is going to the background: what was on screen until now has been seen. */
@@ -46,7 +47,13 @@ public final class Inbox extends JobService {
             .setPeriodic(15 * 60 * 1000L)
             .setPersisted(true)
             .build();
-        jobs.schedule(job);
+        // Never let the background check take the app down: if Android refuses the job, the app
+        // still shows news when it is opened.
+        try {
+            jobs.schedule(job);
+        } catch (RuntimeException refused) {
+            android.util.Log.w("Haven", "background check not scheduled", refused);
+        }
     }
 
     @Override

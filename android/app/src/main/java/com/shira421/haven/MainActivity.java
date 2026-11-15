@@ -278,7 +278,11 @@ public final class MainActivity extends Activity {
             .putLong("at", System.currentTimeMillis()).putBoolean("locked", locked).apply();
         // The page may have asked for "come back" before the screen went dark. A locked phone is not leaving.
         if (locked) Notifier.cancel(this, "away");
-        Inbox.schedule(this);
+        try {
+            Inbox.schedule(this);
+        } catch (RuntimeException ignored) {
+            // Leaving the screen must never close Haven.
+        }
     }
 
     private boolean phoneLocked() {

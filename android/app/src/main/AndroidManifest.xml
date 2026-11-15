@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- The friends server -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- The background check for friends' news waits for a connection; Android 14 requires this for that -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- "Your fern is fully grown" and the daily reminder (only when you allow it) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Lets the end-of-session notification arrive on time where the phone allows exact alarms -->
