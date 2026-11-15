@@ -8,8 +8,8 @@ export const LIMITS = {
   step: 5,
   cancelSeconds: 10, // a session can be cancelled without penalty this long after it starts
   stopwatchMinMinutes: 10, // a stopwatch session grows something from here
-  minAllowance: 5,
-  maxAllowance: 300,
+  minAllowance: 30, // time away from Haven that is forgiven, in seconds
+  maxAllowance: 120,
 };
 
 export const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
@@ -163,6 +163,11 @@ export function awayVerdict({ deep, allowance, hiddenAt, now, locked = false }) 
   return (now - hiddenAt) / 1000 > allowance ? 'withered' : 'ok';
 }
 
+/** Seconds away put in words: "30 s", "1 min", "1.5 min". */
+export const formatAway = seconds => (seconds < 60 ? `${seconds} s` : `${Math.round(seconds / 6) / 10} min`);
+/** When to warn someone who has left a session: after a third of the time they are allowed away. */
+export const warnAfter = allowance => Math.round(allowance / 3);
+
 /** Current and best run of consecutive days with at least one finished session. */
 export function streaks(sessions, now) {
   const days = new Set(doneSessions(sessions).map(s => dayKey(s.start)));
@@ -181,6 +186,33 @@ export function streaks(sessions, now) {
     prev = t;
   }
   return { current, best: Math.max(best, current) };
+}
+
+/** A local time on a day: `atHour(day, 20)` is 8 pm on that day. */
+function atHour(day, hour) { const d = new Date(day); d.setHours(hour, 0, 0, 0); return d.getTime(); }
+
+/**
+ * When to remind someone that their streak is about to end: 8 pm on the first day they have not
+ * focused yet. Null when there is no streak or the time has passed.
+ */
+export function streakNudge(sessions, now, hour = 20) {
+  const { current } = streaks(sessions, now);
+  if (!current) return null;
+  const today = startOfDay(now);
+  const focusedToday = doneSessions(sessions).some(s => dayKey(s.start) === dayKey(today));
+  const at = atHour(focusedToday ? addDays(today, 1) : today, hour);
+  return at > now ? { at, days: current } : null;
+}
+
+/** When the first animal in the haven gets hungry, moved out of the night. Null if none will. */
+export function hungryNudge(animals, now) {
+  const times = animals.map(i => (i.fed || i.at || 0) + CARE.hungryHours * 3600000).filter(t => t > now);
+  if (!times.length) return null;
+  let at = Math.min(...times);
+  const hour = new Date(at).getHours();
+  if (hour >= 22) at = atHour(addDays(startOfDay(at), 1), 8);
+  else if (hour < 8) at = atHour(at, 8);
+  return at;
 }
 
 /** The numbers goals and achievements are judged on. */

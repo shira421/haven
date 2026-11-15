@@ -1,6 +1,6 @@
 // Everything Haven keeps on the device, and every change that can be made to it.
 // The state is one JSON document. Each action checks its input, changes the state, saves, and tells listeners.
-import { SPECIES, STARTERS, speciesById } from './catalog.js';
+import { SPECIES, STARTERS, speciesById, RENAMED, BREED_IDS } from './catalog.js';
 import { LIMITS, CARE, clamp, coinsFor, treatsFor, sizeFor, levelFor, landSide, levelReward, streaks, availability, newAchievements, doneSessions, progress, newId, hungerOf, bondLevel, bondReward, canPet } from './core.js';
 
 export const STATE_VERSION = 1;
@@ -17,8 +17,8 @@ export const DEFAULT_SETTINGS = {
   species: 'clover',
   tag: 'study',
   deep: true, // leaving Haven during a session withers the plant
-  allowance: 15, // seconds away that are forgiven
-  keepAwake: true,
+  allowance: 30, // seconds away that are forgiven
+  keepAwake: false, // the phone may lock during a session; that does not count as leaving
   autoPlace: true,
   pomodoro: { focus: 25, short: 5, long: 15, rounds: 4, auto: true },
   sound: 'off',
@@ -27,7 +27,11 @@ export const DEFAULT_SETTINGS = {
   haptics: true,
   reminder: { on: false, time: '19:00' },
   theme: 'system', // system | light | dark
+  // What Haven may notify about. Each is still subject to the phone's own permission.
+  notify: { done: true, away: true, friends: true, social: true, streak: true, hungry: true },
+  rev: 2, // settings from before 1.3 kept the screen on by default; rev 2 lets the phone lock
 };
+export const NOTIFY_KINDS = ['done', 'away', 'friends', 'social', 'streak', 'hungry'];
 
 export function freshState(now = Date.now()) {
   return {
@@ -62,15 +66,22 @@ export function migrate(raw, now = Date.now()) {
   state.created = num(raw.created, now);
   state.updated = num(raw.updated, now);
   state.coins = Math.max(0, Math.floor(num(raw.coins, 0)));
-  state.unlocked = [...new Set([...STARTERS, ...(Array.isArray(raw.unlocked) ? raw.unlocked : [])])].filter(id => speciesById(id));
+  const current = id => speciesById(id)?.id || id; // a renamed species under its new id
+  state.unlocked = [...new Set([...STARTERS, ...(Array.isArray(raw.unlocked) ? raw.unlocked : []).map(current)])].filter(id => speciesById(id));
   state.food = clamp(Math.floor(num(raw.food, base.food)), 0, 9999);
   state.care = { feeds: Math.max(0, Math.floor(num(raw.care?.feeds, 0))) };
   state.items = (Array.isArray(raw.items) ? raw.items : [])
     .filter(i => isObj(i) && typeof i.id === 'string' && speciesById(i.s))
-    .map(i => ({
-      id: i.id, s: i.s, z: clamp(Math.round(num(i.z, 1)), 1, 3), at: num(i.at, now), ...(typeof i.from === 'string' ? { from: i.from.slice(0, 40) } : {}),
-      ...(speciesById(i.s).kind === 'animal' ? { fed: num(i.fed, num(i.at, now)), pet: num(i.pet, 0), bond: clamp(Math.floor(num(i.bond, 0)), 0, CARE.maxBond), ...(typeof i.name === 'string' && i.name.trim() ? { name: i.name.trim().slice(0, 20) } : {}) } : {}),
-    }));
+    .map(i => {
+      const s = current(i.s);
+      // A shiba from before dogs had breeds stays a shiba.
+      const breed = s === 'dog' ? (BREED_IDS.includes(i.breed) ? i.breed : RENAMED[i.s] === 'dog' ? i.s : 'mixed') : null;
+      return {
+        id: i.id, s, z: clamp(Math.round(num(i.z, 1)), 1, 3), at: num(i.at, now), ...(typeof i.from === 'string' ? { from: i.from.slice(0, 40) } : {}),
+        ...(speciesById(s).kind === 'animal' ? { fed: num(i.fed, num(i.at, now)), pet: num(i.pet, 0), bond: clamp(Math.floor(num(i.bond, 0)), 0, CARE.maxBond), ...(typeof i.name === 'string' && i.name.trim() ? { name: i.name.trim().slice(0, 20) } : {}) } : {}),
+        ...(breed ? { breed } : {}),
+      };
+    });
   const itemIds = new Set(state.items.map(i => i.id));
   state.haven = { spots: {} };
   const inside = n => Number.isFinite(n) && n >= 0 && n <= 10;
@@ -87,14 +98,14 @@ export function migrate(raw, now = Date.now()) {
     .map(s => ({
       id: s.id, start: s.start, end: num(s.end, s.start), planned: clamp(num(s.planned, 0), 0, LIMITS.maxMinutes),
       minutes: clamp(Math.floor(num(s.minutes, 0)), 0, LIMITS.maxMinutes), status: s.status,
-      species: speciesById(s.species) ? s.species : 'clover', tag: typeof s.tag === 'string' ? s.tag : 'other',
+      species: speciesById(s.species) ? current(s.species) : 'clover', tag: typeof s.tag === 'string' ? s.tag : 'other',
       mode: ['timer', 'stopwatch', 'pomodoro'].includes(s.mode) ? s.mode : 'timer', coins: Math.max(0, Math.floor(num(s.coins, 0))),
       ...(s.others ? { others: clamp(Math.floor(num(s.others, 0)), 0, 7) } : {}), ...(typeof s.room === 'string' ? { room: s.room } : {}),
       ...(typeof s.note === 'string' && s.note ? { note: s.note.slice(0, 200) } : {}), ...(typeof s.reason === 'string' ? { reason: s.reason } : {}),
       ...(s.synced ? { synced: true } : {}),
     }))
     .sort((a, b) => a.start - b.start);
-  state.active = isObj(raw.active) && typeof raw.active.id === 'string' && Number.isFinite(raw.active.start) && speciesById(raw.active.species) ? { ...raw.active } : null;
+  state.active = isObj(raw.active) && typeof raw.active.id === 'string' && Number.isFinite(raw.active.start) && speciesById(raw.active.species) ? { ...raw.active, species: current(raw.active.species) } : null;
   const cy = raw.cycle;
   state.cycle = isObj(cy) && Number.isInteger(cy.round) && cy.round >= 1 && Number.isInteger(cy.rounds) && cy.rounds >= cy.round
     ? { round: cy.round, rounds: cy.rounds, breakUntil: Number.isFinite(cy.breakUntil) ? cy.breakUntil : null, breakKind: cy.breakKind === 'long' ? 'long' : 'short', ...(cy.done ? { done: true } : {}) } : null;
@@ -108,11 +119,11 @@ export function migrate(raw, now = Date.now()) {
   state.settings = {
     minutes: clamp(Math.round(num(s.minutes, d.minutes) / LIMITS.step) * LIMITS.step, LIMITS.minMinutes, LIMITS.maxMinutes),
     mode: ['timer', 'stopwatch', 'pomodoro'].includes(s.mode) ? s.mode : d.mode,
-    species: speciesById(s.species) && state.unlocked.includes(s.species) ? s.species : state.unlocked[0],
+    species: speciesById(s.species) && state.unlocked.includes(current(s.species)) ? current(s.species) : state.unlocked[0],
     tag: state.tags.some(t => t.id === s.tag) ? s.tag : state.tags[0].id,
     deep: typeof s.deep === 'boolean' ? s.deep : d.deep,
     allowance: clamp(Math.round(num(s.allowance, d.allowance)), LIMITS.minAllowance, LIMITS.maxAllowance),
-    keepAwake: typeof s.keepAwake === 'boolean' ? s.keepAwake : d.keepAwake,
+    keepAwake: s.rev >= 2 && typeof s.keepAwake === 'boolean' ? s.keepAwake : d.keepAwake,
     autoPlace: typeof s.autoPlace === 'boolean' ? s.autoPlace : d.autoPlace,
     pomodoro: {
       focus: clamp(Math.round(num(s.pomodoro?.focus, d.pomodoro.focus)), 5, 120),
@@ -127,6 +138,8 @@ export function migrate(raw, now = Date.now()) {
     haptics: typeof s.haptics === 'boolean' ? s.haptics : d.haptics,
     reminder: { on: Boolean(s.reminder?.on), time: /^\d{2}:\d{2}$/.test(s.reminder?.time || '') ? s.reminder.time : d.reminder.time },
     theme: ['system', 'light', 'dark'].includes(s.theme) ? s.theme : d.theme,
+    notify: Object.fromEntries(NOTIFY_KINDS.map(k => [k, typeof s.notify?.[k] === 'boolean' ? s.notify[k] : d.notify[k]])),
+    rev: d.rev,
   };
   state.level = levelFor(doneSessions(state.sessions).reduce((n, x) => n + x.minutes, 0)).level;
   return state;
@@ -337,7 +350,8 @@ export class Store {
 
   /** Make a new plant, animal or nature item. Animals arrive fed. */
   newItem(id, species, size, at, from = null) {
-    const item = { id, s: species, z: size, at, ...(from ? { from } : {}), ...(speciesById(species).kind === 'animal' ? { fed: at, pet: 0, bond: 0 } : {}) };
+    species = speciesById(species).id;
+    const item = { id, s: species, z: size, at, ...(from ? { from } : {}), ...(speciesById(species).kind === 'animal' ? { fed: at, pet: 0, bond: 0 } : {}), ...(species === 'dog' ? { breed: 'mixed' } : {}) };
     this.state.items.push(item);
     return item;
   }
@@ -524,6 +538,14 @@ export class Store {
     this.commit('care');
     return { ok: true };
   }
+  /** Choose how a dog looks. */
+  setBreed(itemId, breed) {
+    const item = this.item(itemId);
+    if (!item || item.s !== 'dog' || !BREED_IDS.includes(breed)) return { ok: false };
+    item.breed = breed;
+    this.commit('care');
+    return { ok: true };
+  }
   /** What to call an item: its own name, or its species. */
   nameOf(item) { return item.name || speciesById(item.s).name; }
 
@@ -534,7 +556,7 @@ export class Store {
     const side = this.side(), tiles = [];
     for (const [id, [u, v]] of Object.entries(this.state.haven.spots)) {
       const item = this.item(id);
-      if (item && tiles.length < 100) tiles.push([u, v, item.s, item.z]);
+      if (item && tiles.length < 100) tiles.push(item.breed && item.breed !== 'mixed' ? [u, v, item.s, item.z, item.breed] : [u, v, item.s, item.z]);
     }
     const streak = this.streak();
     return { level: this.level().level, minutes: this.totalMinutes(), sessions: doneSessions(this.state.sessions).length, streak: streak.current, best: streak.best, species: this.state.unlocked.length, of: SPECIES.length, side, tiles };
@@ -547,6 +569,14 @@ export class Store {
     this.state.active = active;
     this.commit('state');
     return { ok: true };
+  }
+  /** Take a copy joined with another device's. This device's running session and pomodoro stay. */
+  adopt(next) {
+    const { active, cycle } = this.state;
+    this.state = migrate(next, this.now());
+    this.state.active = active;
+    this.state.cycle = cycle;
+    this.commit('state');
   }
   reset() {
     this.state = freshState(this.now());

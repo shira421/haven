@@ -1,7 +1,7 @@
 // The home screen: your haven under the sky. Choose what to grow and for how long, then watch a
 // day pass over it while the plant grows where it was planted and the animals go about their lives.
 import { e, $, icon, segmented, openDialog, closeDialog, toast, field, switchRow, avatar, formError } from '../ui.js';
-import { LIMITS, formatClock, formatMinutes, progress, streaks, startOfDay, doneSessions, coinsFor, treatsFor, sizeFor, isNight } from '../core.js';
+import { LIMITS, formatClock, formatMinutes, progress, streaks, startOfDay, doneSessions, coinsFor, treatsFor, sizeFor, isNight, formatAway } from '../core.js';
 import { speciesById, KINDS, ofKind } from '../catalog.js';
 import { sprite, stageAt } from '../art.js';
 import { skyHTML, skyUpdate, skyNow, worldHTML, thingsFromStore } from '../scene.js';
@@ -24,8 +24,8 @@ function world(app, stage = null) {
 function awayText(settings, species) {
   if (!settings.deep) return 'Deep focus is off. You can use other apps while the timer runs.';
   const what = species.kind === 'animal' ? `the ${lower(species)} leaves` : species.kind === 'nature' ? `the ${lower(species)} is left unfinished` : `the ${lower(species)} withers`;
-  const lock = bridge() ? ' Locking the phone is fine.' : '';
-  return `Deep focus is on. Away from Haven for more than ${settings.allowance} s and ${what}.${lock}`;
+  const lock = bridge() ? ' Locking the phone is fine.' : ' In a browser, keep Haven on screen: a locked phone counts as leaving.';
+  return `Deep focus is on. Away from Haven for more than ${formatAway(settings.allowance)} and ${what}.${lock}`;
 }
 
 export function render(app) {
@@ -72,7 +72,7 @@ function running(app) {
   const room = active.room ? social.data.room : null;
   const label = active.mode === 'pomodoro' && active.round ? `Round ${active.round} of ${store.state.cycle?.rounds || store.state.settings.pomodoro.rounds}` : active.room ? 'Focusing together' : active.planned ? '' : 'Stopwatch';
   const verb = species.kind === 'animal' ? `Waiting for a ${lower(species)}.` : species.kind === 'nature' ? `Building a ${lower(species)}.` : `Growing a ${lower(species)}.`;
-  const rule = active.deep ? ` Stay in Haven: more than ${active.allowance} s away and ${species.kind === 'animal' ? 'it leaves' : species.kind === 'nature' ? 'the work is lost' : 'it withers'}.` : ' You can use other apps.';
+  const rule = active.deep ? ` Stay in Haven: more than ${formatAway(active.allowance)} away and ${species.kind === 'animal' ? 'it leaves' : species.kind === 'nature' ? 'the work is lost' : 'it withers'}.` : ' You can use other apps.';
   const members = room ? `<ul class="room-strip" aria-label="In this room">${room.members.map(m => `<li class="${m.status}">${avatar(m.avatar)}<span>${e(m.id === social.account?.id ? 'You' : m.name)}</span><small>${m.status === 'focusing' ? 'Focusing' : m.status === 'done' ? 'Finished' : 'Left'}</small></li>`).join('')}</ul>` : '';
   return `<section class="page focus running" data-page="focus"><h1 class="page-title sr-only">Focusing</h1>
 <div class="scene">${skyHTML({ t: p.fraction })}
@@ -205,7 +205,7 @@ export function resultDialog(app, result) {
 export function failedDialog(app, { session, reason, away, who }) {
   const species = speciesById(session.species), minutes = Math.floor((session.end - session.start) / 60000);
   const title = species.kind === 'animal' ? `The ${lower(species)} wandered off` : species.kind === 'nature' ? `The ${lower(species)} was not finished` : `The ${lower(species)} withered`;
-  const why = reason === 'left' ? `You were away from Haven for ${away >= 120 ? formatMinutes(away / 60) : `${away} s`}. Deep focus allows ${app.store.state.settings.allowance} s.`
+  const why = reason === 'left' ? `You were away from Haven for ${away >= 120 ? formatMinutes(away / 60) : `${away} s`}. Deep focus allows ${formatAway(app.store.state.settings.allowance)}.`
     : reason === 'friend-left' ? `${who ? e(who) : 'Someone'} left the room. In this kind of room, one person leaving ends it for everyone.`
     : `You stopped after ${minutes < 1 ? 'less than a minute' : formatMinutes(minutes)}.`;
   openDialog(title, `<div class="result-art">${sprite(species.id, { kind: species.kind, withered: true })}</div>

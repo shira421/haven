@@ -75,7 +75,7 @@ try {
   assert.ok(Math.max(...beat) - Math.min(...beat) > 4, `and beat (${beat.map(b => b.toFixed(0)).join(' ')})`);
   ok(`${engine}: a bird spreads its wings to fly and they beat`);
 
-  await pose('shiba', 'walk');
+  await pose('dog', 'walk');
   const steps = [];
   for (let i = 0; i < 6; i++) { steps.push((await box('.leg.fl:not(.far)')).left); await page.waitForTimeout(70); }
   assert.ok(Math.max(...steps) - Math.min(...steps) > 3, `legs stride (${steps.map(s => s.toFixed(0)).join(' ')})`);

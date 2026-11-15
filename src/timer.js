@@ -1,7 +1,7 @@
 // Runs a focus session from start to finish: the clock, leaving and coming back, finishing,
 // giving up, pomodoro breaks, and sessions shared with friends. It owns no screen; it tells
 // listeners what happened and they draw it.
-import { progress, awayVerdict, LIMITS } from './core.js';
+import { progress, awayVerdict, LIMITS, warnAfter, formatAway } from './core.js';
 import { speciesById } from './catalog.js';
 import * as device from './device.js';
 
@@ -58,7 +58,7 @@ export class Timer {
     const s = this.settings, species = speciesById(active.species);
     if (s.keepAwake) device.keepAwake(true);
     if (s.sound !== 'off') this.sound.start(s.sound, s.volume); else this.sound.unlock();
-    if (active.planned) device.notifyAt('session', this.endOf(active), species.kind === 'animal' ? `The ${species.name.toLowerCase()} has arrived` : `Your ${species.name.toLowerCase()} is fully grown`, `${active.planned} min focused. Open Haven to see it.`);
+    if (active.planned && s.notify.done) device.notifyAt('session', this.endOf(active), species.kind === 'animal' ? `The ${species.name.toLowerCase()} has arrived` : `Your ${species.name.toLowerCase()} is fully grown`, `${active.planned} min focused. Open Haven to see it.`);
     this.run();
     this.emit('started', active);
   }
@@ -73,6 +73,7 @@ export class Timer {
     device.keepAwake(false);
     this.sound.stop();
     device.cancelNotification('session');
+    device.cancelNotification('away');
   }
 
   // ——— While it runs ———
@@ -84,6 +85,7 @@ export class Timer {
     // The apps are paused in the background and are judged when they come back (see visible()).
     if (active.hiddenAt && !this.native()) {
       const until = Math.min(now, this.endOf(active));
+      if (active.deep && !this.warned && until - active.hiddenAt >= warnAfter(active.allowance) * 1000) { this.warned = true; this.warn(active, 'now'); }
       if (awayVerdict({ deep: active.deep, allowance: active.allowance, hiddenAt: active.hiddenAt, now: until }) === 'withered') return this.fail('left', { away: Math.round((until - active.hiddenAt) / 1000) });
     }
     const p = progress(active, now);
@@ -93,11 +95,33 @@ export class Timer {
   }
 
   /** Haven went to the background or the screen turned off. */
-  hidden() { if (this.active) this.store.markHidden(this.now()); }
+  hidden() {
+    const active = this.active;
+    if (!active || active.hiddenAt) return;
+    const at = this.now();
+    this.store.markHidden(at);
+    this.warned = false;
+    // The apps are paused in the background, so the warning is left with the phone to show.
+    // If this was only the phone locking, the phone takes the warning back (see the native code).
+    if (active.deep && this.native()) this.warn(active, at + warnAfter(active.allowance) * 1000);
+  }
+
+  /** "Come back": sent a third of the way through the time someone may be away. */
+  warn(active, at) {
+    if (!this.settings.notify.away) return;
+    const species = speciesById(active.species);
+    const what = species.kind === 'animal' ? `the ${species.name.toLowerCase()} will leave` : species.kind === 'nature' ? `your ${species.name.toLowerCase()} will be left unfinished` : `your ${species.name.toLowerCase()} will wither`;
+    const left = active.allowance - warnAfter(active.allowance);
+    const title = 'Come back to Haven';
+    const body = `You left a session. Come back within ${formatAway(left)} or ${what}.`;
+    if (at === 'now') device.notifyNow(title, body, 'away'); else device.notifyAt('away', at, title, body);
+  }
 
   /** Haven is in front again: decide whether the time away cost the session. */
   async visible() {
     const active = this.active;
+    device.cancelNotification('away');
+    this.warned = false;
     if (!active) { this.tick(); return; }
     const leftAt = active.hiddenAt || null;
     if (leftAt) {

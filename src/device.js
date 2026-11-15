@@ -77,6 +77,14 @@ export function setReminder({ on, time, title, body }) {
   return quiet(nativeCall('reminder', { on, hour, minute, title, body }));
 }
 
+/**
+ * Let the app check the friends server for news while Haven is closed (friend requests, cheers,
+ * gifts, invitations) and show them as notifications. An empty token stops it.
+ */
+export function setNewsAccount({ base, token, kinds }) {
+  return bridge() ? quiet(nativeCall('account', { base: base || '', token: token || '', kinds })) : Promise.resolve(null);
+}
+
 let wakeLock = null, wantAwake = false;
 async function acquire() {
   if (!wantAwake || wakeLock || !g.navigator?.wakeLock || g.document?.visibilityState !== 'visible') return;

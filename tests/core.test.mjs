@@ -196,3 +196,18 @@ test('escaping and ids', () => {
   assert.equal(ids.size, 500);
   assert.match([...ids][0], /^s[0-9a-z]{14}$/);
 });
+
+test('reminders: a streak nudge on the first day not yet focused, and hungry animals by day', async () => {
+  const { streakNudge, hungryNudge, CARE } = await import('../src/core.js');
+  const day = (d, h = 9) => new Date(2026, 10, d, h, 0).getTime();
+  const session = d => ({ id: 's' + d, start: day(d), status: 'done', minutes: 25 });
+  assert.equal(streakNudge([], day(14)), null, 'no streak, no nudge');
+  assert.deepEqual(streakNudge([session(13)], day(14)), { at: day(14, 20), days: 1 }, 'focused yesterday: 8 pm today');
+  assert.deepEqual(streakNudge([session(13), session(14)], day(14, 10)), { at: day(15, 20), days: 2 }, 'focused today: 8 pm tomorrow');
+  assert.equal(streakNudge([session(13)], day(14, 21)), null, 'too late today');
+  const fedAt = h => ({ fed: day(14, h) - CARE.hungryHours * 3600000 });
+  assert.equal(hungryNudge([fedAt(15)], day(14)), day(14, 15));
+  assert.equal(hungryNudge([fedAt(23)], day(14)), day(15, 8), 'not in the night');
+  assert.equal(hungryNudge([fedAt(5)], day(14, 1)), day(14, 8));
+  assert.equal(hungryNudge([fedAt(5)], day(14, 6)), null, 'already hungry');
+});

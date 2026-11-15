@@ -3,7 +3,7 @@
 // person's open connections, and a way to ask whether someone is connected; worker.js supplies those.
 import { speciesById } from '../src/catalog.js';
 
-export const VERSION = '1.2.0';
+export const VERSION = '1.3.0';
 const MIN = 60000;
 export const RULES = {
   maxFriends: 200,
@@ -19,6 +19,8 @@ export const RULES = {
   ticketLife: 30000,
   logWindow: 7 * 24 * 60 * MIN, // offline sessions can be reported this long afterwards
   stateBytes: 600000,
+  maxKeepers: 9, // people in one sanctuary: up to a 3 × 3 square of havens
+  maxSanctuaries: 5, // sanctuaries one person can belong to
   cardBytes: 8000,
 };
 
@@ -48,6 +50,14 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS links(code TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS tickets(ticket TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS limits(key TEXT PRIMARY KEY, exp INTEGER NOT NULL, n INTEGER NOT NULL)`,
+  // Sanctuaries: groups whose havens are joined into one land. A keeper is a member.
+  `CREATE TABLE IF NOT EXISTS sanctuaries(id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, owner TEXT NOT NULL, created INTEGER NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS keepers(sid TEXT NOT NULL, user_id TEXT NOT NULL, joined INTEGER NOT NULL, PRIMARY KEY(sid,user_id))`,
+  `CREATE INDEX IF NOT EXISTS keepers_user ON keepers(user_id)`,
+];
+
+const ADDED_COLUMNS = [
+  'ALTER TABLE users ADD COLUMN state_rev INTEGER NOT NULL DEFAULT 0',
 ];
 
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no I, L, O, 0 or 1
@@ -68,10 +78,11 @@ export async function sha256(text) {
   return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
 }
 export const cleanCode = v => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+// Control characters and invisible direction marks are removed from names.
+const INVISIBLE = /[\u0000-\u001f\u007f\u200b-\u200f\u2028-\u202e\u2066-\u2069]/g;
 export function cleanName(v) {
   // Control characters and invisible direction marks are removed; runs of spaces become one.
-  const invisible = /[\u0000-\u001f\u007f\u200b-\u200f\u2028-\u202e\u2066-\u2069]/g;
-  const name = String(v ?? '').replace(invisible, '').replace(/\s+/g, ' ').trim();
+  const name = String(v ?? '').replace(INVISIBLE, '').replace(/\s+/g, ' ').trim();
   if (!name) throw bad('Enter a name.');
   if ([...name].length > 24) throw bad('Keep the name to 24 characters or fewer.');
   return name;
@@ -105,6 +116,8 @@ export class Hub {
     this.online = online;
     this.tx = tx; // runs a function as one database transaction
     for (const statement of SCHEMA) sql(statement);
+    // Columns added after the first release. Adding one that is already there fails harmlessly.
+    for (const column of ADDED_COLUMNS) { try { sql(column); } catch { /* already added */ } }
   }
 
   one(query, ...params) { return this.sql(query, ...params)[0] || null; }
@@ -203,6 +216,110 @@ export class Hub {
     }
   }
 
+
+  // ——— Sanctuaries ———
+
+  /** A sanctuary as its members see it. With `cards`, each member's haven too. */
+  sanctuaryView(id, now, cards = false) {
+    const row = this.one('SELECT * FROM sanctuaries WHERE id=?', id);
+    if (!row) return null;
+    const members = this.sql('SELECT u.*, k.joined FROM keepers k JOIN users u ON u.id=k.user_id WHERE k.sid=? ORDER BY k.joined, k.rowid', id).map(u => ({
+      ...publicUser(u), joined: u.joined, online: this.online(u.id), focusing: this.focusing(this.activeSession(u.id), now),
+      ...(cards ? { card: parse(u.card, {}) } : { level: Number(parse(u.card, {}).level) || 1 }),
+    }));
+    return { id: row.id, code: row.code, name: row.name, owner: row.owner, created: row.created, members };
+  }
+  /** The sanctuary, if this person is in it. */
+  requireKeeper(me, id) {
+    if (typeof id !== 'string' || !this.one('SELECT 1 AS ok FROM keepers WHERE sid=? AND user_id=?', id, me.id)) throw gone('That sanctuary is not one of yours.');
+  }
+  pushSanctuary(id, message = null) {
+    for (const k of this.sql('SELECT user_id FROM keepers WHERE sid=?', id)) this.push(k.user_id, message || { t: 'sanctuary', id });
+  }
+  /** Tell everyone who shares a sanctuary with this person that something of theirs changed. */
+  pushKeepers(userId, message) {
+    const ids = this.sql('SELECT DISTINCT k2.user_id AS id FROM keepers k1 JOIN keepers k2 ON k2.sid=k1.sid WHERE k1.user_id=? AND k2.user_id<>?', userId, userId).map(r => r.id);
+    for (const id of ids) this.push(id, message);
+  }
+  cleanSanctuaryName(v) {
+    const name = String(v ?? '').replace(INVISIBLE, '').replace(/\s+/g, ' ').trim();
+    if (!name) throw bad('Give the sanctuary a name.');
+    if ([...name].length > 30) throw bad('Keep the name to 30 characters or fewer.');
+    return name;
+  }
+  countMine(me) { return this.one('SELECT COUNT(*) AS n FROM keepers WHERE user_id=?', me.id).n; }
+
+  sanctuaries(me, query, ctx) {
+    const ids = this.sql('SELECT sid FROM keepers WHERE user_id=? ORDER BY joined', me.id).map(r => r.sid);
+    return { sanctuaries: ids.map(id => this.sanctuaryView(id, ctx.now)).filter(Boolean) };
+  }
+  sanctuaryGet(me, id, ctx) {
+    this.requireKeeper(me, id);
+    return { sanctuary: this.sanctuaryView(id, ctx.now, true) };
+  }
+  sanctuaryCreate(me, body, ctx) {
+    this.limit('sanct:' + me.id, 10, 3600, ctx.now);
+    const name = this.cleanSanctuaryName(body.name);
+    if (this.countMine(me) >= RULES.maxSanctuaries) throw bad(`You can be in up to ${RULES.maxSanctuaries} sanctuaries. Leave one first.`);
+    let id, code;
+    do { id = randomString(12, ID_ALPHABET); } while (this.one('SELECT 1 AS ok FROM sanctuaries WHERE id=?', id));
+    do { code = randomString(8, CODE_ALPHABET); } while (this.one('SELECT 1 AS ok FROM sanctuaries WHERE code=?', code));
+    this.sql('INSERT INTO sanctuaries(id,code,name,owner,created) VALUES(?,?,?,?,?)', id, code, name, me.id, ctx.now);
+    this.sql('INSERT INTO keepers(sid,user_id,joined) VALUES(?,?,?)', id, me.id, ctx.now);
+    return { sanctuary: this.sanctuaryView(id, ctx.now) };
+  }
+  sanctuaryJoin(me, body, ctx) {
+    this.limit('sjoin:' + me.id, 30, 3600, ctx.now);
+    const row = this.one('SELECT * FROM sanctuaries WHERE code=?', cleanCode(body.code));
+    if (!row || this.blockedEitherWay(me.id, row.owner)) throw gone('No sanctuary has that code. Check it and try again.');
+    if (this.one('SELECT 1 AS ok FROM keepers WHERE sid=? AND user_id=?', row.id, me.id)) return { sanctuary: this.sanctuaryView(row.id, ctx.now) };
+    if (this.one('SELECT COUNT(*) AS n FROM keepers WHERE sid=?', row.id).n >= RULES.maxKeepers) throw bad(`That sanctuary is full. A sanctuary holds ${RULES.maxKeepers} havens.`);
+    if (this.countMine(me) >= RULES.maxSanctuaries) throw bad(`You can be in up to ${RULES.maxSanctuaries} sanctuaries. Leave one first.`);
+    this.sql('INSERT INTO keepers(sid,user_id,joined) VALUES(?,?,?)', row.id, me.id, ctx.now);
+    this.sql("DELETE FROM inbox WHERE to_id=? AND kind='sanctuary' AND data LIKE ?", me.id, `%"${row.code}"%`);
+    this.pushSanctuary(row.id);
+    return { sanctuary: this.sanctuaryView(row.id, ctx.now) };
+  }
+  /** Invite a friend. They see the invitation in Haven and join with one tap. */
+  sanctuaryInvite(me, body, ctx) {
+    this.requireKeeper(me, body.id);
+    const other = this.requireFriend(me, body.to, 'invite');
+    const row = this.one('SELECT * FROM sanctuaries WHERE id=?', body.id);
+    if (this.one('SELECT 1 AS ok FROM keepers WHERE sid=? AND user_id=?', row.id, other.id)) return { status: 'joined' };
+    this.limit(`sinvite:${me.id}:${other.id}`, 3, 3600, ctx.now, `You have already invited ${other.name}.`);
+    this.sql("DELETE FROM inbox WHERE to_id=? AND from_id=? AND kind='sanctuary'", other.id, me.id);
+    this.deliver(other, me, 'sanctuary', { code: row.code, name: row.name }, ctx.now);
+    return { status: 'invited' };
+  }
+  /** Leave. The person who made it hands it to whoever joined next; an empty sanctuary is gone. */
+  sanctuaryLeave(me, body, ctx) {
+    this.requireKeeper(me, body.id);
+    this.dropKeeper(body.id, me.id);
+    return { status: 'left' };
+  }
+  dropKeeper(sid, userId) {
+    this.sql('DELETE FROM keepers WHERE sid=? AND user_id=?', sid, userId);
+    const next = this.one('SELECT user_id FROM keepers WHERE sid=? ORDER BY joined, rowid LIMIT 1', sid);
+    if (!next) { this.sql('DELETE FROM sanctuaries WHERE id=?', sid); return; }
+    this.sql('UPDATE sanctuaries SET owner=? WHERE id=? AND owner=?', next.user_id, sid, userId);
+    this.pushSanctuary(sid);
+    this.push(userId, { t: 'sanctuary', id: sid });
+  }
+  /** The person who made the sanctuary can rename it and ask someone to leave. */
+  sanctuaryEdit(me, body, ctx) {
+    this.requireKeeper(me, body.id);
+    const row = this.one('SELECT * FROM sanctuaries WHERE id=?', body.id);
+    if (row.owner !== me.id) throw new ApiError(403, 'Only the person who looks after the sanctuary can change it.');
+    if (body.name !== undefined) this.sql('UPDATE sanctuaries SET name=? WHERE id=?', this.cleanSanctuaryName(body.name), row.id);
+    if (body.remove !== undefined) {
+      if (body.remove === me.id) throw bad('To leave, choose Leave.');
+      if (!this.one('SELECT 1 AS ok FROM keepers WHERE sid=? AND user_id=?', row.id, String(body.remove))) throw gone('That person is not in the sanctuary.');
+      this.dropKeeper(row.id, String(body.remove));
+    }
+    this.pushSanctuary(row.id);
+    return { sanctuary: this.sanctuaryView(row.id, ctx.now) };
+  }
+
   // ——— Sessions ———
 
   /** Mark a session finished or failed, tell friends, and return what it earned. */
@@ -250,6 +367,7 @@ export class Hub {
     }
     this.sql('UPDATE users SET name=?, avatar=?, card=? WHERE id=?', name, avatar, card, me.id);
     if (name !== me.name || avatar !== me.avatar) this.pushFriends(me.id, { t: 'friends' });
+    if (card !== me.card || name !== me.name || avatar !== me.avatar) this.pushKeepers(me.id, { t: 'haven', id: me.id });
     return { me: { id: me.id, name, handle: me.handle, code: me.code, avatar } };
   }
 
@@ -287,6 +405,7 @@ export class Hub {
       if (count(other.id) >= RULES.maxFriends) throw bad(`${other.name} has the most friends Haven allows.`);
       this.befriend(me, other, ctx.now);
       this.push(other.id, { t: 'accepted', by: publicUser(me) });
+      this.deliver(other, me, 'accepted', {}, ctx.now);
       this.push(me.id, { t: 'friends' });
       return { status: 'friends', user: publicUser(other) };
     }
@@ -303,6 +422,7 @@ export class Hub {
       if (this.friendIds(me.id).length >= RULES.maxFriends) throw bad(`You can have up to ${RULES.maxFriends} friends.`);
       this.befriend(me, other, ctx.now);
       this.push(other.id, { t: 'accepted', by: publicUser(me) });
+      this.deliver(other, me, 'accepted', {}, ctx.now);
     } else {
       this.sql('DELETE FROM requests WHERE from_id=? AND to_id=?', other.id, me.id);
     }
@@ -582,20 +702,44 @@ export class Hub {
     return { user: { id: me.id, name: me.name, handle: me.handle, code: me.code, avatar: me.avatar }, token: ctx.newToken };
   }
 
+  /**
+   * Save the haven every device of this person shares. `base` is the revision the device last saw:
+   * if another device has saved since, the save is refused and the device joins the two first.
+   * Every other device that is open hears about the new revision at once.
+   */
   statePut(me, body, ctx) {
-    this.limit('state:' + me.id, 120, 3600, ctx.now);
-    if (!body.state || typeof body.state !== 'object') throw bad('The backup is empty.');
+    this.limit('state:' + me.id, 600, 3600, ctx.now);
+    if (!body.state || typeof body.state !== 'object' || Array.isArray(body.state)) throw bad('The backup is empty.');
     const text = JSON.stringify(body.state);
     if (text.length > RULES.stateBytes) throw new ApiError(413, 'The backup is too large for the server. Your haven is still safe on this device.');
-    this.sql('UPDATE users SET state=?, state_at=? WHERE id=?', text, ctx.now, me.id);
-    return { at: ctx.now };
+    const current = me.state_rev || 0;
+    if (body.base !== undefined && body.base !== current) throw new ApiError(409, 'Another device saved first.');
+    const rev = current + 1;
+    this.sql('UPDATE users SET state=?, state_at=?, state_rev=? WHERE id=?', text, ctx.now, rev, me.id);
+    this.push(me.id, { t: 'state', rev });
+    return { at: ctx.now, rev };
   }
-  stateGet(me) { return { state: me.state ? parse(me.state, null) : null, at: me.state_at || null }; }
+  stateGet(me) { return { state: me.state ? parse(me.state, null) : null, at: me.state_at || null, rev: me.state_rev || 0 }; }
+
+  /**
+   * What happened since a time, for a phone checking in while Haven is closed: friend requests and
+   * everything in the inbox. Kept small; the app fetches the details when it opens.
+   */
+  news(me, query, ctx) {
+    this.limit('news:' + me.id, 120, 3600, ctx.now);
+    const since = Math.max(Number(query.since) || 0, ctx.now - 7 * 24 * 60 * MIN);
+    const requests = this.sql('SELECT u.name, r.created FROM requests r JOIN users u ON u.id=r.from_id WHERE r.to_id=? AND r.created>? ORDER BY r.created LIMIT 20', me.id, since)
+      .map(r => ({ kind: 'request', name: r.name, created: r.created }));
+    const inbox = this.sql('SELECT i.kind, i.data, i.created, u.name FROM inbox i JOIN users u ON u.id=i.from_id WHERE i.to_id=? AND i.created>? ORDER BY i.id LIMIT 30', me.id, since)
+      .map(r => ({ kind: r.kind, name: r.name, created: r.created, data: parse(r.data, {}) }));
+    return { news: [...requests, ...inbox].sort((x, y) => x.created - y.created), now: ctx.now };
+  }
 
   logout(me, body, ctx) { this.sql('DELETE FROM tokens WHERE hash=?', ctx.tokenHash); return { status: 'signed-out' }; }
 
   deleteAccount(me, body, ctx) {
     const friends = this.friendIds(me.id);
+    for (const row of this.sql('SELECT sid FROM keepers WHERE user_id=?', me.id)) this.dropKeeper(row.sid, me.id);
     for (const row of this.sql("SELECT r.code FROM members m JOIN rooms r ON r.code=m.room WHERE m.user_id=? AND r.state IN ('lobby','running')", me.id)) this.roomLeave(me, { code: row.code }, ctx);
     for (const q of ['DELETE FROM tokens WHERE user_id=?', 'DELETE FROM sessions WHERE user_id=?', 'DELETE FROM members WHERE user_id=?', 'DELETE FROM links WHERE user_id=?', 'DELETE FROM tickets WHERE user_id=?', 'DELETE FROM users WHERE id=?']) this.sql(q, me.id);
     for (const q of ['DELETE FROM friends WHERE a=? OR b=?', 'DELETE FROM requests WHERE from_id=? OR to_id=?', 'DELETE FROM blocks WHERE user_id=? OR blocked_id=?', 'DELETE FROM inbox WHERE to_id=? OR from_id=?']) this.sql(q, me.id, me.id);
@@ -698,6 +842,13 @@ export class Hub {
       case 'POST /api/link': return this.linkCreate(me, body, ctx);
       case 'PUT /api/state': return this.statePut(me, body, ctx);
       case 'GET /api/state': return this.stateGet(me);
+      case 'GET /api/news': return this.news(me, query, ctx);
+      case 'GET /api/sanctuaries': return this.sanctuaries(me, query, ctx);
+      case 'POST /api/sanctuaries': return this.sanctuaryCreate(me, body, ctx);
+      case 'POST /api/sanctuaries/join': return this.sanctuaryJoin(me, body, ctx);
+      case 'POST /api/sanctuaries/invite': return this.sanctuaryInvite(me, body, ctx);
+      case 'POST /api/sanctuaries/leave': return this.sanctuaryLeave(me, body, ctx);
+      case 'POST /api/sanctuaries/edit': return this.sanctuaryEdit(me, body, ctx);
       case 'POST /api/logout': return this.logout(me, body, ctx);
       case 'POST /api/account/delete': return this.deleteAccount(me, body, ctx);
       case 'POST /api/live/ticket': return this.liveTicket(me, body, ctx);
@@ -706,6 +857,7 @@ export class Hub {
     let m;
     if (call.method === 'GET' && (m = call.path.match(/^\/api\/friends\/([a-z0-9]{12})$/))) return this.friendPage(me, m[1], query, ctx);
     if (call.method === 'GET' && (m = call.path.match(/^\/api\/rooms\/([A-Za-z0-9]{6})$/))) return this.roomGet(me, m[1], ctx);
+    if (call.method === 'GET' && (m = call.path.match(/^\/api\/sanctuaries\/([a-z0-9]{12})$/))) return this.sanctuaryGet(me, m[1], ctx);
     throw new ApiError(404, 'Not found.');
   }
 }

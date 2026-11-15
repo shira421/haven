@@ -85,7 +85,7 @@ test('at night day animals sleep where they are and night animals carry on', () 
 test('a hungry animal is slow, keeps close and says so', () => {
   const far = hungry => {
     const world = new World({ side: 8, random: seeded(21) });
-    world.sync([thing('d', 'shiba', 4, 4)]);
+    world.sync([thing('d', 'dog', 4, 4)]);
     let travelled = 0, last = [4, 4], asked = false;
     run(world, 120, { hungry: new Set(hungry ? ['d'] : []) }, w => { const a = w.animals.get('d'); travelled += Math.hypot(a.u - last[0], a.v - last[1]); last = [a.u, a.v]; if (a.emote === 'hungry') asked = true; });
     return { travelled, asked };
@@ -128,7 +128,7 @@ test('a crowded haven stays lively and nobody ends up on top of anyone', () => {
 
 test('animals move with weight: hops rise and fall, walkers gather speed, and nobody walks through a boulder or the pond', () => {
   const world = new World({ side: 8, random: seeded(4) });
-  world.sync([thing('r', 'rabbit', 1, 1), thing('d', 'shiba', 1, 6), thing('rock', 'boulder', 4, 4), thing('pond', 'pond', 6, 3)]);
+  world.sync([thing('r', 'rabbit', 1, 1), thing('d', 'dog', 1, 6), thing('rock', 'boulder', 4, 4), thing('pond', 'pond', 6, 3)]);
   const r = world.animals.get('r'), d = world.animals.get('d');
   let peak = 0, landed = 0, top = 0, nearest = 9, waded = false;
   const speeds = [];
@@ -175,7 +175,7 @@ test('animals do the right thing in the right place', () => {
 
 test('animals answer the person: they come when the ground is tapped, eat when fed and jump when petted', () => {
   const world = new World({ side: 6, random: seeded(9) });
-  world.sync([thing('a', 'shiba', 1, 1), thing('z', 'snail', 5, 5)]);
+  world.sync([thing('a', 'dog', 1, 1), thing('z', 'snail', 5, 5)]);
   assert.equal(world.attract(2, 2), 1, 'only the dog is near enough');
   const a = world.animals.get('a');
   let ran = false;
@@ -190,4 +190,23 @@ test('animals answer the person: they come when the ground is tapped, eat when f
   assert.ok(jumped > 0.1, 'a jump for joy');
   run(world, 3);
   assert.equal(a.lift, 0);
+});
+
+test('in a sanctuary, animals cross from one haven to the next and stay on the land', () => {
+  // Three plots in an L: the fourth corner of the square is open sky.
+  const plots = [{ u0: 0, v0: 0, size: 5 }, { u0: 0, v0: 5, size: 5 }, { u0: 5, v0: 0, size: 5 }];
+  const world = new World({ plots, random: seeded(7) });
+  world.sync([thing('d', 'dog', 2, 2), thing('r', 'rabbit', 2.5, 2.5), thing('fx', 'fox', 1, 3)]);
+  const visited = { d: new Set(), r: new Set(), fx: new Set() };
+  const plotOf = (u, v) => plots.findIndex(p => u >= p.u0 && u <= p.u0 + p.size && v >= p.v0 && v <= p.v0 + p.size);
+  run(world, 600, {}, w => {
+    for (const a of w.animals.values()) {
+      const i = plotOf(a.u, a.v);
+      assert.ok(i >= 0, `${a.id} is on the land at ${a.u.toFixed(2)}, ${a.v.toFixed(2)}`);
+      assert.ok(a.u >= 0.4 && a.v >= 0.4 && a.u <= 9.6 && a.v <= 9.6);
+      visited[a.id].add(i);
+    }
+  });
+  assert.ok(Object.values(visited).some(s => s.size >= 2), 'someone visited a neighbour');
+  assert.deepEqual(world.fit(7, 7).map(n => Math.round(n * 10) / 10).some(n => n <= 5), true, 'the open corner is not land');
 });

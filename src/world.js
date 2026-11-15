@@ -6,9 +6,9 @@
 // advanced by step(dt), so the same code runs in the app and in tests.
 import { speciesById } from './catalog.js';
 
-const FLOWERS = ['clover', 'daisy', 'tulip', 'poppy', 'lavender', 'sunflower', 'waterlily', 'lotus', 'cherry'];
+const FLOWERS = ['clover', 'daisy', 'tulip', 'poppy', 'lavender', 'sunflower', 'waterlily', 'lotus', 'cherry', 'lily', 'bougainvillea'];
 const TREES = ['oak', 'pine', 'birch', 'maple', 'willow', 'cherry', 'palm', 'frostpine', 'bamboo'];
-const COVER = ['fern', 'tallgrass', 'blueberry', 'monstera'];
+const COVER = ['fern', 'tallgrass', 'blueberry', 'monstera', 'bougainvillea'];
 const WATER = ['pond'];
 const PERCHES = [...TREES, 'birdhouse'];
 
@@ -30,7 +30,7 @@ const TRAITS = {
   squirrel: { move: 'hop', speed: 1.2, likes: [...TREES, 'stump', 'log'], perch: true, graze: true, hop: [0.45, 0.16] },
   turtle: { move: 'crawl', speed: 0.2, likes: [...WATER, 'boulder'], swim: true, graze: true, gait: 1.5, sink: 12 },
   cat: { move: 'walk', speed: 0.8, likes: ['boulder', 'campfire', 'stump', 'birdhouse'], gait: 0.56 },
-  shiba: { move: 'walk', speed: 1.1, likes: ['campfire', 'log', 'pond'], gait: 0.5 },
+  dog: { move: 'walk', speed: 1.1, likes: ['campfire', 'log', 'pond', 'stump'], gait: 0.5 },
   raccoon: { move: 'walk', speed: 0.8, likes: ['log', 'pond', 'campfire', 'blueberry'], nocturnal: true, graze: true, gait: 0.5 },
   parrot: { move: 'fly', speed: 1.4, likes: PERCHES, perch: true, gait: 0.3 },
   fox: { move: 'walk', speed: 1.0, likes: ['burrow', 'blueberry', 'tallgrass'], nocturnal: true, gait: 0.5, den: true },
@@ -44,6 +44,8 @@ const TRAITS = {
   capybara: { move: 'walk', speed: 0.5, likes: [...WATER, 'campfire', 'tallgrass'], swim: true, graze: true, gait: 0.7, sink: 17 },
   bear: { move: 'walk', speed: 0.6, likes: [...TREES, 'beehive', 'blueberry', 'pond'], graze: true, gait: 0.9 },
   panda: { move: 'walk', speed: 0.5, likes: ['bamboo', 'boulder', 'pond'], graze: true, gait: 0.9 },
+  giraffe: { move: 'walk', speed: 0.8, likes: [...TREES, 'pond'], graze: true, gait: 1.0 },
+  elephant: { move: 'walk', speed: 0.5, likes: [...WATER, 'palm', 'bamboo', 'boulder'], swim: true, graze: true, gait: 1.1, sink: 22 },
 };
 export const traitsOf = id => TRAITS[id] || { move: 'walk', speed: 0.8, likes: [] };
 
@@ -53,7 +55,7 @@ const INSECT_HEIGHT = 0.55;
 const GROW = { 1: 0.8, 2: 0.98, 3: 1.18 }; // how big a thing is drawn at each size
 // How high up a percher sits in each thing, and how far round a thing an animal on foot has to go.
 // How high the flowers of each plant are, for the insects that land on them.
-const SIP = { sunflower: 1.05, cherry: 1.0, lavender: 0.75, tulip: 0.55, poppy: 0.55, daisy: 0.5, clover: 0.28, waterlily: 0.12, lotus: 0.2, beehive: 0.5 };
+const SIP = { lily: 0.7, bougainvillea: 0.8, sunflower: 1.05, cherry: 1.0, lavender: 0.75, tulip: 0.55, poppy: 0.55, daisy: 0.5, clover: 0.28, waterlily: 0.12, lotus: 0.2, beehive: 0.5 };
 const PERCH = { oak: 1.15, pine: 1.3, birch: 1.4, maple: 1.25, willow: 1.15, cherry: 1.15, palm: 1.5, frostpine: 1.25, bamboo: 1.3, birdhouse: 0.98 };
 const SOLID = { boulder: 0.3, stump: 0.22, log: 0.32, campfire: 0.26, lantern: 0.16, beehive: 0.2, birdhouse: 0.1, burrow: 0.3, cactus: 0.2, pricklypear: 0.2, bonsai: 0.18, pumpkin: 0.18, ...Object.fromEntries(TREES.map(t => [t, 0.17])) };
 const SOFT = [...FLOWERS, ...COVER, 'cattail', 'toadstool', 'aloe'].filter(s => !SOLID[s]);
@@ -68,9 +70,13 @@ const inPond = (pond, u, v, grow = 1) => {
 const pondPoint = (pond, x, y) => { const d = x * pond.across, s = y * pond.down; return [pond.u + (s - d) / 2, pond.v + (s + d) / 2]; };
 
 export class World {
-  /** @param {{side: number, random?: () => number}} o */
-  constructor({ side, random = Math.random }) {
-    this.side = side;
+  /**
+   * @param {{side?: number, plots?: {u0:number,v0:number,size:number}[], random?: () => number}} o
+   * The land is one square `side` tiles each way, or for a sanctuary several square plots that
+   * touch. Animals go anywhere on it, across from one plot to the next.
+   */
+  constructor({ side = 5, plots = null, random = Math.random }) {
+    this.setLand(side, plots);
     this.random = random;
     this.t = 0;
     this.animals = new Map();
@@ -79,11 +85,34 @@ export class World {
   }
 
   rand(lo, hi) { return lo + this.random() * (hi - lo); }
-  clampU(n) { return Math.min(this.side - MARGIN, Math.max(MARGIN, n)); }
+
+  /** Set the shape of the land. Each plot keeps animals a little in from its outer edges only. */
+  setLand(side, plots = null) {
+    this.side = side;
+    this.plots = plots || [{ u0: 0, v0: 0, size: side }];
+    this.U = Math.max(...this.plots.map(p => p.u0 + p.size));
+    this.V = Math.max(...this.plots.map(p => p.v0 + p.size));
+    const has = (u, v) => this.plots.some(p => u > p.u0 && u < p.u0 + p.size && v > p.v0 && v < p.v0 + p.size);
+    this.rects = this.plots.map(p => ({
+      u0: p.u0 + (has(p.u0 - 0.5, p.v0 + p.size / 2) ? 0 : MARGIN), u1: p.u0 + p.size - (has(p.u0 + p.size + 0.5, p.v0 + p.size / 2) ? 0 : MARGIN),
+      v0: p.v0 + (has(p.u0 + p.size / 2, p.v0 - 0.5) ? 0 : MARGIN), v1: p.v0 + p.size - (has(p.u0 + p.size / 2, p.v0 + p.size + 0.5) ? 0 : MARGIN),
+    }));
+  }
+  /** The nearest point on the land to (u, v). */
+  fit(u, v) {
+    let best = null, gap = Infinity;
+    for (const r of this.rects) {
+      const fu = Math.min(r.u1, Math.max(r.u0, u)), fv = Math.min(r.v1, Math.max(r.v0, v)), d = (fu - u) ** 2 + (fv - v) ** 2;
+      if (d < gap) { gap = d; best = [fu, fv]; if (d === 0) break; }
+    }
+    return best;
+  }
+  /** Somewhere on the land, picked at random. */
+  anywhere() { return this.fit(this.rand(MARGIN, this.U - MARGIN), this.rand(MARGIN, this.V - MARGIN)); }
 
   /** Bring the world in line with what stands in the haven. Animals already here keep their place. */
-  sync(placed, side = this.side) {
-    this.side = side;
+  sync(placed, side) {
+    if (side !== undefined && side !== this.side) this.setLand(side);
     const seen = new Set();
     this.things.clear();
     for (const p of placed) {
@@ -99,7 +128,7 @@ export class World {
         continue;
       }
       const a = this.animals.get(p.id);
-      if (a) { a.u = this.clampU(a.u); a.v = this.clampU(a.v); continue; }
+      if (a) { [a.u, a.v] = this.fit(a.u, a.v); continue; }
       const insect = traitsOf(p.species).insect;
       this.animals.set(p.id, {
         id: p.id, species: p.species, u: p.u, v: p.v, vu: 0, vv: 0, face: 1, state: 'idle', act: 'idle', doing: null, until: this.t + this.rand(0.3, 3),
@@ -121,7 +150,7 @@ export class World {
   drop(id, u, v) {
     const a = this.animals.get(id);
     if (!a) return;
-    Object.assign(a, { u: this.clampU(u), v: this.clampU(v) });
+    [a.u, a.v] = this.fit(u, v);
     this.release(a, 1.5);
     if (!traitsOf(a.species).insect) { a.lift = 0; a.flying = false; }
     this.events.push({ type: 'land', id, u: a.u, v: a.v });
@@ -160,17 +189,17 @@ export class World {
 
   goTo(a, u, v, next) {
     const trait = traitsOf(a.species);
-    a.tu = this.clampU(u); a.tv = this.clampU(v); a.next = next; a.state = 'walk';
+    [a.tu, a.tv] = this.fit(u, v); a.next = next; a.state = 'walk';
     // Nobody on foot heads for the middle of a boulder, and only swimmers head into the water.
     if (trait.move !== 'fly') for (const t of this.things.values()) {
       if (t.id === a.thing) continue;
       if (t.pond && !trait.swim && inPond(t.pond, a.tu, a.tv, 1.15)) {
         const d = (a.tv - t.pond.v) - (a.tu - t.pond.u), s = (a.tu - t.pond.u) + (a.tv - t.pond.v), x = d / t.pond.across, y = s / t.pond.down, r = Math.hypot(x, y) || 1;
         const [pu, pv] = pondPoint(t.pond, (x / r) * 1.25, ((y || 1) / r) * 1.25);
-        a.tu = this.clampU(pu); a.tv = this.clampU(pv);
+        [a.tu, a.tv] = this.fit(pu, pv);
       } else if (t.solid) {
         const gu = a.tu - t.u, gv = a.tv - t.v, d = Math.hypot(gu, gv), room = t.solid + 0.25;
-        if (d < room) { const ang = d > 0.001 ? Math.atan2(gv, gu) : this.rand(0, 6.28); a.tu = this.clampU(t.u + Math.cos(ang) * room); a.tv = this.clampU(t.v + Math.sin(ang) * room); }
+        if (d < room) { const ang = d > 0.001 ? Math.atan2(gv, gu) : this.rand(0, 6.28); [a.tu, a.tv] = this.fit(t.u + Math.cos(ang) * room, t.v + Math.sin(ang) * room); }
       }
     }
     const dist = Math.hypot(a.tu - a.u, a.tv - a.v);
@@ -209,7 +238,7 @@ export class World {
         if (trait.move === 'fly') a.flying = true;
         a.next = 'idle';
         this.emote(a.id, 'note', 2);
-        this.goTo(o, this.rand(MARGIN, this.side - MARGIN), this.rand(MARGIN, this.side - MARGIN), 'idle');
+        this.goTo(o, ...this.anywhere(), 'idle');
         o.rush = a.until;
         return;
       }
@@ -229,7 +258,9 @@ export class World {
       return;
     }
     if (trait.graze && !a.wet && !a.flying && a.lift < 0.05 && r > 0.86) { a.state = 'enjoy'; a.doing = 'eat'; a.until = this.t + this.rand(2.5, 5); return; }
-    const reach = hungry ? 1.2 : this.side;
+    // In a sanctuary, animals now and then set off to visit a neighbour's haven.
+    if (!hungry && this.plots.length > 1 && r > 0.8) { this.goTo(a, ...this.anywhere(), 'idle'); return; }
+    const reach = hungry ? 1.2 : Math.min(this.side, 8);
     this.goTo(a, a.u + this.rand(-reach, reach), a.v + this.rand(-reach, reach), 'idle');
   }
 
@@ -338,8 +369,8 @@ export class World {
       const a = list[i], b = list[j], d = this.near(a, b);
       if (d < 0.28 && !a.moving && !b.moving && Math.abs(a.lift - b.lift) < 0.3 && a.doing !== 'hide' && b.doing !== 'hide') {
         const angle = d > 0.001 ? Math.atan2(a.v - b.v, a.u - b.u) : this.rand(0, Math.PI * 2), push = (0.28 - d) / 2 + 0.01;
-        a.u = this.clampU(a.u + Math.cos(angle) * push); a.v = this.clampU(a.v + Math.sin(angle) * push);
-        b.u = this.clampU(b.u - Math.cos(angle) * push); b.v = this.clampU(b.v - Math.sin(angle) * push);
+        [a.u, a.v] = this.fit(a.u + Math.cos(angle) * push, a.v + Math.sin(angle) * push);
+        [b.u, b.v] = this.fit(b.u - Math.cos(angle) * push, b.v - Math.sin(angle) * push);
       }
     }
   }
@@ -377,7 +408,7 @@ export class World {
       }
       const h = a.hop, was = h.p;
       h.p = Math.min(1, h.p + dt / h.air);
-      a.u = this.clampU(a.u + h.du * (h.p - was)); a.v = this.clampU(a.v + h.dv * (h.p - was));
+      [a.u, a.v] = this.fit(a.u + h.du * (h.p - was), a.v + h.dv * (h.p - was));
       a.lift = h.h * 4 * h.p * (1 - h.p); a.air = h.p < 1; a.tilt = -(1 - 2 * h.p) * 16;
       if (h.p >= 1) { a.hop = null; a.lift = 0; a.tilt = 0; a.rest = Math.max(0.07, cycle - air); this.events.push({ type: 'land', id: a.id, u: a.u, v: a.v, soft: hopH < 0.3 }); }
       return false;
@@ -413,7 +444,7 @@ export class World {
   }
 
   move(a, dt) {
-    a.u = this.clampU(a.u + a.vu * dt); a.v = this.clampU(a.v + a.vv * dt);
+    [a.u, a.v] = this.fit(a.u + a.vu * dt, a.v + a.vv * dt);
     const across = a.vv - a.vu; // which way it moves across the screen
     if (Math.abs(across) > 0.08) a.face = across > 0 ? 1 : -1;
   }

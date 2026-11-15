@@ -9,6 +9,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate, UNUserNotificationC
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         UNUserNotificationCenter.current().delegate = self
         AwayTracker.shared.start()
+        NewsChecker.shared.register()
         let window = UIWindow(frame: UIScreen.main.bounds)
         window.rootViewController = WebViewController()
         window.backgroundColor = UIColor(named: "LaunchBackground")
@@ -47,14 +48,20 @@ final class AwayTracker {
     }
 
     @objc private func background() {
+        NewsChecker.shared.scheduleFromNow()
         let now = Date().timeIntervalSince1970
         defaults.set(now * 1000, forKey: "away.at")
         defaults.set(now - lastLock < 4, forKey: "away.locked")
     }
 
+    /// True when the phone locked in the last few seconds.
+    var recentlyLocked: Bool { Date().timeIntervalSince1970 - lastLock < 4 }
+
     @objc func locked() {
         let now = Date().timeIntervalSince1970
         lastLock = now
+        // "Come back to Haven" is for someone who switched apps. A locked phone is not leaving.
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["away"])
         let at = defaults.double(forKey: "away.at") / 1000
         if at > 0, now - at < 12 { defaults.set(true, forKey: "away.locked") }
     }
