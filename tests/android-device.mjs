@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { writeFileSync, mkdirSync } from 'node:fs';
-import { chromium } from 'playwright-core';
+import { _android as android } from 'playwright-core';
 
 const APK = process.argv[2] || 'android/app/build/outputs/apk/debug/app-debug.apk';
 const PKG = 'com.shira421.haven';
@@ -37,24 +37,20 @@ async function tapText(pattern, tries = 10) {
   return false;
 }
 
-let browser, page;
+let device, page, attachedPid = '';
 /** Connect to the app's web view (again, after the app was stopped or restarted). */
 async function attach() {
   for (let i = 0; i < 30 && !pid(); i++) await sleep(1000);
-  const p = pid();
-  assert.ok(p, 'the app is running');
-  adb('forward', '--remove-all');
-  adb('forward', 'tcp:9222', `localabstract:webview_devtools_remote_${p}`);
-  for (let i = 0; i < 30; i++) {
-    try {
-      browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
-      page = browser.contexts()[0]?.pages().find(x => x.url().includes('appassets'));
-      if (page) break;
-    } catch { /* not ready yet */ }
-    await sleep(1000);
+  assert.ok(pid(), 'the app is running');
+  device ??= (await android.devices())[0];
+  if (pid() !== attachedPid) page = null; // a new process: its web view is a new one
+  attachedPid = pid();
+  let last;
+  for (let i = 0; i < 5 && !page?.url?.().includes('appassets'); i++) {
+    try { page = await (await device.webView({ pkg: PKG }, { timeout: 20000 })).page(); } catch (error) { last = error; await sleep(2000); }
   }
-  assert.ok(page, 'the web view can be reached');
-  page.on('pageerror', e => errors.push(e.message));
+  assert.ok(page, `the web view can be reached${last ? ': ' + last.message : ''}`);
+  if (!page._watched) { page._watched = true; page.on('pageerror', e => errors.push(e.message)); }
   await page.waitForFunction(() => window.__haven && document.querySelector('.page'), null, { timeout: 30000 });
 }
 const errors = [];
@@ -208,5 +204,5 @@ try {
   process.exitCode = 1;
 } finally {
   for (const f of cleanup.reverse()) await f().catch(e => console.error('cleanup:', e.message));
-  await browser?.close().catch(() => {});
+  await device?.close().catch(() => {});
 }

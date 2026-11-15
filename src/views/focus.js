@@ -235,7 +235,8 @@ export function pickSpecies(app, id) {
 }
 
 export const actions = {
-  'away-answer'(app, d) { closeDialog(); app.timer.answerAway(d.value === 'off'); },
+  // "Another app" replaces this dialog with the one saying what was lost, so only the other answer closes it.
+  'away-answer'(app, d) { if (d.value === 'off') closeDialog(); app.timer.answerAway(d.value === 'off'); },
   mode(app, d) { app.store.set({ mode: d.value }); },
   'choose-length': app => lengthDialog(app),
   'choose-species': app => speciesDialog(app),

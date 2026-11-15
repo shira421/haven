@@ -50,8 +50,8 @@ async function noOverflow(page, where) {
   assert.ok(wide <= 1, `${where}: the page scrolls sideways by ${wide}px`);
 }
 /** Move a page's clock on in small steps until something shows: for waits that are timers in the app. */
-async function until(page, selector, ms = 15000) {
-  const ready = typeof selector === 'function' ? () => page.evaluate(selector) : async () => (await page.locator(selector).count()) > 0;
+async function until(page, selector, ms = 15000, arg = undefined) {
+  const ready = typeof selector === 'function' ? () => page.evaluate(selector, arg) : async () => (await page.locator(selector).count()) > 0;
   for (let spent = 0; spent < ms; spent += 250) {
     if (await ready()) return;
     await page.clock.runFor(250);
@@ -229,14 +229,23 @@ try {
   await forward(10000, ana, ben);
   await hide(ana, false);
   assert.equal(await ana.locator('.page.focus.running').count(), 1, 'ten seconds away is forgiven');
+  // A phone's browser cannot tell a locked screen from another app, so it asks.
   await hide(ana, true);
   await forward(40000, ana, ben);
   await hide(ana, false);
-  await ana.waitForSelector('#dialog[open]');
+  await ana.waitForSelector('#dialog[open] [data-action="away-answer"]');
+  assert.equal(await ana.locator('#dialog-title').textContent(), 'Welcome back');
+  await ana.click('#dialog [data-action="away-answer"][data-value="off"]');
+  assert.equal(await ana.locator('.page.focus.running').count(), 1, 'a locked screen is not leaving');
+  await hide(ana, true);
+  await forward(40000, ana, ben);
+  await hide(ana, false);
+  await ana.click('#dialog [data-action="away-answer"][data-value="app"]');
+  await ana.waitForSelector('#dialog[open] .result-art');
   assert.equal(await ana.locator('#dialog-title').textContent(), 'The fern withered');
   assert.match(await ana.locator('#dialog .lead').textContent(), /away from Haven for (3[0-9]|40) s\. Deep focus allows 30 s\./);
   await ana.click('#dialog [data-action="close-dialog"]');
-  ok('deep focus forgives a short absence and withers the plant after a long one');
+  ok('deep focus forgives a short absence; after a long one a phone browser asks whether the screen was off, and another app withers the plant');
 
   // ——— Friends, live ———
   await register(ana, 'Ana', 'ana_e2e');
@@ -429,8 +438,8 @@ try {
   const animal = await ana.locator('.sanctuary-land .ent.animal').count();
   assert.ok(animal > 0, 'animals live in the sanctuary');
   const placesBefore = await ana.evaluate(() => [...document.querySelectorAll('.sanctuary-land .ent.animal')].map(el => el.style.left + el.style.top).join());
-  await ana.clock.runFor(3000);
-  assert.notEqual(await ana.evaluate(() => [...document.querySelectorAll('.sanctuary-land .ent.animal')].map(el => el.style.left + el.style.top).join()), placesBefore, 'the animals move about');
+  // Animals rest now and then, so give them up to 20 s to set off.
+  await until(ana, before => [...document.querySelectorAll('.sanctuary-land .ent.animal')].map(el => el.style.left + el.style.top).join() !== before, 20000, placesBefore);
   await noOverflow(ana, 'sanctuary');
   await shot(ana, 'sanctuary');
   await ana.click('[data-action="sanct-back"]');
