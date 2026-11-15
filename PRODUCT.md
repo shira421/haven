@@ -17,7 +17,7 @@ People who study or work in focused blocks and want a reason to stay off their p
 | Pomodoro | Focus, short break, long break and rounds are all adjustable. The next round can start by itself. |
 | Deep focus | Away from Haven for longer than the allowance (30 s to 2 min, 30 s to start with) and the session fails. Can be turned off. |
 | Come back | A third of the way through the allowance (10 s of 30 s), a notification asks you to come back before the session is lost. Not sent when the phone was only locked. |
-| Lock is not leaving | In the iOS and Android apps the screen may turn off during a session, as it normally would. "Keep the screen on" is off unless you turn it on. A browser cannot tell a locked phone from a switched app, so there a locked phone counts as leaving. |
+| Lock is not leaving | The screen may turn off during a session, as it normally would. "Keep the screen on" is off unless you turn it on. The apps tell a locked phone from a switched app themselves. A phone's browser cannot, so after an absence longer than the allowance it asks "Was your screen off, or were you using another app?" and only "another app" loses the session; it sends no come-back notification, since it cannot tell. On a computer's browser, leaving counts as before. |
 | Tags | Up to 12, each with a colour, shown in the journal. |
 | Sounds | Seven background sounds and a finishing chime, generated on the device. |
 | Session survives a restart | A running session is stored and resumes, or is judged by how long Haven was closed. |
@@ -70,9 +70,10 @@ People who study or work in focused blocks and want a reason to stay off their p
 | Rooms | Up to 8 people. Start together on the server's clock. "Ends for everyone" or "only they lose theirs". |
 | Board | You and your friends for today, week, month and all time. |
 | Activity | What you and your friends grew in the last 14 days. |
+| Recovery | On Android, if the system stops the page inside the app, Haven reloads it instead of closing. If Haven does close unexpectedly, it says so the next time it opens and offers the details to copy for a bug report. A running session is kept either way. |
 | Other devices | A one-time code signs in a second device and brings the haven with it. After that every change on one device reaches the others: within seconds when they are open, otherwise when they open. Changes made on two devices at once are joined, not overwritten. |
 | Sanctuaries | Groups of up to 9. Everyone's havens are joined into one land on a near-square grid, with stepping stones where two meet, and animals cross freely between them. A loading screen while the land is fetched and joined. Make, invite friends, join by code, leave; whoever made it can rename it and ask someone to leave. Up to 5 per person. |
-| Notifications | Session finished, come back, friend requests and acceptances, room and sanctuary invitations, cheers, nudges and gifts, streak about to end (8 pm), hungry animals (by day), daily reminder. Each can be switched off in Settings. |
+| Notifications | Asked for once, at the first session or on making a profile. Settings shows when they are off, with a way to turn them on. Session finished, come back, friend requests and acceptances, room and sanctuary invitations, cheers, nudges and gifts, streak about to end (8 pm), hungry animals (by day), daily reminder. Each can be switched off in Settings. |
 | Backup | To the server when signed in, or as a file. |
 
 ### How Forest's paid features map

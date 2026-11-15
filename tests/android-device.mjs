@@ -121,7 +121,8 @@ try {
   ok('tapping a notification opens Haven, even after Android stopped it');
 
   // A session that ends while Haven is in the background: the notification, then the result.
-  await js(() => { const a = window.__haven.app; a.store.state.active.start -= (a.store.state.active.planned * 60000 - 6000); a.store.commit('session'); a.timer.afterBegin(a.store.state.active); });
+  // Move the running session on so it ends 8 s from now, and set its notification again.
+  await js(() => { const a = window.__haven.app, act = a.store.state.active; act.start = Date.now() + 8000 - act.planned * 60000; a.store.commit('session'); a.timer.afterBegin(act); });
   home();
   let grown = false;
   for (let i = 0; i < 20 && !grown; i++) { await sleep(1000); grown = posted('fully grown') || posted('has arrived'); }

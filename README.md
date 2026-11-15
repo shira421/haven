@@ -21,7 +21,7 @@ One web app runs everywhere: in a browser, installed from the browser on iPhone 
 - **Nature you build.** A pond, a campfire, a burrow, a beehive, a bird house and more. Each needs a session of a minimum length (a pond takes 60 min), and animals come to use them. The fire and the lantern glow at night.
 - **29 plants** too, from clover to lily, bougainvillea and cherry blossom. Longer sessions grow bigger ones. Things unlock with coins, through goals (a 7-day streak brings a bear), or free in their season.
 - **Timer, stopwatch and pomodoro.** 5 to 180 minutes, a count-up stopwatch, or pomodoro rounds with breaks.
-- **Deep focus.** Leave Haven for longer than the time you allow (30 s to 2 min) and the session is lost. A third of the way through, a notification asks you to come back. In the apps, the phone can lock as usual during a session: that does not count as leaving. Keeping the screen on is a setting.
+- **Deep focus.** Leave Haven for longer than the time you allow (30 s to 2 min) and the session is lost. A third of the way through, a notification asks you to come back. The phone can lock as usual during a session: that does not count as leaving. In the apps Haven can tell the two apart itself; in a phone's browser, which cannot, Haven asks when you come back whether your screen was off or you used another app. Keeping the screen on is a setting.
 - **Arrange freely.** Drag anything anywhere on the land. The land grows with your level, from room for 25 things to room for 100.
 - **Friends, live.** Add people by code, username or invite link. See who is focusing right now and for how long. Cheer or nudge them. Visit their haven. Send them a plant, an animal or a piece of nature.
 - **Sanctuaries.** Make a group of up to nine friends and your havens are joined into one land, a square where it can be and a bay where it cannot. Everyone's animals wander from haven to haven. Opening one shows a short loading screen while the havens are fetched and joined.
@@ -29,7 +29,7 @@ One web app runs everywhere: in a browser, installed from the browser on iPhone 
 - **Board and activity.** Rank yourself and your friends for today, the week, the month or all time, and see what everyone grew.
 - **Journal.** Day, week, month and year views with a chart, time by tag, best hour, streaks, every session, and 29 achievements.
 - **Sounds.** Rain, stream, wind, night crickets, campfire, brown and white noise, made on the device, so they work offline.
-- **Notifications.** A session finishing, a reminder to come back, friend requests and acceptances, invitations, cheers, nudges and gifts, a streak about to end, hungry animals, and a daily reminder. Each can be switched off. While Haven is closed, the apps check for friends' news about every 15 minutes.
+- **Notifications.** A session finishing, a reminder to come back, friend requests and acceptances, invitations, cheers, nudges and gifts, a streak about to end, hungry animals, and a daily reminder. Each can be switched off. Haven asks for permission at your first session, and Settings says if notifications are off and takes you to turn them on. While Haven is closed, the apps check for friends' news about every 15 minutes.
 - **One haven on every device.** Sign in a second device with a one-time code. From then on what you grow, move, feed, buy or let go on either one reaches the other within seconds when both are open, and on opening otherwise. Nothing is lost when both changed at once.
 - **Yours to keep.** Works offline. Light and dark. Backup file, server backup.
 
