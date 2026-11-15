@@ -103,6 +103,39 @@ try {
   await sleep(2000);
   ok('notifications show at once and at a set time, with Haven open or in the background');
 
+  // Tapping a notification opens Haven, also when Android had stopped it in the meantime.
+  await attach();
+  await js(() => window.__haven.device.notifyAt('test-tap', Date.now() + 6000, 'Tap me', 'Opens Haven.'));
+  home();
+  await sleep(1500);
+  shell(`am kill ${PKG}`);
+  await sleep(9000);
+  assert.ok(posted('Tap me'), 'a notification set before Haven was stopped still arrives');
+  shell('cmd statusbar expand-notifications');
+  await sleep(1500);
+  assert.ok(await tapText(/^Tap me$/), 'the notification can be tapped');
+  await sleep(4000);
+  assert.match(shell('dumpsys activity activities | grep -i "ResumedActivity" | head -3'), /com\.shira421\.haven/, 'Haven is in front');
+  await attach();
+  noCrash('after tapping a notification');
+  ok('tapping a notification opens Haven, even after Android stopped it');
+
+  // A session that ends while Haven is in the background: the notification, then the result.
+  await js(() => { const a = window.__haven.app; a.store.state.active.start -= (a.store.state.active.planned * 60000 - 6000); a.store.commit('session'); a.timer.afterBegin(a.store.state.active); });
+  home();
+  let grown = false;
+  for (let i = 0; i < 20 && !grown; i++) { await sleep(1000); grown = posted('fully grown') || posted('has arrived'); }
+  assert.ok(grown, 'the end of the session is notified while Haven is in the background');
+  shell('cmd statusbar collapse');
+  front();
+  await attach();
+  await page.waitForSelector('#dialog[open] .result-art', { timeout: 15000 });
+  noCrash('after a session ended in the background');
+  await page.click('#dialog [data-action="close-dialog"]');
+  await page.click('[data-action="start"]');
+  await page.waitForSelector('.page.focus.running', { timeout: 10000 });
+  ok('a session that ends in the background is notified, and its result shows on return');
+
   // Switching apps during a session: "come back" after a third of the 30 s allowed, and the session survives a short trip.
   await attach();
   assert.ok(await js(() => Boolean(window.__haven.app.store.state.active)), 'the session is still running');

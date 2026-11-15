@@ -288,9 +288,11 @@ public final class MainActivity extends Activity {
     }
 
     // The page sees itself hidden and visible again through these.
+    // Android's web view does not tell the page when the app leaves the screen, so the app does.
     @Override
     protected void onPause() {
         super.onPause();
+        tellPage("hidden");
         if (webView != null) webView.onPause();
     }
 
@@ -298,6 +300,11 @@ public final class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (webView != null) webView.onResume();
+        tellPage("visible");
+    }
+
+    private void tellPage(String state) {
+        if (webView != null) webView.evaluateJavascript("window.__havenLifecycle&&window.__havenLifecycle('" + state + "'," + System.currentTimeMillis() + ")", null);
     }
 
     /** Back closes an open sheet first; otherwise Haven goes to the background and keeps its state. */

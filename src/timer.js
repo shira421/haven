@@ -103,10 +103,13 @@ export class Timer {
   }
 
   /** Haven went to the background or the screen turned off. */
-  hidden() {
+  hidden(when = null) {
     const active = this.active;
     if (!active || active.hiddenAt) return;
-    const at = this.now();
+    // The apps say when they went to the background. A report that arrives after Haven is back
+    // in front (a web view can be paused before it hears) is out of date and is ignored.
+    if (when && when < (this.shownAt || 0)) return;
+    const at = Math.min(this.now(), when || this.now());
     this.store.markHidden(at);
     this.warned = false;
     // The apps are paused in the background, so the warning is left with the phone to show.
@@ -129,6 +132,7 @@ export class Timer {
   /** Haven is in front again: decide whether the time away cost the session. */
   async visible() {
     const active = this.active;
+    this.shownAt = this.now();
     device.cancelNotification('away');
     this.warned = false;
     if (!active) { this.tick(); return; }

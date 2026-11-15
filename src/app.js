@@ -129,10 +129,15 @@ function wire() {
     if (name) inputs[name]?.(app, event.target);
   });
   document.addEventListener('change', event => { const name = event.target.dataset?.change; if (name) changes[name]?.(app, event.target); });
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') app.timer.hidden();
-    else { app.timer.visible(); app.social.wake(); if (!store.state.active) render(); }
-  });
+  const shown = () => { app.timer.visible(); app.social.wake(); if (!store.state.active) render(); };
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') app.timer.hidden(); else shown(); });
+  // The apps also say so themselves: Android's web view is not told when the app goes to the
+  // background, so without this time away would not count there. `at` is when it happened.
+  let away = false;
+  window.__havenLifecycle = (state, at) => {
+    if (state === 'hidden') { away = true; app.timer.hidden(Number(at) || null); }
+    else if (away) { away = false; shown(); }
+  };
   window.addEventListener('pagehide', () => app.timer.hidden());
   window.addEventListener('online', () => app.social.wake());
   matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', applyTheme);
