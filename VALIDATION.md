@@ -34,6 +34,10 @@ Every plant, animal and nature item at full size and through its growth stages. 
 
 For 1.3.0, a sweep of every screen and dialog at 320, 390, 768 and 1280 px in light and dark, with long names, a full sanctuary of nine havens, a new person with nothing grown, the phone apps' settings, and a sanctuary that loads slowly or fails, checked by eye and for anything running off the screen. Also the new animals (giraffe, elephant), the seven dog breeds and the two new plants on a sheet; a haven holding all of them, including a shiba saved by 1.2; the breed picker; the notification settings; the sanctuary list, its loading screen and a sanctuary of two havens in light and dark.
 
+## Checked on Android emulators on every pull request
+
+`tests/android-device.mjs`, run by `.github/workflows/devices.yml` on Android 14 and Android 15 emulators, drives the real app the way a person would and fails on any crash: Android's notification prompt at the first session, a notification now and at a set time, tapping a notification (also after Android stopped Haven), a session ending in the background, leaving during a session (come-back notification after 10 s, session kept on a quick return), the screen off for 45 s (no notification, session kept), away for 40 s (session lost), the streak and hunger reminders, a friend request arriving through the background check with Haven closed, a sanctuary, and Haven reopening after the system stopped it. The friend steps use the live server with two throwaway profiles that are deleted afterwards.
+
 ## The phone apps
 
 1.1.0 and 1.2.0 changed only the web app inside the apps. 1.3.0 changes native code: the come-back notification is withdrawn when the phone locks, and both apps check for friends' news in the background (Android `Inbox`, iOS `NewsChecker` with a background refresh task). Each pull request builds the Android APK and builds and starts the iOS app in a simulator; the result is on the pull request's checks.
@@ -48,8 +52,8 @@ These were written with care but have not been run where they will live. Treat t
 - **Safari.** The browser test uses Chrome. Safari on iPhone has not been tried, including Add to Home Screen and sound.
 - **The moving parts on a real iPhone.** The poses rely on CSS transforms of SVG parts. `tests/rig.mjs` measures them in Chrome and, on GitHub, in WebKit on Linux, which is the same engine as the iOS app but not the same build.
 - **How the living haven runs on a real phone.** Frame rate with a full land of 100 things, battery use with the app left open, and dragging with a finger have only been tried in desktop Chrome with touch emulation.
-- **Background news checks.** Android's job and iOS's background refresh compile, but neither has run on a phone. iOS decides when a refresh runs, and may run it rarely or not at all for an app that is seldom opened.
-- **The come-back notification on a real phone**, and in particular that it is not sent when the phone only locked.
+- **Background news checks on iPhone.** Android's is checked on an emulator. iOS's background refresh compiles but has not run on a phone. iOS decides when a refresh runs, and may run it rarely or not at all for an app that is seldom opened.
+- **The come-back notification on a real iPhone**, and that it is not sent when the phone only locked. On Android it is checked on an emulator.
 - **A large sanctuary on a phone.** Nine havens of 100 things each have not been tried; frame rate is unknown.
 - **The new server tables on the deployed server.** They are created on its first start after the deploy, as they are in the tests.
 - **Load.** Nothing has been measured beyond a handful of connections.

@@ -1,8 +1,8 @@
 name: Build apps
 
 # Every push to main builds and tests the web app, the Android APK and the iOS app, then
-# publishes a rolling "latest-build" release (stable download links) and, once per version in
-# package.json, an immutable v<version> release.
+# publishes a rolling "latest-build" release (stable download links) and a v<version> release for
+# the version in package.json, replaced when the same version is built again.
 on:
   push:
     branches: [main]
@@ -214,11 +214,13 @@ jobs:
           gh release delete latest-build --yes --cleanup-tag 2>/dev/null || true
           gh release create latest-build out/* --target "$GITHUB_SHA" --prerelease \
             --title "Haven latest build (${GITHUB_SHA::7})" --notes-file .github/release-notes.md
-      - name: Create the v${{ env.VERSION }} release once
+      # A fix released under the same version number replaces that version's release, so its
+      # download links always give the newest build of it.
+      - name: Publish the v${{ env.VERSION }} release
         run: |
           if gh release view "v$VERSION" >/dev/null 2>&1; then
-            echo "v$VERSION already published; its files stay unchanged. latest-build has this commit."
-          else
-            gh release create "v$VERSION" out/* --target "$GITHUB_SHA" --latest \
-              --title "Haven v$VERSION" --notes-file .github/release-notes.md
+            echo "v$VERSION was published before; replacing it with this build."
+            gh release delete "v$VERSION" --yes --cleanup-tag
           fi
+          gh release create "v$VERSION" out/* --target "$GITHUB_SHA" --latest \
+            --title "Haven v$VERSION" --notes-file .github/release-notes.md

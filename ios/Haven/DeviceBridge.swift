@@ -48,6 +48,12 @@ final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             NewsChecker.shared.setAccount(base: body["base"] as? String ?? "", token: body["token"] as? String ?? "",
                                           friends: kinds?["friends"] as? Bool ?? true, social: kinds?["social"] as? Bool ?? true)
             replyHandler(true, nil)
+        case "openSettings":
+            // Haven's page in the Settings app, where notifications refused earlier can be turned on.
+            if let url = URL(string: UIApplication.openNotificationSettingsURLString) { UIApplication.shared.open(url) }
+            replyHandler(true, nil)
+        case "lastCrash":
+            replyHandler(nil, nil)
         case "keepAwake":
             UIApplication.shared.isIdleTimerDisabled = body["on"] as? Bool ?? false
             replyHandler(true, nil)

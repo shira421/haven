@@ -12,7 +12,9 @@ const select = (action, options, current) => `<select data-change="${action}">${
 export function settingsDialog(app, section = null) {
   const { store, social } = app, s = store.state.settings, native = device.bridge();
   const notifySwitch = (kind, label, hint) => `<label class="switch-row"><span><b>${e(label)}</b>${hint ? `<small>${e(hint)}</small>` : ''}</span><input type="checkbox" data-change="notify" data-kind="${kind}" ${s.notify[kind] ? 'checked' : ''}></label>`;
-  const lockNote = native ? 'Locking the phone does not count as leaving.' : 'A browser cannot tell a locked phone from a switched app, so keep the screen on, or use the iOS or Android app.';
+  const lockNote = native ? 'Locking the phone does not count as leaving.'
+    : device.phoneBrowser() ? 'Locking the phone is fine. If you were away longer than allowed, Haven asks whether the screen was off or you used another app.'
+    : 'Locking the computer counts as leaving.';
   const profile = !social.base ? '<p class="note">Friends are not switched on for this copy of Haven.</p>'
     : social.signedIn ? `<div class="me-card">${avatar(social.account.avatar, 'large')}<div class="row-main"><b>${e(social.account.name)}</b><span>@${e(social.account.handle)}, code ${prettyCode(social.account.code)}</span></div></div>
 <div class="button-row"><button class="secondary" data-action="edit-profile">Edit profile</button><button class="secondary" data-action="add-device">Add another device</button></div>
@@ -30,7 +32,8 @@ ${field('Background sound', select('sound', SOUNDS.map(x => [x.id, x.name]), s.s
 ${switchRow('Chime when a session finishes', 'chime', s.chime)}
 ${switchRow('Vibration', 'haptics', s.haptics)}
 <h3 class="group-title" id="set-notify">Notifications</h3>
-${native ? '' : '<p class="note">In a browser, Haven can notify you only while it is open in a tab. Reminders need the iOS or Android app.</p><div class="button-row"><button class="secondary wide" data-action="allow-notify">Allow notifications</button></div>'}
+<div id="notify-state" hidden></div>
+${native ? '' : '<p class="note">In a browser, Haven can notify you only while it is open in a tab. Reminders need the iOS or Android app.</p>'}
 ${notifySwitch('done', 'A session finishes', '')}
 ${notifySwitch('away', 'Come back to Haven', `If you switch apps during a session, after ${formatAway(warnAfter(s.allowance))}.`)}
 ${notifySwitch('friends', 'Friend requests and invitations', native ? 'Checked about every 15 minutes while Haven is closed.' : '')}
@@ -49,6 +52,18 @@ ${field('Theme', select('theme', [['system', 'Same as the phone'], ['light', 'Li
 <p class="note">Haven ${e(app.version)}. Friends server: ${social.base ? ({ live: 'connected', connecting: 'connecting', offline: 'not reachable', 'signed-out': 'ready' }[social.status]) : 'not set'}. <a href="https://github.com/shira421/haven" target="_blank" rel="noopener">Source on GitHub</a></p>
 ${field('Friends server address', `<input type="url" inputmode="url" value="${e(social.base || '')}" placeholder="https://" data-change="api-base">`, 'Leave as it is unless you run your own server.')}`, { cls: 'settings' });
   if (section) $('#set-' + section)?.scrollIntoView({ block: 'start' });
+  notifyState();
+}
+
+/** Say whether the phone lets Haven notify at all, with the way to change it. */
+async function notifyState() {
+  const p = await device.notificationPermission(false), box = $('#notify-state');
+  if (!box || p === 'granted') return;
+  const native = device.bridge();
+  box.innerHTML = p === 'unsupported' ? '<p class="note">This browser cannot show notifications.</p>'
+    : p === 'denied' ? `<p class="notice-text">Notifications are off for Haven${native ? ' in your phone\'s settings' : ' in this browser'}, so none of these will arrive.</p>${native ? '<div class="button-row"><button class="secondary wide" data-action="notify-settings">Open notification settings</button></div>' : ''}`
+    : '<p class="notice-text">Haven is not allowed to send notifications yet.</p><div class="button-row"><button class="primary wide" data-action="allow-notify">Allow notifications</button></div>';
+  box.hidden = false;
 }
 
 function profileDialog(app) {
@@ -78,7 +93,12 @@ export const actions = {
     if (!(await app.confirm('Delete your profile?', 'Your name, friends, and everything the server holds about you are removed for good. Your haven stays on this phone.', 'Delete profile'))) return;
     try { await app.social.deleteAccount(); toast('Profile deleted.'); } catch (error) { toast(error.message); }
   },
-  'allow-notify': async () => { const p = await device.notificationPermission(true); toast(p === 'granted' ? 'Notifications allowed.' : p === 'unsupported' ? 'This browser does not support notifications.' : 'Notifications are blocked. Allow them in the browser settings.'); },
+  'allow-notify': async app => {
+    const p = await device.notificationPermission(true);
+    toast(p === 'granted' ? 'Notifications allowed.' : p === 'unsupported' ? 'Notifications are not available here.' : device.bridge() ? 'Notifications are off. Turn them on in your phone\'s settings.' : 'Notifications are blocked. Allow them in the browser settings.');
+    if (p === 'granted') { app.syncReminder(); settingsDialog(app, 'notify'); }
+  },
+  'notify-settings': () => device.openNotificationSettings(),
   export: async app => {
     const text = JSON.stringify(app.store.exportState());
     const name = `haven-backup-${new Date(app.now()).toISOString().slice(0, 10)}.json`;
@@ -105,7 +125,7 @@ export const changes = {
   allowance: (app, el) => app.store.set({ allowance: Number(el.value) }),
   keepAwake: (app, el) => app.store.set({ keepAwake: el.checked }),
   notify: async (app, el) => {
-    if (el.checked && (await device.notificationPermission(true)) === 'denied') { el.checked = false; toast('Allow notifications for Haven in the phone settings first.'); return; }
+    if (el.checked && ['denied', 'unsupported'].includes(await device.notificationPermission(true))) { el.checked = false; toast(device.bridge() ? 'Turn on notifications for Haven in your phone\'s settings first.' : 'Allow notifications in the browser settings first.'); return; }
     app.store.set({ notify: { ...app.store.state.settings.notify, [el.dataset.kind]: el.checked } });
   },
   autoPlace: (app, el) => app.store.set({ autoPlace: el.checked }),

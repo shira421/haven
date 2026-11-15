@@ -5,7 +5,7 @@ import { Store } from '../src/store.js';
 import { Timer } from '../src/timer.js';
 
 const T0 = new Date(2026, 10, 14, 9, 0).getTime(), MIN = 60000;
-function make({ native = false, social = {} } = {}) {
+function make({ native = false, social = {}, askAway = false } = {}) {
   const clock = { t: T0 }, events = [], calls = [];
   const store = new Store({ now: () => clock.t });
   const fakeSocial = {
@@ -16,7 +16,7 @@ function make({ native = false, social = {} } = {}) {
     roomSessionId: room => room.code.toLowerCase() + 'me', ...social,
   };
   const sound = { start() {}, stop() {}, unlock() {}, chime() { calls.push(['chime']); } };
-  const timer = new Timer({ store, social: fakeSocial, sound, now: () => clock.t, native: () => native });
+  const timer = new Timer({ store, social: fakeSocial, sound, now: () => clock.t, native: () => native, askAway: () => askAway });
   timer.on((type, payload) => events.push([type, payload]));
   const stop = () => clearInterval(timer.interval);
   return { store, timer, clock, events, calls, stop, names: () => events.map(e => e[0]).filter(n => n !== 'tick' && n !== 'break-tick') };
@@ -196,5 +196,34 @@ test('a room the server says has failed cannot be finished', async () => {
   x.clock.t += 25 * MIN; x.timer.tick(); await settle();
   assert.equal(x.store.state.sessions[0].status, 'failed');
   assert.equal(x.store.state.sessions[0].reason, 'friend-left');
+  x.stop();
+});
+
+test('in a phone browser, coming back late asks whether the screen was off instead of failing', async () => {
+  const x = make({ askAway: true });
+  x.timer.start();
+  x.clock.t += MIN;
+  x.timer.hidden();
+  x.clock.t += 3 * MIN;
+  x.timer.tick();
+  assert.ok(x.store.state.active, 'nothing is decided while away');
+  assert.equal(x.timer.warned, false, 'no come-back notification: the phone may only be locked');
+  await x.timer.visible();
+  assert.deepEqual(x.names().slice(-1), ['ask-away']);
+  assert.equal(x.timer.asking.away, 180);
+  x.clock.t += 5000;
+  x.timer.tick();
+  assert.ok(x.store.state.active, 'the clock waits for the answer');
+  x.timer.answerAway(true);
+  assert.ok(x.store.state.active, 'a locked screen is not leaving');
+  assert.equal(x.store.state.active.hiddenAt, undefined);
+  // Away again, and this time it was another app.
+  x.timer.hidden();
+  x.clock.t += 2 * MIN;
+  await x.timer.visible();
+  x.timer.answerAway(false);
+  assert.equal(x.store.state.active, null);
+  assert.equal(x.events.at(-1)[0], 'failed');
+  assert.equal(x.events.at(-1)[1].away, 120);
   x.stop();
 });

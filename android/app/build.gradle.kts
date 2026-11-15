@@ -14,8 +14,10 @@ android {
         applicationId = "com.shira421.haven"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
+        versionCode = 5
         versionName = "1.3.0"
+        // Only the device test in CI turns this on: it lets the test drive the web view.
+        buildConfigField("boolean", "WEB_DEBUG", if (System.getenv("HAVEN_WEB_DEBUG") == "1") "true" else "false")
     }
 
     buildFeatures {

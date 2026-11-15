@@ -42,6 +42,9 @@ const app = {
   },
 };
 
+/** Whether Haven is off the screen. Android's web view keeps saying "visible", so the apps' own word counts too. */
+const offScreen = () => document.visibilityState === 'hidden' || Boolean(app.away);
+
 function safeStorage() {
   try { localStorage.setItem('haven-probe', '1'); localStorage.removeItem('haven-probe'); return localStorage; } catch { return null; }
 }
@@ -109,6 +112,7 @@ function wire() {
     const name = el.dataset.action;
     if (name === 'close-dialog') return closeDialog();
     if (name === 'go') return go(el.dataset.page);
+    if (name === 'copy-crash') { device.copyText(app.crashText || '').then(ok => toast(ok ? 'Details copied.' : 'Could not copy.')); return; }
     const handler = actions[name];
     if (handler) { if (store.state.settings.haptics && el.matches('.primary')) device.haptic('light'); handler(app, el.dataset, el, event); }
   });
@@ -128,16 +132,42 @@ function wire() {
     if (name) inputs[name]?.(app, event.target);
   });
   document.addEventListener('change', event => { const name = event.target.dataset?.change; if (name) changes[name]?.(app, event.target); });
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') app.timer.hidden();
-    else { app.timer.visible(); app.social.wake(); if (!store.state.active) render(); }
-  });
+  const shown = () => { app.timer.visible(); app.social.wake(); if (!store.state.active) render(); };
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') app.timer.hidden(); else shown(); });
+  // The apps also say so themselves: Android's web view is not told when the app goes to the
+  // background, so without this time away would not count there. `at` is when it happened.
+  window.__havenLifecycle = (state, at) => {
+    if (state === 'hidden') { app.away = true; app.timer.hidden(Number(at) || null); }
+    else if (app.away) { app.away = false; shown(); }
+  };
   window.addEventListener('pagehide', () => app.timer.hidden());
   window.addEventListener('online', () => app.social.wake());
   matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', applyTheme);
 }
 
 // ——— Events from the store, the timer and the server ———
+
+/**
+ * Ask once to send notifications, at the moment they start to matter: the first session (it ends
+ * with one) or a new profile (friends' news). The phone shows its own prompt.
+ */
+async function askForNotifications() {
+  try { if (localStorage.getItem('haven-asked-notify')) return; } catch { return; }
+  if ((await device.notificationPermission(false)) !== 'default') return;
+  try { localStorage.setItem('haven-asked-notify', '1'); } catch { /* storage closed */ }
+  const answer = await device.notificationPermission(true);
+  if (answer === 'granted') { syncReminders(store, app.now()); syncNewsAccount(app.social, store); }
+}
+app.askForNotifications = askForNotifications;
+
+/** If the app closed unexpectedly last time, say so and offer the details for a bug report. */
+async function reportLastCrash() {
+  const text = await device.lastCrash();
+  if (!text) return;
+  openDialog('Haven closed unexpectedly', `<p class="lead">Sorry about that. Your haven and sessions are safe. If it keeps happening, copy the details and send them to the developer.</p>
+<div class="button-row"><button class="secondary" data-action="copy-crash">Copy details</button><button class="primary" data-action="close-dialog" autofocus>OK</button></div>`);
+  app.crashText = String(text);
+}
 
 /** Reminders depend on sessions and animals; work them out again shortly after either changes. */
 let reminderTimer = null;
@@ -147,7 +177,7 @@ function remindersSoon() { clearTimeout(reminderTimer); reminderTimer = setTimeo
 function news(item) {
   const text = newsText(item);
   if (!text) return;
-  if (document.visibilityState === 'hidden') { if (store.state.settings.notify[text.kind]) device.notifyNow(text.title, text.body, 'news-' + (item.id || item.kind)); return; }
+  if (offScreen()) { if (store.state.settings.notify[text.kind]) device.notifyNow(text.title, text.body, 'news-' + (item.id || item.kind)); return; }
   toast(text.body);
 }
 
@@ -168,9 +198,10 @@ function listen() {
   app.timer.on((type, payload) => {
     if (type === 'tick') return focus.tick(app, payload);
     if (type === 'break-tick') return focus.tickBreak(app, payload);
-    if (type === 'started') { if (dialogOpen()) closeDialog(); app.ui.edit = { on: false, picked: null, item: null }; if (app.ui.page !== 'focus') go('focus'); else render(); return; }
-    if (type === 'finished') { render(); focus.resultDialog(app, payload); if (document.visibilityState === 'hidden' && store.state.settings.notify.done) notifyDone(payload); return; }
+    if (type === 'started') { askForNotifications(); if (dialogOpen()) closeDialog(); app.ui.edit = { on: false, picked: null, item: null }; if (app.ui.page !== 'focus') go('focus'); else render(); return; }
+    if (type === 'finished') { render(); focus.resultDialog(app, payload); if (offScreen() && store.state.settings.notify.done) notifyDone(payload); return; }
     if (type === 'failed') { render(); focus.failedDialog(app, payload); return; }
+    if (type === 'ask-away') { render(); focus.askAwayDialog(app, payload); return; }
     if (type === 'cancelled') { render(); toast('Session cancelled.'); return; }
     if (type === 'short') { render(); toast(`Under ${payload.least} min, so nothing grew this time. You focused for ${payload.minutes} min.`); return; }
     if (type === 'break-over') { render(); toast('Break over. Start the next round when you are ready.'); return; }
@@ -204,17 +235,17 @@ function inbox(item) {
   const from = item.from.name;
   if (item.kind === 'invite') {
     if (store.state.active || app.social.data.room) { app.social.ack([item.id]); return; }
-    if (document.visibilityState === 'hidden') news(item);
+    if (offScreen()) news(item);
     return friends.inviteReceived(app, item);
   }
   if (item.kind === 'sanctuary') {
-    if (document.visibilityState === 'hidden') news(item);
+    if (offScreen()) news(item);
     return sanctuary.invited(app, item);
   }
   if (item.kind === 'gift') {
     const got = store.receiveGift(item.data.species, from, item.id), sp = speciesById(item.data.species);
     if (got && sp) toast(`${from} sent you a ${sp.name.toLowerCase()}. ${store.state.haven.spots[got.id] ? 'It is in your haven.' : 'It is in storage.'}`);
-    if (got && document.visibilityState === 'hidden') news(item);
+    if (got && offScreen()) news(item);
   } else news(item);
   if (store.state.settings.haptics) device.haptic('light');
   app.social.ack([item.id]);
@@ -253,6 +284,7 @@ async function boot() {
     if (app.social.signedIn) { await app.social.connect(); if (app.ui.pendingAdd) { const code = app.ui.pendingAdd; app.ui.pendingAdd = null; friends.addDialog(app, code); } }
   }
   syncReminder();
+  reportLastCrash();
   syncReminders(store, app.now());
   syncNewsAccount(app.social, store);
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('./sw.js').catch(() => {});
@@ -261,5 +293,5 @@ async function boot() {
 }
 
 // The shells and the tests can ask how things stand.
-window.__haven = { app, version: VERSION, state: () => ({ page: app.ui.page, active: Boolean(store.state.active), social: app.social?.status, friends: app.social?.data.friends.length ?? 0 }) };
+window.__haven = { app, device, version: VERSION, state: () => ({ page: app.ui.page, active: Boolean(store.state.active), social: app.social?.status, friends: app.social?.data.friends.length ?? 0 }) };
 boot();

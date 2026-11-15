@@ -236,6 +236,7 @@ export const forms = {
     formError(form, '');
     try {
       await app.social.register(form.name.value, form.handle.value, speciesById(app.store.state.settings.species)?.kind === 'animal' ? app.store.state.settings.species : 'rabbit');
+      app.askForNotifications?.();
       toast('Profile created.');
       app.social.syncSessions().catch(() => {});
       app.render();

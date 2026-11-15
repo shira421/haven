@@ -43,6 +43,22 @@ export function nativeCall(action, payload = {}, timeout = 15000) {
 }
 const quiet = promise => promise.catch(() => null);
 
+/** A browser on a phone or tablet (not the apps): it cannot tell a locked screen from another app. */
+export function phoneBrowser() {
+  if (bridge()) return false;
+  try { return g.matchMedia('(pointer: coarse)').matches && (g.navigator.maxTouchPoints || 0) > 0; } catch { return false; }
+}
+
+/** Open the phone's settings for Haven's notifications, where a refusal can be undone. Apps only. */
+export function openNotificationSettings() {
+  return bridge() ? quiet(nativeCall('openSettings')) : Promise.resolve(null);
+}
+
+/** What went wrong the last time the app closed unexpectedly, if anything. Asked once. */
+export function lastCrash() {
+  return bridge() ? quiet(nativeCall('lastCrash', {}, 3000)) : Promise.resolve(null);
+}
+
 /** 'granted' | 'denied' | 'default' | 'unsupported'. With request = true, asks the person. */
 export async function notificationPermission(request = false) {
   if (bridge()) return (await quiet(nativeCall('notifyPermission', { request }, 60000))) || 'unsupported';

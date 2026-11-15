@@ -39,8 +39,18 @@ final class WebViewController: UIViewController, WKNavigationDelegate, WKUIDeleg
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        // Tell the page when Haven leaves and returns to the screen, with the time it happened. The
+        // page also hears this from the web view; the time keeps a late report from being misread.
+        let center = NotificationCenter.default
+        center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in self?.tellPage("hidden") }
+        center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in self?.tellPage("visible") }
         webView.load(URLRequest(url: URL(string: "\(AssetSchemeHandler.scheme)://app/index.html")!))
         if selfTest { scheduleSelfTest() }
+    }
+
+    private func tellPage(_ state: String) {
+        let at = Int64(Date().timeIntervalSince1970 * 1000)
+        webView.evaluateJavaScript("window.__havenLifecycle&&window.__havenLifecycle('\(state)',\(at))", completionHandler: nil)
     }
 
     // Keep app pages inside the web view; open everything else in Safari.

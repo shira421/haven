@@ -2,10 +2,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- The friends server -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- The background check for friends' news waits for a connection; Android 14 requires this for that -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- "Your fern is fully grown" and the daily reminder (only when you allow it) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Lets the end-of-session notification arrive on time where the phone allows exact alarms -->
-    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
+    <!-- From Android 13, exact timing for alarms is asked for this way. Without it Android may hold
+         a notification back for minutes, too late for "come back to Haven" or the end of a session. -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <!-- Puts the daily reminder back after the phone restarts, and keeps the friends check scheduled -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />

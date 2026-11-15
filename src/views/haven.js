@@ -38,7 +38,7 @@ export function mounted(app) {
 function frame(app, ts) {
   if (!root?.isConnected) return;
   raf = requestAnimationFrame(next => frame(app, next));
-  if (document.visibilityState !== 'visible') { last = 0; return; }
+  if (document.visibilityState !== 'visible' || app.away) { last = 0; return; }
   const dt = last ? Math.min(0.25, (ts - last) / 1000) : 0;
   last = ts;
   const now = app.now();
