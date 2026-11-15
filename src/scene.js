@@ -197,7 +197,8 @@ export function sanctuaryHTML({ plots, things = [], label = '' }) {
     if (q.u0 === p.u0 + p.size && q.v0 === p.v0) for (let c = 0.5; c < p.size; c += 1.5) { const [x, y] = at(q.u0, p.v0 + c); paths += `<ellipse cx="${x}" cy="${y}" rx="7" ry="3.4" fill="#e7dcc4" opacity=".85"/>`; }
     if (q.v0 === p.v0 + p.size && q.u0 === p.u0) for (let r = 0.5; r < p.size; r += 1.5) { const [x, y] = at(p.u0 + r, q.v0); paths += `<ellipse cx="${x}" cy="${y}" rx="7" ry="3.4" fill="#e7dcc4" opacity=".85"/>`; }
   }
-  const signs = plots.map(p => { const pos = project([U, V], p.u0 + 0.35, p.v0 + p.size / 2); return `<span class="plot-sign" style="left:${pos.left.toFixed(2)}%;top:${pos.top.toFixed(2)}%;z-index:${pos.depth}">${escapeHTML(p.name)}</span>`; }).join('');
+  // A name sign at the back of each plot, never wider than most of its plot, so signs do not run into each other.
+  const signs = plots.map(p => { const pos = project([U, V], p.u0 + 0.35, p.v0 + p.size / 2); return `<span class="plot-sign" style="left:${pos.left.toFixed(2)}%;top:${pos.top.toFixed(2)}%;max-width:${((p.size * W * 0.8) / w * 100).toFixed(1)}%">${escapeHTML(p.name)}</span>`; }).join('');
   const order = things.filter(t => speciesById(t.species));
   return `<div class="world sanctuary-land" data-u="${U}" data-v="${V}" style="aspect-ratio:${w} / ${h}"${label ? ` role="group" aria-label="${escapeHTML(label)}"` : ''}>
 <svg class="land" viewBox="${x0} ${y0} ${w} ${h}" aria-hidden="true">${faces}${ground}${paths}${tufts}</svg>${signs}${order.map(t => entity([U, V], t, false)).join('')}</div>`;

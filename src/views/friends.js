@@ -27,8 +27,7 @@ export function render(app) {
   const tab = app.ui.friendsTab, me = social.account;
   const body = tab === 'friends' ? friendsTab(app) : tab === 'together' ? togetherTab(app) : tab === 'sanctuary' ? sanctuary.tab(app) : tab === 'board' ? boardTab(app) : activityTab(app);
   return `<section class="page friends" data-page="friends"><h1 class="page-title">Friends</h1>
-<div class="me-card">${avatar(me.avatar, 'large')}<div class="row-main"><b>${e(me.name)}</b><span>@${e(me.handle)}</span></div>
-<span class="live ${social.status}" role="status">${STATUS[social.status]}</span>
+<div class="me-card">${avatar(me.avatar, 'large')}<div class="row-main"><b>${e(me.name)}</b><span>@${e(me.handle)}</span><span class="live ${social.status}" role="status">${STATUS[social.status]}</span></div>
 <button class="primary" data-action="add-friend">${icon('plus')}Add friend</button></div>
 ${social.status === 'offline' ? '<p class="note">Cannot reach the friends server. Sessions are saved on this phone and sent when you are back.</p>' : ''}
 ${segmented('friends-tab', TABS, tab, 'Friends sections')}${body}</section>`;

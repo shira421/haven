@@ -23,7 +23,7 @@ let stage = null, raf = 0, last = 0, refreshTimer = null;
 export function tab(app) {
   const list = app.social.data.sanctuaries;
   if (!list) return empty('Loading your sanctuaries.');
-  const cards = list.map(s => `<li class="row sanct-card"><button class="row-main pick" data-action="sanct-open" data-id="${s.id}"><span class="avatars">${s.members.slice(0, 5).map(m => avatar(m.avatar)).join('')}</span><span><b>${e(s.name)}</b><small>${s.members.length} of ${MAX} havens${s.members.some(m => m.focusing) ? `, ${s.members.filter(m => m.focusing).length} focusing` : ''}</small></span></button><div class="row-end"><button class="primary" data-action="sanct-open" data-id="${s.id}">Visit</button></div></li>`).join('');
+  const cards = list.map(s => `<li class="row sanct-card"><button class="row-main pick" data-action="sanct-open" data-id="${s.id}"><span class="avatars">${s.members.slice(0, 3).map(m => avatar(m.avatar)).join('')}</span><span><b>${e(s.name)}</b><small>${s.members.length} of ${MAX} havens${s.members.some(m => m.focusing) ? `, ${s.members.filter(m => m.focusing).length} focusing` : ''}</small></span></button><div class="row-end"><button class="primary" data-action="sanct-open" data-id="${s.id}">Visit</button></div></li>`).join('');
   return `<p class="lead">A sanctuary joins friends' havens into one land. Animals wander from haven to haven.</p>
 ${cards ? `<ul class="rows sanct-list">${cards}</ul>` : empty('You are not in a sanctuary yet. Make one and invite friends, or join one with its code.')}
 <div class="button-row"><button class="${cards ? 'secondary' : 'primary'}" data-action="sanct-new">${icon('plus')}New sanctuary</button><button class="secondary" data-action="sanct-join">Join with a code</button></div>`;
@@ -45,16 +45,16 @@ export function render(app) {
   const ui = app.ui.sanct || {}, s = ui.data;
   const head = `<div class="sanct-head"><button class="iconbutton" data-action="sanct-back" aria-label="Back to Friends">${icon('back')}</button>
 <div class="row-main"><h1 class="page-title">${e(s?.name || ui.name || 'Sanctuary')}</h1><span>${s ? `${s.members.length} ${s.members.length === 1 ? 'haven' : 'havens'}` : ''}</span></div>
-${s ? `<button class="secondary" data-action="sanct-invite">${icon('plus')}Invite</button>` : ''}</div>`;
+${s ? `<button class="secondary" data-action="sanct-invite" aria-label="Invite">${icon('plus')}<span class="label">Invite</span></button>` : ''}</div>`;
   if (!s) return `<section class="page sanctuary" data-page="sanctuary">${head}${loading(ui)}</section>`;
   const { plots, things, dims } = ui.layout;
   const me = app.social.account?.id, night = isNight(app.now());
-  // At zoom 1 the land fits the screen's width, but never so small that a haven is a speck.
-  const zoom = ui.zoom || 1, least = Math.round((dims[0] + dims[1]) * 14 * zoom);
+  // At zoom 1 the whole land fits the screen's width; zooming in makes it wider and it scrolls.
+  const zoom = ui.zoom || 1;
   const members = s.members.map(m => `<li class="row"><button class="row-main pick" data-action="sanct-find" data-id="${m.id}">${avatar(m.avatar)}<span><b>${e(m.id === me ? 'You' : m.name)}</b><small class="presence">${m.id === s.owner ? 'Looks after it. ' : ''}${m.focusing ? 'Focusing now' : m.online ? 'Online' : `Level ${Number(m.card?.level) || 1}`}</small></span></button></li>`).join('');
   return `<section class="page sanctuary${night ? ' night' : ''}" data-page="sanctuary">${head}
-<div class="sanct-stage"><div class="sanct-scroll" tabindex="0" aria-label="The sanctuary. Scroll to look around."><div class="sanct-inner" style="width:${Math.round(zoom * 100)}%;min-width:${least}px">${sanctuaryHTML({ plots, things, label: `${s.name}: ${s.members.map(m => m.name).join(', ')}` })}</div></div>
-<div class="zoom" role="group" aria-label="Zoom"><button class="pill" data-action="sanct-zoom" data-step="-1" aria-label="Zoom out" ${zoom <= 1 ? 'disabled' : ''}>−</button><button class="pill" data-action="sanct-zoom" data-step="1" aria-label="Zoom in" ${zoom >= 3 ? 'disabled' : ''}>+</button></div></div>
+<div class="sanct-stage"><div class="sanct-scroll" tabindex="0" aria-label="The sanctuary. Scroll to look around."><div class="sanct-inner" style="width:${Math.round(zoom * 100)}%">${sanctuaryHTML({ plots, things, label: `${s.name}: ${s.members.map(m => m.name).join(', ')}` })}</div></div>
+<div class="zoom" role="group" aria-label="Zoom"><button class="pill" data-action="sanct-zoom" data-step="-1" aria-label="Zoom out" ${zoom <= 1 ? 'disabled' : ''}>−</button><button class="pill" data-action="sanct-zoom" data-step="1" aria-label="Zoom in" ${zoom >= 4 ? 'disabled' : ''}>+</button></div></div>
 <h2 class="section-title">In this sanctuary</h2><ul class="rows">${members}</ul>
 <div class="button-row quiet">${s.owner === me ? '<button class="linklike" data-action="sanct-manage">Rename or ask someone to leave</button>' : ''}<button class="linklike danger" data-action="sanct-leave">Leave the sanctuary</button></div></section>`;
 }
@@ -86,6 +86,9 @@ export async function open(app, id) {
     for (let i = 0; i < 40; i++) world.step(0.1, { night: isNight(app.now()), hungry: new Set() });
     await wait(Math.max(0, LEAST_LOADING - (Date.now() - started)));
     if (app.ui.sanct !== ui) return;
+    // Start close enough that each haven is about 160 px across; the whole land is a zoom out away.
+    const across = (layout.dims[0] + layout.dims[1]) / (2 * layout.plots[0].size);
+    if (!ui.zoom || ui.zoom === 1) ui.zoom = Math.min(4, Math.max(1, Math.round((across * 160) / Math.max(320, innerWidth - 32) * 4) / 4));
     Object.assign(ui, { data, layout, world });
     app.renderIf('sanctuary');
   } catch (error) {
@@ -200,7 +203,7 @@ export const actions = {
   'sanct-zoom': (app, d) => {
     const ui = app.ui.sanct, scroll = $('.page.sanctuary .sanct-scroll');
     const fx = scroll ? (scroll.scrollLeft + scroll.clientWidth / 2) / scroll.scrollWidth : 0.5, fy = scroll ? (scroll.scrollTop + scroll.clientHeight / 2) / scroll.scrollHeight : 0.5;
-    ui.zoom = Math.min(3, Math.max(1, (ui.zoom || 1) * (Number(d.step) > 0 ? 1.25 : 0.8)));
+    ui.zoom = Math.min(4, Math.max(1, (ui.zoom || 1) * (Number(d.step) > 0 ? 1.25 : 0.8)));
     app.render();
     const again = $('.page.sanctuary .sanct-scroll');
     if (again) { again.scrollLeft = fx * again.scrollWidth - again.clientWidth / 2; again.scrollTop = fy * again.scrollHeight - again.clientHeight / 2; }

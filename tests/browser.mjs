@@ -436,6 +436,13 @@ try {
   assert.ok(Number(await ana.locator('#coins').textContent()) > 0, 'coins are kept across a reload');
   await ana.setViewportSize({ width: 360, height: 640 });
   for (const p of ['focus', 'collection', 'friends', 'journal']) { await tab(ana, p); await noOverflow(ana, `${p} at 360px`); }
+  // The smallest phones: every Friends section, and the five section buttons each in one piece.
+  await ana.setViewportSize({ width: 320, height: 640 });
+  await tab(ana, 'friends');
+  for (const section of ['friends', 'together', 'sanctuary', 'board', 'activity']) { await ana.click(`.segmented [data-value="${section}"]`); await noOverflow(ana, `friends, ${section}, at 320px`); }
+  const squeezed = await ana.evaluate(() => [...document.querySelectorAll('.segmented button')].filter(b => b.scrollWidth > b.clientWidth + 1).map(b => b.textContent));
+  assert.deepEqual(squeezed, [], 'no section name is cut off at 320px');
+  await ana.click('.segmented [data-value="friends"]');
   await ana.setViewportSize({ width: 1280, height: 800 });
   await tab(ana, 'focus');
   assert.equal(await ana.evaluate(() => getComputedStyle(document.querySelector('.tabs')).position), 'static', 'on a wide screen the tabs sit in the top bar');
