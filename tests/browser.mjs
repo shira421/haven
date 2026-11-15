@@ -229,23 +229,24 @@ try {
   await forward(10000, ana, ben);
   await hide(ana, false);
   assert.equal(await ana.locator('.page.focus.running').count(), 1, 'ten seconds away is forgiven');
-  // A phone's browser cannot tell a locked screen from another app, so it asks.
+  // A phone's browser is only told "hidden". With no sign of another app, it is taken as a lock.
+  await hide(ana, true);
+  await forward(3 * 60000, ana, ben);
+  await hide(ana, false);
+  await ana.waitForTimeout(300);
+  assert.equal(await ana.locator('.page.focus.running').count(), 1, 'three minutes with the screen off is fine');
+  assert.equal(await ana.locator('#dialog[open]').count(), 0, 'nothing is asked');
+  assert.match(await ana.locator('.page.focus').textContent(), /Lock your phone if you like/);
+  // A swipe out to another app takes the finger from the page (touchcancel) just before it hides.
+  await ana.evaluate(() => { dispatchEvent(new Event('touchstart')); dispatchEvent(new Event('touchcancel')); });
   await hide(ana, true);
   await forward(40000, ana, ben);
   await hide(ana, false);
-  await ana.waitForSelector('#dialog[open] [data-action="away-answer"]');
-  assert.equal(await ana.locator('#dialog-title').textContent(), 'Welcome back');
-  await ana.click('#dialog [data-action="away-answer"][data-value="off"]');
-  assert.equal(await ana.locator('.page.focus.running').count(), 1, 'a locked screen is not leaving');
-  await hide(ana, true);
-  await forward(40000, ana, ben);
-  await hide(ana, false);
-  await ana.click('#dialog [data-action="away-answer"][data-value="app"]');
   await ana.waitForSelector('#dialog[open] .result-art');
   assert.equal(await ana.locator('#dialog-title').textContent(), 'The fern withered');
-  assert.match(await ana.locator('#dialog .lead').textContent(), /away from Haven for (3[0-9]|40) s\. Deep focus allows 30 s\./);
+  assert.match(await ana.locator('#dialog .lead').textContent(), /Haven counted (3[0-9]|40) s in another app\. Deep focus allows 30 s\. Swiped to another app\./);
   await ana.click('#dialog [data-action="close-dialog"]');
-  ok('deep focus forgives a short absence; after a long one a phone browser asks whether the screen was off, and another app withers the plant');
+  ok('in a phone browser a locked screen keeps the plant, and a swipe to another app for 40 s withers it');
 
   // ——— Friends, live ———
   await register(ana, 'Ana', 'ana_e2e');

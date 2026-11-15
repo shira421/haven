@@ -8,6 +8,7 @@ import { Ambience } from './sound.js';
 import { WITHER_FILTER } from './art.js';
 import { speciesById } from './catalog.js';
 import * as device from './device.js';
+import * as leaving from './leave.js';
 import { newsText, syncReminders, syncNewsAccount } from './notices.js';
 import * as focus from './views/focus.js';
 import * as haven from './views/haven.js';
@@ -132,6 +133,7 @@ function wire() {
     if (name) inputs[name]?.(app, event.target);
   });
   document.addEventListener('change', event => { const name = event.target.dataset?.change; if (name) changes[name]?.(app, event.target); });
+  if (device.phoneBrowser()) leaving.install(window);
   const shown = () => { app.timer.visible(); app.social.wake(); if (!store.state.active) render(); };
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') app.timer.hidden(); else shown(); });
   // The apps also say so themselves: Android's web view is not told when the app goes to the
@@ -201,7 +203,6 @@ function listen() {
     if (type === 'started') { askForNotifications(); if (dialogOpen()) closeDialog(); app.ui.edit = { on: false, picked: null, item: null }; if (app.ui.page !== 'focus') go('focus'); else render(); return; }
     if (type === 'finished') { render(); focus.resultDialog(app, payload); if (offScreen() && store.state.settings.notify.done) notifyDone(payload); return; }
     if (type === 'failed') { render(); focus.failedDialog(app, payload); return; }
-    if (type === 'ask-away') { render(); focus.askAwayDialog(app, payload); return; }
     if (type === 'cancelled') { render(); toast('Session cancelled.'); return; }
     if (type === 'short') { render(); toast(`Under ${payload.least} min, so nothing grew this time. You focused for ${payload.minutes} min.`); return; }
     if (type === 'break-over') { render(); toast('Break over. Start the next round when you are ready.'); return; }

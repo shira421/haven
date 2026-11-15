@@ -5,6 +5,7 @@ import { SOUNDS } from '../sound.js';
 import { prettyCode } from '../social.js';
 import { formatAgo, formatAway, warnAfter } from '../core.js';
 import * as device from '../device.js';
+import * as leaving from '../leave.js';
 
 const ALLOWANCES = [[30, '30 s'], [45, '45 s'], [60, '1 min'], [90, '1.5 min'], [120, '2 min']];
 const select = (action, options, current) => `<select data-change="${action}">${options.map(([v, t]) => `<option value="${e(v)}" ${String(v) === String(current) ? 'selected' : ''}>${e(t)}</option>`).join('')}</select>`;
@@ -13,7 +14,7 @@ export function settingsDialog(app, section = null) {
   const { store, social } = app, s = store.state.settings, native = device.bridge();
   const notifySwitch = (kind, label, hint) => `<label class="switch-row"><span><b>${e(label)}</b>${hint ? `<small>${e(hint)}</small>` : ''}</span><input type="checkbox" data-change="notify" data-kind="${kind}" ${s.notify[kind] ? 'checked' : ''}></label>`;
   const lockNote = native ? 'Locking the phone does not count as leaving.'
-    : device.phoneBrowser() ? 'Locking the phone is fine. If you were away longer than allowed, Haven asks whether the screen was off or you used another app.'
+    : device.phoneBrowser() ? 'Locking the phone is fine. Haven counts only time it can see you spent in another app, and gives you the benefit of the doubt.'
     : 'Locking the computer counts as leaving.';
   const profile = !social.base ? '<p class="note">Friends are not switched on for this copy of Haven.</p>'
     : social.signedIn ? `<div class="me-card">${avatar(social.account.avatar, 'large')}<div class="row-main"><b>${e(social.account.name)}</b><span>@${e(social.account.handle)}, code ${prettyCode(social.account.code)}</span></div></div>
@@ -24,6 +25,7 @@ export function settingsDialog(app, section = null) {
   openDialog('Settings', `<h3 class="group-title" id="set-focus">Focus</h3>
 ${switchRow('Deep focus', 'deep', s.deep, `Leaving Haven during a session withers the plant. ${lockNote}`)}
 ${field('Time away that is forgiven', select('allowance', ALLOWANCES, s.allowance), 'Enough to answer a message or change a song.')}
+${device.phoneBrowser() ? browserLeaving(app) : ''}
 ${device.canKeepAwake() ? switchRow('Keep the screen on', 'keepAwake', s.keepAwake, native ? 'While a session runs. Off lets the phone lock as usual, which is not leaving.' : 'While a session runs.') : ''}
 ${switchRow('Place new plants and animals for me', 'autoPlace', s.autoPlace, 'On a free tile. You can move them later.')}
 <h3 class="group-title">Sounds</h3>
@@ -55,6 +57,18 @@ ${field('Friends server address', `<input type="url" inputmode="url" value="${e(
   notifyState();
 }
 
+/** In a phone's browser: the way to let Chrome say when the screen locks, and how the last absence was judged. */
+function browserLeaving(app) {
+  const idle = leaving.idleState(), last = app.timer.lastAway;
+  const sec = ms => formatAway(Math.round(ms / 1000));
+  const row = !leaving.idleSupported() ? ''
+    : idle === 'on' ? '<p class="note">Haven is told when the screen locks.</p>'
+    : idle === 'denied' ? '<p class="note">Haven is not allowed to know when the screen locks. You can allow it in the site settings.</p>'
+    : '<div class="button-row"><button class="secondary" data-action="allow-idle">Let Haven know when the screen locks</button></div><p class="note">Optional. It makes a locked screen certain, so only another app counts.</p>';
+  const told = last ? `<p class="note" id="last-away">Last time away: ${sec(last.wall)}${last.slept != null ? `, phone asleep ${sec(last.slept)}` : ''}. Counted ${sec(last.counted)}. ${e(last.why)}</p>` : '';
+  return row + told;
+}
+
 /** Say whether the phone lets Haven notify at all, with the way to change it. */
 async function notifyState() {
   const p = await device.notificationPermission(false), box = $('#notify-state');
@@ -77,6 +91,11 @@ function profileDialog(app) {
 
 export const actions = {
   settings: (app, d) => settingsDialog(app, d.section),
+  'allow-idle': async app => {
+    const r = await leaving.askIdle();
+    toast(r === 'on' ? 'Haven will know when the screen locks.' : r === 'denied' ? 'Not allowed. Haven will judge from other signs.' : 'This browser cannot say when the screen locks.');
+    settingsDialog(app, 'focus');
+  },
   'edit-profile': app => profileDialog(app),
   'add-device': async app => {
     try {
