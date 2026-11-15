@@ -28,11 +28,29 @@ async function person(name, scheme = 'light') {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, colorScheme: scheme, hasTouch: true });
   const page = await context.newPage();
   await page.clock.install({ time: START });
-  page.on('console', m => { if (m.type() === 'error') errors.push(`${name}: ${m.text()}`); });
+  // Wrong passwords are typed on purpose here; the browser logs each refused request by itself.
+  page.on('console', m => { if (m.type() === 'error' && !/status of (400|401|403) /.test(m.text())) errors.push(`${name}: ${m.text()}`); });
   page.on('pageerror', e => errors.push(`${name}: ${e.message}`));
   await page.goto('http://localhost:4173/');
-  await page.waitForSelector('.page.focus');
+  await page.waitForSelector('.page.welcome');
+  await page.waitForSelector('#splash', { state: 'detached' });
   return page;
+}
+const PASS = 'acorn-harbour-42';
+/** Create an account from the first screen. */
+async function signUp(page, name, handle) {
+  await page.click('[data-action="welcome-tab"][data-value="up"]');
+  await page.fill('form[data-form="sign-up"] input[name="name"]', name);
+  await page.fill('form[data-form="sign-up"] input[name="handle"]', handle);
+  await page.fill('form[data-form="sign-up"] input[name="password"]', PASS);
+  await page.click('form[data-form="sign-up"] button[type="submit"]');
+  await page.waitForSelector('.page.focus');
+  await page.waitForSelector('#veil', { state: 'hidden' });
+}
+async function signIn(page, handle, password = PASS) {
+  await page.fill('form[data-form="sign-in"] input[name="handle"]', handle);
+  await page.fill('form[data-form="sign-in"] input[name="password"]', password);
+  await page.click('form[data-form="sign-in"] button[type="submit"]');
 }
 /** Move time forward for everyone: both browsers and the server. */
 async function forward(ms, ...pages) {
@@ -59,19 +77,33 @@ async function until(page, selector, ms = 15000, arg = undefined) {
   }
   if (typeof selector === 'function') assert.ok(await ready(), 'waited for the page'); else await page.waitForSelector(selector, { timeout: 2000 });
 }
-async function register(page, name, handle) {
-  await tab(page, 'friends');
-  await page.fill('form[data-form="register"] input[name="name"]', name);
-  await page.fill('form[data-form="register"] input[name="handle"]', handle);
-  await page.click('form[data-form="register"] button[type="submit"]');
-  await page.waitForSelector('.me-card .live.live', { timeout: 10000 });
-}
-
 try {
   const ana = await person('Ana'), ben = await person('Ben', 'dark');
 
-  // ——— One person, no network needed ———
+  // ——— The first thing anyone sees: sign in or create an account ———
   assert.equal(await ana.title(), 'Haven');
+  assert.equal(await ana.locator('.tabs').isVisible(), false, 'nothing of the app shows before signing in');
+  assert.equal(await ana.locator('[role="tab"][aria-selected="true"]').textContent(), 'Sign in');
+  assert.equal(await ana.locator('[data-action="google"]').count(), 1, 'the server offers Google');
+  await noOverflow(ana, 'Welcome');
+  await shot(ana, 'welcome');
+  await signIn(ana, 'ana_e2e');
+  await ana.waitForFunction(() => /Wrong username or password/.test(document.querySelector('.form-error')?.textContent || ''));
+  await ana.click('[data-action="show-password"]');
+  assert.equal(await ana.getAttribute('input[name="password"]', 'type'), 'text');
+  await ana.click('[data-action="welcome-tab"][data-value="up"]');
+  await ana.fill('form[data-form="sign-up"] input[name="name"]', 'Ana');
+  await ana.fill('form[data-form="sign-up"] input[name="handle"]', 'ana_e2e');
+  await ana.fill('form[data-form="sign-up"] input[name="password"]', 'short');
+  await ana.click('form[data-form="sign-up"] button[type="submit"]');
+  await ana.waitForFunction(() => /at least 8/.test(document.querySelector('.form-error')?.textContent || ''));
+  assert.equal(await ana.inputValue('form[data-form="sign-up"] input[name="handle"]'), 'ana_e2e', 'what was typed is kept');
+  await signUp(ana, 'Ana', 'ana_e2e');
+  await signUp(ben, 'Ben', 'ben_e2e');
+  await toastSays(ana, /Welcome to Haven, Ana/);
+  ok('the first screen asks to sign in or create an account; an account opens the haven');
+
+  // ——— One person ———
   assert.equal(await ana.locator('.clock').textContent(), '25:00');
   await noOverflow(ana, 'Haven');
   assert.equal(await ana.locator('.tabs button').count(), 4);
@@ -249,10 +281,12 @@ try {
   ok('in a phone browser a locked screen keeps the plant, and a swipe to another app for 40 s withers it');
 
   // ——— Friends, live ———
-  await register(ana, 'Ana', 'ana_e2e');
-  await register(ben, 'Ben', 'ben_e2e');
+  await tab(ana, 'friends');
+  await tab(ben, 'friends');
+  await ana.waitForSelector('.me-card .live.live', { timeout: 10000 });
+  await ben.waitForSelector('.me-card .live.live', { timeout: 10000 });
   const anaCode = await ana.evaluate(() => window.__haven.app.social.account.code);
-  ok('both people create a profile and connect live');
+  ok('both accounts are connected live');
 
   await ben.click('[data-action="add-friend"]');
   await ben.fill('form[data-form="find"] input[name="q"]', anaCode.toLowerCase());
@@ -386,23 +420,29 @@ try {
   await ana.selectOption('#dialog [data-change="theme"]', 'dark');
   assert.equal(await ana.evaluate(() => document.documentElement.dataset.theme), 'dark');
   await ana.selectOption('#dialog [data-change="theme"]', 'light');
-  await ana.click('#dialog [data-action="add-device"]');
-  await ana.waitForSelector('#dialog .code-box b');
-  const link = (await ana.locator('#dialog .code-box b').textContent()).trim();
+  assert.equal(await ana.locator('#dialog [data-action="add-device"]').count(), 0, 'one-time device codes are gone');
+  // Changing the password needs the current one.
+  await ana.click('#dialog [data-action="change-password"]');
+  await ana.fill('form[data-form="change-password"] input[name="current"]', 'not-it-at-all');
+  await ana.fill('form[data-form="change-password"] input[name="password"]', 'a-new-password-1');
+  await ana.click('form[data-form="change-password"] button[type="submit"]');
+  await ana.waitForFunction(() => /current password is wrong/.test(document.querySelector('#dialog .form-error')?.textContent || ''));
   await ana.click('#dialog [data-action="close-dialog"]');
   ok('settings change how sessions behave and how Haven looks');
 
-  // A second device signs in with the one-time code and gets the haven back.
+  // A second device signs in with the username and password and gets the haven back.
   await ana.evaluate(() => window.__haven.app.social.backup());
   const phone2 = await person('Ana2');
+  await signIn(phone2, '@Ana_E2E');
+  await phone2.waitForSelector('#veil:not([hidden])');
+  assert.match(await phone2.locator('#veil').textContent(), /Bringing your haven over/);
+  await phone2.waitForSelector('.page.focus');
+  await toastSays(phone2, /Welcome back, Ana/);
   await tab(phone2, 'friends');
-  await phone2.click('[data-action="link-device"]');
-  await phone2.fill('form[data-form="claim"] input[name="code"]', link);
-  await phone2.click('form[data-form="claim"] button[type="submit"]');
   await phone2.waitForSelector('.me-card .live.live', { timeout: 10000 });
   assert.equal(await phone2.evaluate(() => window.__haven.app.store.state.sessions.length), await ana.evaluate(() => window.__haven.app.store.state.sessions.length));
   assert.match(await phone2.locator('.row.friend').textContent(), /Ben/);
-  ok('another device signs in with a one-time code and the haven comes with it');
+  ok('another device signs in with the username and password and the haven comes with it');
 
   // Both devices stay in step: a move on one shows on the other, live, without signing out.
   const moved = await phone2.evaluate(() => { const { store } = window.__haven.app; const id = Object.keys(store.state.haven.spots)[0]; store.place(id, 1.2, 1.3); return id; });
@@ -412,8 +452,52 @@ try {
   await ana.evaluate(() => window.__haven.app.social.sync());
   await phone2.waitForFunction(id => !window.__haven.app.store.item(id), released, { timeout: 8000 });
   assert.deepEqual(await phone2.evaluate(() => window.__haven.app.store.state.coins), await ana.evaluate(() => window.__haven.app.store.state.coins));
+  // Signing out saves the haven to the account and takes it off the device.
+  await phone2.click('[data-action="settings"]');
+  await phone2.click('#dialog [data-action="sign-out"]');
+  await phone2.click('#dialog [data-action="confirm-yes"]');
+  await phone2.waitForSelector('.page.welcome');
+  assert.equal(await phone2.evaluate(() => window.__haven.app.store.state.sessions.length), 0, 'nothing of the account is left on the device');
+  assert.equal(await phone2.evaluate(() => localStorage.getItem('haven-account')), null);
+  ok('two devices on one account stay in step, and signing out clears the device');
+
+  // An account made before passwords: opening Haven asks for one, and nothing else can be done first.
+  await signIn(phone2, 'ana_e2e');
+  await phone2.waitForSelector('.page.focus');
+  await fetch('http://127.0.0.1:8787/test/sql', { method: 'POST', body: JSON.stringify({ q: "UPDATE users SET pass=NULL WHERE handle='ana_e2e'" }) });
+  await phone2.evaluate(() => { const a = JSON.parse(localStorage.getItem('haven-account')); delete a.hasPassword; delete a.google; localStorage.setItem('haven-account', JSON.stringify(a)); });
+  await phone2.reload();
+  await phone2.waitForSelector('form[data-form="set-password"]');
+  assert.match(await phone2.locator('.welcome-hero').textContent(), /Set a password.*@ana_e2e/);
+  assert.equal(await phone2.locator('.tabs').isVisible(), false, 'it is compulsory: the app stays behind it');
+  await noOverflow(phone2, 'Set a password');
+  await phone2.fill('form[data-form="set-password"] input[name="password"]', 'tiny');
+  await phone2.click('form[data-form="set-password"] button[type="submit"]');
+  await phone2.waitForFunction(() => /at least 8/.test(document.querySelector('.form-error')?.textContent || ''));
+  await phone2.fill('form[data-form="set-password"] input[name="password"]', PASS);
+  await phone2.click('form[data-form="set-password"] button[type="submit"]');
+  await phone2.waitForSelector('.page.focus');
+  assert.equal(await phone2.locator('.tabs').isVisible(), true);
+  const sameUser = await (await fetch('http://127.0.0.1:8787/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ handle: 'ana_e2e', password: PASS }) })).json();
+  assert.equal(sameUser.user.id, await ana.evaluate(() => window.__haven.app.social.account.id), 'the password is tied to the same username');
   await phone2.close();
-  ok('two devices on one profile stay in step: moves and releases on either reach the other');
+  ok('an account from before passwords must set one on opening Haven, and keeps its username and haven');
+
+  // Continue with Google (the test server stands in for Google): someone new picks a username.
+  const gia = await person('Gia');
+  await gia.evaluate(async () => { const { social } = window.__haven.app; location.assign(await social.googleUrl(location.origin + location.pathname) + '&as=' + encodeURIComponent('g-e2e|Gia')); });
+  await gia.waitForSelector('form[data-form="google-profile"]');
+  assert.equal(await gia.evaluate(() => location.hash), '', 'the one-time code is taken out of the address');
+  assert.equal(await gia.inputValue('form[data-form="google-profile"] input[name="name"]'), 'Gia');
+  await gia.fill('form[data-form="google-profile"] input[name="handle"]', 'gia_e2e');
+  await gia.click('form[data-form="google-profile"] button[type="submit"]');
+  await gia.waitForSelector('.page.focus');
+  assert.deepEqual(await gia.evaluate(() => { const a = window.__haven.app.social.account; return [a.handle, a.google, a.hasPassword]; }), ['gia_e2e', true, false]);
+  await gia.click('[data-action="settings"]');
+  assert.match(await gia.locator('#dialog').textContent(), /Google is connected/);
+  assert.equal(await gia.locator('#dialog [data-action="change-password"]').textContent(), 'Set a password');
+  await gia.close();
+  ok('Continue with Google makes an account after choosing a username');
 
   // A sanctuary: Ana makes one, a loading screen shows, then her haven as the first plot.
   await tab(ana, 'friends');

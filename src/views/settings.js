@@ -16,12 +16,14 @@ export function settingsDialog(app, section = null) {
   const lockNote = native ? 'Locking the phone does not count as leaving.'
     : device.phoneBrowser() ? 'Locking the phone is fine. Haven counts only time it can see you spent in another app, and gives you the benefit of the doubt.'
     : 'Locking the computer counts as leaving.';
-  const profile = !social.base ? '<p class="note">Friends are not switched on for this copy of Haven.</p>'
-    : social.signedIn ? `<div class="me-card">${avatar(social.account.avatar, 'large')}<div class="row-main"><b>${e(social.account.name)}</b><span>@${e(social.account.handle)}, code ${prettyCode(social.account.code)}</span></div></div>
-<div class="button-row"><button class="secondary" data-action="edit-profile">Edit profile</button><button class="secondary" data-action="add-device">Add another device</button></div>
-<p class="note">${social.data.backupAt ? `Backed up ${formatAgo(social.data.backupAt, social.serverNow())}.` : 'Not backed up yet.'} <button class="linklike" data-action="backup-now">Back up now</button></p>
-<div class="button-row quiet"><button class="linklike" data-action="sign-out">Sign out</button><button class="linklike danger" data-action="delete-profile">Delete profile</button></div>`
-    : '<p class="note">Make a profile on the Friends screen to add friends and back up your haven.</p><div class="button-row"><button class="secondary wide" data-action="go" data-page="friends">Open Friends</button></div>';
+  const me = social.account, google = social.features.google;
+  const profile = !social.base ? '<p class="note">This copy of Haven has no server, so there is no account. Your haven is kept on this phone.</p>'
+    : social.signedIn ? `<div class="me-card">${avatar(me.avatar, 'large')}<div class="row-main"><b>${e(me.name)}</b><span>@${e(me.handle)}, code ${prettyCode(me.code)}</span></div></div>
+<div class="button-row"><button class="secondary" data-action="edit-profile">Edit profile</button><button class="secondary" data-action="change-password">${me.hasPassword === false ? 'Set a password' : 'Change password'}</button></div>
+${me.google ? `<p class="note">Google is connected, so you can also sign in with it.${me.hasPassword === false ? '' : ' <button class="linklike" data-action="disconnect-google">Disconnect</button>'}</p>` : google ? '<div class="button-row"><button class="secondary wide" data-action="connect-google">Connect Google</button></div><p class="note">Sign in with Google as well as your password, and get back in if you forget it.</p>' : ''}
+<p class="note">${social.data.backupAt ? `Saved to your account ${formatAgo(social.data.backupAt, social.serverNow())}.` : 'Not saved to your account yet.'} <button class="linklike" data-action="backup-now">Save now</button></p>
+<div class="button-row quiet"><button class="linklike" data-action="sign-out">Sign out</button><button class="linklike danger" data-action="delete-profile">Delete account</button></div>`
+    : '<p class="note">You are signed out.</p>';
   openDialog('Settings', `<h3 class="group-title" id="set-focus">Focus</h3>
 ${switchRow('Deep focus', 'deep', s.deep, `Leaving Haven during a session withers the plant. ${lockNote}`)}
 ${field('Time away that is forgiven', select('allowance', ALLOWANCES, s.allowance), 'Enough to answer a message or change a song.')}
@@ -45,9 +47,9 @@ ${notifySwitch('hungry', 'Animals are hungry', 'Once a day at most, never at nig
 ${switchRow('Remind me to focus every day', 'reminder-on', s.reminder.on)}${field('At', `<input type="time" value="${s.reminder.time}" data-change="reminder-time">`)}` : ''}
 <h3 class="group-title">Look</h3>
 ${field('Theme', select('theme', [['system', 'Same as the phone'], ['light', 'Light'], ['dark', 'Dark']], s.theme))}
-<h3 class="group-title">Profile</h3>${profile}
+<h3 class="group-title" id="set-account">Account</h3>${profile}
 <h3 class="group-title">Your data</h3>
-<p class="note">Everything is kept on this phone. A backup file holds your sessions, coins and haven.</p>
+<p class="note">Your haven is kept on this phone and in your account. A backup file holds your sessions, coins and haven.</p>
 <div class="button-row"><button class="secondary" data-action="export">Save a backup file</button><button class="secondary" data-action="import">Open a backup file</button></div>
 <div class="button-row quiet"><button class="linklike danger" data-action="reset">Erase everything on this phone</button></div>
 <h3 class="group-title">About</h3>
@@ -97,20 +99,35 @@ export const actions = {
     settingsDialog(app, 'focus');
   },
   'edit-profile': app => profileDialog(app),
-  'add-device': async app => {
-    try {
-      const r = await app.social.linkCode();
-      openDialog('Add another device', `<p class="lead">On the other device, open Haven, go to Friends, and choose "I already have a profile on another device". Enter this code within 10 minutes.</p><div class="code-box"><span>One-time code</span><b>${prettyCode(r.code)}</b></div><p class="note">Anyone with this code can sign in as you until it runs out. It works once.</p><div class="button-row"><button class="primary wide" data-action="close-dialog">Done</button></div>`);
-    } catch (error) { toast(error.message); }
+  'change-password'(app) {
+    const me = app.social.account, has = me.hasPassword !== false;
+    openDialog(has ? 'Change password' : 'Set a password', `<form data-form="change-password" novalidate>
+<input type="text" name="handle" value="${e(me.handle)}" autocomplete="username" hidden>
+${has ? field('Current password', '<input type="password" name="current" maxlength="128" autocomplete="current-password" required>') : ''}
+${field('New password', '<input type="password" name="password" maxlength="128" autocomplete="new-password" required>', 'At least 8 characters.')}
+<p class="form-error" role="alert" hidden></p>
+<div class="button-row"><button class="primary wide" type="submit">Save password</button></div>
+${has ? '<p class="note">Your other phones and computers are signed out, and sign in again with the new password.</p>' : '<p class="note">With a password you can sign in with your username as well as with Google.</p>'}</form>`);
   },
-  'backup-now': async app => { try { await app.social.backup(); toast('Backed up.'); settingsDialog(app); } catch (error) { toast(error.message); } },
+  'disconnect-google': async app => {
+    if (!(await app.confirm('Disconnect Google?', 'You will sign in with your username and password only.', 'Disconnect'))) return;
+    try { await app.social.googleUnlink(); toast('Google disconnected.'); settingsDialog(app, 'account'); } catch (error) { toast(error.message); }
+  },
+  'backup-now': async app => { try { await app.social.backup(); toast('Saved to your account.'); settingsDialog(app, 'account'); } catch (error) { toast(error.message); } },
   'sign-out': async app => {
-    if (!(await app.confirm('Sign out?', 'Your haven stays on this phone. Friends will not see new sessions until you sign in again. To sign in again you need another device that is still signed in.', 'Sign out'))) return;
-    await app.social.signOut(); toast('Signed out.');
+    if (app.store.state.active) { toast('Finish or give up your session first.'); return; }
+    if (!(await app.confirm('Sign out?', 'Your haven is saved in your account and is taken off this phone. Sign in again with your username and password to get it back.', 'Sign out', { danger: false }))) return;
+    app.veil('Saving your haven');
+    let saved = true;
+    try { await app.social.sync(); } catch { saved = false; }
+    await app.unveil();
+    if (!saved && !(await app.confirm('Sign out without saving?', 'Haven cannot reach your account right now. Anything you did since it was last saved would be lost.', 'Sign out anyway'))) return;
+    await app.social.signOut();
+    toast('Signed out.');
   },
   'delete-profile': async app => {
-    if (!(await app.confirm('Delete your profile?', 'Your name, friends, and everything the server holds about you are removed for good. Your haven stays on this phone.', 'Delete profile'))) return;
-    try { await app.social.deleteAccount(); toast('Profile deleted.'); } catch (error) { toast(error.message); }
+    if (!(await app.confirm('Delete your account?', 'Your name, friends, haven and sessions are removed for good, here and on every other phone or computer. This cannot be undone.', 'Delete account'))) return;
+    try { await app.social.deleteAccount(); toast('Account deleted.'); } catch (error) { toast(error.message); }
   },
   'allow-notify': async app => {
     const p = await device.notificationPermission(true);
@@ -166,6 +183,10 @@ export const changes = {
 };
 
 export const forms = {
+  'change-password': (app, form) => busy(form, async () => {
+    formError(form, '');
+    try { await app.social.setPassword(form.password.value, form.current ? form.current.value : undefined); closeDialog(); toast('Password saved.'); } catch (error) { formError(form, error.message); }
+  }),
   profile: (app, form) => busy(form, async () => {
     try { await app.social.rename(form.name.value, form.avatar.value); closeDialog(); toast('Profile saved.'); } catch (error) { formError(form, error.message); }
   }),

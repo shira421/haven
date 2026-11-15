@@ -1,4 +1,4 @@
-# Haven's friends server. Deployed by .github/workflows/pages.yml when the repository has
+# Haven's server: accounts, friends and the shared haven. Deployed by .github/workflows/pages.yml when the repository has
 # CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets. Runs on Cloudflare's free plan.
 name = "haven-hub"
 main = "worker.js"
@@ -12,3 +12,11 @@ class_name = "HubObject"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["HubObject"]
+
+# Signing in with Google is switched on by two secrets, set once in the Cloudflare dashboard
+# (Workers & Pages > haven-hub > Settings > Variables and Secrets, type "Secret") or with
+# `npx wrangler secret put`: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET. Secrets survive deploys.
+# The README says how to make the Google client. Without them the button is simply not shown.
+[vars]
+# Pages people may be sent back to after signing in with Google, comma-separated.
+HAVEN_SITE = "https://shira421.github.io/haven/"

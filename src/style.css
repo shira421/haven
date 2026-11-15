@@ -514,6 +514,30 @@ dialog[open] ~ .toast { bottom: calc(var(--sab) + var(--s4)); }
   .world-wrap { width: min(100%, 560px); }
   .in-session .tabs { display: none; }
 }
+/* ——— Signing in, and the loading screens ——— */
+.gated .topbar, .gated .tabs { display: none; }
+.gated #view { padding-top: var(--sat); padding-bottom: calc(var(--sab) + var(--s5)); }
+.gated .toast { bottom: calc(var(--sab) + var(--s4)); }
+.welcome { max-width: 440px; padding-top: var(--s5); }
+.welcome-hero { display: grid; justify-items: center; gap: var(--s2); text-align: center; padding: var(--s4) 0 var(--s2); }
+.welcome-hero img { width: 96px; height: 96px; border-radius: 24px; box-shadow: var(--lift); margin-bottom: var(--s2); }
+.welcome .card-form { display: grid; gap: var(--s4); }
+.welcome > .note { text-align: center; }
+.password-box { position: relative; display: block; }
+.password-box input { padding-right: 68px !important; }
+.password-box .linklike { position: absolute; right: var(--s1); top: 50%; transform: translateY(-50%); min-height: var(--touch); padding: 0 var(--s3); font-size: 14px; }
+.or { display: flex; align-items: center; gap: var(--s3); color: var(--faint); font-size: 14px; }
+.or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.veil, #splash { position: fixed; inset: 0; z-index: 2147483646; display: grid; justify-items: center; align-content: center; gap: var(--s4); padding: var(--s5); background: linear-gradient(var(--scene-top), var(--scene-bottom)); color: var(--scene-ink); text-align: center; transition: opacity .2s ease; }
+.veil[hidden] { display: none; }
+.veil.gone, #splash.gone { opacity: 0; pointer-events: none; }
+.veil p { font-weight: 600; }
+#splash { transition-duration: .35s; }
+#splash img { width: 112px; height: 112px; border-radius: 28px; box-shadow: var(--lift); }
+#splash b { font: 700 30px/1 var(--display); letter-spacing: -.015em; }
+#splash .isles, .veil .isles { transform: scale(.8); }
+@media (prefers-reduced-motion: no-preference) { #splash img, .welcome-hero img { animation: float 4s ease-in-out infinite alternate; } }
+@keyframes float { from { transform: translateY(-3px); } to { transform: translateY(4px); } }
 @media (max-width: 359px) { .choosers { grid-template-columns: 1fr; } .tabs button span { font-size: 10.5px; } }
 @media (max-height: 640px) { .clock { margin-top: 8px; font-size: clamp(52px, 17vw, 80px); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }

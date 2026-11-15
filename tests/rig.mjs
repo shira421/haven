@@ -21,7 +21,8 @@ const ok = name => { passed++; console.log(`ok ${passed} - ${name}`); };
 
 try {
   await page.goto('http://localhost:4176/');
-  await page.waitForSelector('.page.focus');
+  // This test is about the drawings, which it puts on the page itself: any first screen will do.
+  await page.waitForSelector('.page');
 
   /** Stand one animal alone on the page in a given state and let it settle. */
   async function pose(id, act, { lift = 0, cls = '' } = {}) {

@@ -2,9 +2,10 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startHub } from './hub-server.mjs';
-import { cleanName, cleanHandle, cleanCode, randomString } from '../worker/hub.js';
+import { cleanName, cleanHandle, cleanCode, cleanPassword, hashPassword, checkPassword, randomString } from '../worker/hub.js';
 
 const MIN = 60000;
+const PASS = 'correct horse battery';
 let hub, T = Date.UTC(2026, 10, 14, 4, 0, 0), n = 0;
 const tick = (ms = 1000) => (T += ms);
 before(async () => { hub = await startHub(); });
@@ -14,7 +15,7 @@ const api = (method, path, token, body) => hub.call(method, path, { token, body,
 const ok = async (method, path, token, body) => { const r = await api(method, path, token, body); assert.equal(r.status, 200, `${method} ${path}: ${JSON.stringify(r.body)}`); return r.body; };
 // Each test person registers from their own network address, as real people do.
 async function person(name) {
-  const r = await hub.call('POST', '/api/register', { now: T, ip: `10.1.${Math.floor(++n / 250)}.${n % 250}`, body: { name, handle: `${name.toLowerCase()}_${n}` } });
+  const r = await hub.call('POST', '/api/register', { now: T, ip: `10.1.${Math.floor(++n / 250)}.${n % 250}`, body: { name, handle: `${name.toLowerCase()}_${n}`, password: PASS } });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   return { ...r.body.user, token: r.body.token };
 }
@@ -54,9 +55,13 @@ test('profiles: creating one, and what is refused', async () => {
   const a = await person('Ana');
   assert.match(a.code, /^[A-HJKMNP-Z2-9]{8}$/);
   assert.match(a.token, /^[a-z0-9]{48}$/);
-  assert.equal((await api('POST', '/api/register', null, { name: 'Ana', handle: a.handle })).status, 409);
-  assert.match((await api('POST', '/api/register', null, { name: '', handle: 'someone_new' })).body.error, /Enter a name/);
-  assert.match((await api('POST', '/api/register', null, { name: 'Bo', handle: 'no' })).body.error, /3 to 20/);
+  assert.equal(a.hasPassword, true);
+  assert.equal((await api('POST', '/api/register', null, { name: 'Ana', handle: a.handle, password: PASS })).status, 409);
+  assert.match((await api('POST', '/api/register', null, { name: '', handle: 'someone_new', password: PASS })).body.error, /Enter a name/);
+  assert.match((await api('POST', '/api/register', null, { name: 'Bo', handle: 'no', password: PASS })).body.error, /3 to 20/);
+  assert.match((await api('POST', '/api/register', null, { name: 'Bo', handle: 'bo_short', password: 'short' })).body.error, /at least 8/);
+  assert.match((await api('POST', '/api/register', null, { name: 'Bo', handle: 'bo_same_as', password: 'Bo_Same_As' })).body.error, /not your username/);
+  assert.match((await api('POST', '/api/register', null, { name: 'Bo', handle: 'bo_old_app' })).body.error, /Update Haven/, 'a copy of Haven from before passwords');
   assert.equal((await api('GET', '/api/me')).status, 401);
   assert.equal((await api('GET', '/api/me', 'wrong-token')).status, 401);
   const me = await ok('GET', '/api/me', a.token);
@@ -73,7 +78,7 @@ test('profiles: creating one, and what is refused', async () => {
 });
 
 test('only five new profiles an hour from one network', async () => {
-  const from = (handle, ip) => hub.call('POST', '/api/register', { now: T, ip, body: { name: 'Bulk', handle } });
+  const from = (handle, ip) => hub.call('POST', '/api/register', { now: T, ip, body: { name: 'Bulk', handle, password: PASS } });
   const results = [];
   for (let i = 0; i < 6; i++) results.push((await from(`bulk_user_${i}`, '10.9.9.9')).status);
   assert.deepEqual(results, [200, 200, 200, 200, 200, 429]);
@@ -389,18 +394,42 @@ test('rooms: lobby rules', async () => {
   assert.equal((await api('POST', '/api/rooms/join', b.token, { code: full.code })).status, 404, 'an unused lobby closes after two hours');
 });
 
-test('moving to another device with a one-time code, and backing up', async () => {
+test('passwords are stored hashed, each with its own salt', async () => {
+  const one = await hashPassword(PASS), two = await hashPassword(PASS);
+  assert.match(one, /^pbkdf2\$100000\$[0-9a-f]{32}\$[0-9a-f]{64}$/);
+  assert.notEqual(one, two);
+  assert.equal(await checkPassword(PASS, one), true);
+  assert.equal(await checkPassword(PASS + ' ', one), false);
+  assert.equal(await checkPassword(PASS, null), false);
+  assert.equal(await checkPassword('', ''), false);
+  assert.throws(() => cleanPassword('x'.repeat(129)), /128/);
+  assert.equal(cleanPassword('pässwörd'), 'pässwörd');
+});
+
+test('signing in on another device with the username and password, and backing up', async () => {
   T += 3600000;
   const a = await person('Eli');
-  const link = await ok('POST', '/api/link', a.token);
-  assert.match(link.code, /^[A-HJKMNP-Z2-9]{8}$/);
-  const claimed = await ok('POST', '/api/link/claim', null, { code: link.code.toLowerCase() });
+  const login = (handle, password, ip = '10.9.0.1') => hub.call('POST', '/api/login', { now: T, ip, body: { handle, password } });
+  const first = await login('@' + a.handle.toUpperCase(), PASS);
+  assert.equal(first.status, 200, JSON.stringify(first.body));
+  const claimed = first.body;
   assert.equal(claimed.user.id, a.id);
   assert.notEqual(claimed.token, a.token);
-  assert.equal((await api('POST', '/api/link/claim', null, { code: link.code })).status, 404, 'a code works once');
-  const old = await ok('POST', '/api/link', a.token);
-  T += 11 * MIN;
-  assert.equal((await api('POST', '/api/link/claim', null, { code: old.code })).status, 404, 'a code runs out after ten minutes');
+  assert.equal(claimed.user.hasPassword, true);
+  const wrong = await login(a.handle, 'not the password');
+  assert.equal(wrong.status, 401);
+  assert.equal(wrong.body.error, 'Wrong username or password.');
+  assert.equal((await login('nobody_here', PASS)).body.error, 'Wrong username or password.', 'an unknown username reads the same');
+  assert.equal((await api('POST', '/api/link', a.token)).status, 410, 'one-time device codes are gone');
+  assert.equal((await api('POST', '/api/link/claim', null, { code: 'ABCDEFGH' })).status, 410);
+  // Wrong guesses are counted even though they fail, and lock the account for a while.
+  for (let i = 0; i < 10; i++) await login(a.handle, 'guess ' + i, '10.9.1.1');
+  const locked = await login(a.handle, PASS, '10.9.1.1');
+  assert.equal(locked.status, 429);
+  assert.match(locked.body.error, /15 minutes/);
+  assert.equal((await login(a.handle, PASS, '10.9.2.2')).status, 200, 'the owner, elsewhere, is not locked out by a stranger guessing');
+  T += 16 * MIN;
+  assert.equal((await login(a.handle, PASS, '10.9.1.1')).status, 200);
   assert.equal((await ok('GET', '/api/state', claimed.token)).state, null);
   const state = { v: 1, coins: 120, sessions: [{ id: 's1' }] };
   const put = await ok('PUT', '/api/state', a.token, { state });
@@ -418,6 +447,92 @@ test('moving to another device with a one-time code, and backing up', async () =
   assert.equal((await api('GET', '/api/me', a.token)).status, 200, 'the other device stays signed in');
 });
 
+test('changing the password signs the other devices out', async () => {
+  T += 3600000;
+  const a = await person('Ivy');
+  const other = (await ok('POST', '/api/login', null, { handle: a.handle, password: PASS })).token;
+  assert.equal((await api('POST', '/api/password', a.token, { current: 'wrong one', password: 'a brand new one' })).status, 403);
+  assert.match((await api('POST', '/api/password', a.token, { current: PASS, password: 'tiny' })).body.error, /at least 8/);
+  const r = await ok('POST', '/api/password', a.token, { current: PASS, password: 'a brand new one' });
+  assert.equal(r.me.hasPassword, true);
+  assert.equal((await api('GET', '/api/me', a.token)).status, 200, 'this device stays signed in');
+  assert.equal((await api('GET', '/api/me', other)).status, 401);
+  assert.equal((await api('POST', '/api/login', null, { handle: a.handle, password: PASS })).status, 401);
+  assert.equal((await api('POST', '/api/login', null, { handle: a.handle, password: 'a brand new one' })).status, 200);
+});
+
+test('a profile made before passwords sets one, then signs in anywhere', async () => {
+  T += 3600000;
+  const a = await person('Old');
+  // What such a profile looks like on the server: a token, and no password.
+  await hub.mf.dispatchFetch('http://hub/test/sql', { method: 'POST', body: JSON.stringify({ q: 'UPDATE users SET pass=NULL WHERE id=?', p: [a.id] }) });
+  assert.equal((await ok('GET', '/api/me', a.token)).me.hasPassword, false);
+  assert.match((await api('POST', '/api/login', null, { handle: a.handle, password: PASS })).body.error, /no password yet/);
+  const set = await ok('POST', '/api/password', a.token, { password: 'my first password' });
+  assert.equal(set.me.hasPassword, true);
+  assert.equal(set.me.handle, a.handle);
+  assert.equal((await api('GET', '/api/me', a.token)).status, 200);
+  const again = await ok('POST', '/api/login', null, { handle: a.handle, password: 'my first password' });
+  assert.equal(again.user.id, a.id, 'the password is tied to the same username and haven');
+});
+
+test('signing in with Google: a new person, the same person again, and connecting an account', async () => {
+  T += 3600000;
+  const go = async path => { const r = await hub.mf.dispatchFetch('http://hub' + path, { redirect: 'manual', headers: { 'x-haven-now': String(T) } }); await r.arrayBuffer(); return r; };
+  const follow = async path => { const r = await go(path); assert.equal(r.status, 302, path); const next = r.headers.get('Location'); return next.startsWith('http://hub') ? follow(next.slice(10)) : next; };
+  const site = 'https://shira421.github.io/haven/';
+  assert.equal((await ok('GET', '/health')).google, true);
+  assert.equal((await go('/auth/google/start?return=' + encodeURIComponent('https://evil.example/'))).status, 400, 'only Haven itself can be returned to');
+  assert.equal((await go('/auth/google/start?return=' + encodeURIComponent(site + '?x=1'))).status, 400);
+  const real = await go('/auth/google/start?return=' + encodeURIComponent(site));
+  assert.match(real.headers.get('Location'), /^https:\/\/accounts\.google\.com\/o\/oauth2\/v2\/auth\?client_id=test-client&redirect_uri=http%3A%2F%2Fhub%2Fauth%2Fgoogle%2Fcallback&response_type=code&scope=openid\+profile&state=[a-z0-9]{40}/);
+  // Someone new: Google vouches for them, then they choose a username.
+  const back = await follow(`/auth/google/start?return=${encodeURIComponent(site)}&as=${encodeURIComponent('g-123|Noor')}`);
+  assert.match(back, /^https:\/\/shira421\.github\.io\/haven\/#google=[a-z0-9]{40}$/);
+  const code = back.split('=')[1];
+  assert.deepEqual(await ok('POST', '/api/google/claim', null, { code }), { needsProfile: true, name: 'Noor' });
+  assert.match((await api('POST', '/api/google/claim', null, { code, handle: 'x' })).body.error, /3 to 20/);
+  const made = await ok('POST', '/api/google/claim', null, { code, handle: 'noor_g', name: 'Noor' });
+  assert.equal(made.user.handle, 'noor_g');
+  assert.deepEqual([made.user.hasPassword, made.user.google], [false, true]);
+  assert.equal((await api('POST', '/api/google/claim', null, { code })).status, 404, 'a code works once');
+  assert.match((await api('POST', '/api/login', null, { handle: 'noor_g', password: PASS })).body.error, /signs in with Google/);
+  // The same person on another device, from the app.
+  const app = await follow(`/auth/google/start?return=${encodeURIComponent('haven://auth')}&as=g-123`);
+  assert.match(app, /^haven:\/\/auth\?google=[a-z0-9]{40}$/);
+  const second = await ok('POST', '/api/google/claim', null, { code: app.split('=')[1] });
+  assert.equal(second.user.id, made.user.id);
+  assert.notEqual(second.token, made.token);
+  // Without a password, Google is the only way in, so it cannot be disconnected.
+  assert.match((await api('POST', '/api/google/unlink', made.token)).body.error, /Set a password first/);
+  await ok('POST', '/api/password', made.token, { password: PASS });
+  assert.equal((await ok('POST', '/api/google/unlink', made.token)).me.google, false);
+  // An account with a password connects Google from Settings.
+  const a = await person('Pia');
+  const link = (await ok('POST', '/api/google/link', a.token)).code;
+  assert.equal(await follow(`/auth/google/start?return=${encodeURIComponent(site)}&link=${link}&as=g-777`), site + '#google=linked');
+  assert.equal((await ok('GET', '/api/me', a.token)).me.google, true);
+  assert.equal((await go(`/auth/google/start?return=${encodeURIComponent(site)}&link=${link}&as=g-777`)).status, 400, 'a link works once');
+  const viaGoogle = await follow(`/auth/google/start?return=${encodeURIComponent(site)}&as=g-777`);
+  assert.equal((await ok('POST', '/api/google/claim', null, { code: viaGoogle.split('=')[1] })).user.id, a.id);
+  // A Google account already on one profile cannot be connected to another.
+  const b = await person('Quin');
+  const link2 = (await ok('POST', '/api/google/link', b.token)).code;
+  assert.equal(await follow(`/auth/google/start?return=${encodeURIComponent(site)}&link=${link2}&as=g-777`), site + '#google-error=taken');
+  // The app keeps a secret and sends only its hash; the code alone is then no use to anyone else.
+  const secret = 'f'.repeat(64), challenge = '0e5b3af1a6e9dd26a4b6d6fd6f3c1b0a'.repeat(2);
+  const sha = async text => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))), x => x.toString(16).padStart(2, '0')).join('');
+  const guarded = await follow(`/auth/google/start?return=${encodeURIComponent('haven://auth')}&challenge=${await sha(secret)}&as=g-777`);
+  const guardedCode = guarded.split('=')[1];
+  assert.equal((await api('POST', '/api/google/claim', null, { code: guardedCode })).status, 404, 'the code without the secret');
+  assert.equal((await api('POST', '/api/google/claim', null, { code: guardedCode, verifier: challenge })).status, 404, 'the wrong secret');
+  assert.equal((await ok('POST', '/api/google/claim', null, { code: guardedCode, verifier: secret })).user.id, a.id);
+  // Cancelling at Google, and a state that has run out.
+  const state = (await go('/auth/google/start?return=' + encodeURIComponent(site))).headers.get('Location').match(/state=([a-z0-9]+)/)[1];
+  assert.equal(await follow(`/auth/google/callback?state=${state}&error=access_denied`), site + '#google-error=cancelled');
+  assert.equal((await go(`/auth/google/callback?state=${state}&code=test:g-1`)).status, 400);
+});
+
 test('deleting a profile removes it everywhere', async () => {
   const a = await person('Flo'), b = await person('Gil');
   await friends(a, b);
@@ -430,7 +545,7 @@ test('deleting a profile removes it everywhere', async () => {
   assert.deepEqual(me.inbox, []);
   assert.equal((await api('GET', '/api/me', a.token)).status, 401);
   assert.equal((await api('GET', `/api/find?q=${a.code}`, b.token)).status, 404);
-  assert.equal((await api('POST', '/api/register', null, { name: 'Flo', handle: a.handle })).status, 200, 'the username is free again');
+  assert.equal((await api('POST', '/api/register', null, { name: 'Flo', handle: a.handle, password: PASS })).status, 200, 'the username is free again');
   sb.close();
 });
 

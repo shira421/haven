@@ -49,6 +49,18 @@ export function phoneBrowser() {
   try { return g.matchMedia('(pointer: coarse)').matches && (g.navigator.maxTouchPoints || 0) > 0; } catch { return false; }
 }
 
+/**
+ * Open an address outside the app, to sign in with Google. Apps only. On iOS this resolves with
+ * what came back (the query of haven://auth?...); on Android the answer arrives later (takeAuth).
+ */
+export function openExternal(url) {
+  return bridge() ? quiet(nativeCall('openExternal', { url }, 15 * 60000)) : Promise.resolve(null);
+}
+/** On Android: what came back from signing in with Google, if anything is waiting. */
+export function takeAuth() {
+  return bridge() === 'android' ? quiet(nativeCall('takeAuth')) : Promise.resolve(null);
+}
+
 /** Open the phone's settings for Haven's notifications, where a refusal can be undone. Apps only. */
 export function openNotificationSettings() {
   return bridge() ? quiet(nativeCall('openSettings')) : Promise.resolve(null);

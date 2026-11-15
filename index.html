@@ -13,6 +13,7 @@
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" href="./icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="preload" href="./icons/icon.svg" as="image" type="image/svg+xml">
 <link rel="preload" href="./fonts/bricolage.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="./fonts/figtree.woff2" as="font" type="font/woff2" crossorigin>
 <title>Haven</title>
@@ -20,6 +21,7 @@
 </head>
 <body>
 <div id="app"><noscript>Haven needs JavaScript.</noscript></div>
+<div id="splash" role="status" aria-label="Opening Haven"><img src="./icons/icon.svg" alt="" width="112" height="112"><b>Haven</b><div class="isles" aria-hidden="true"><i></i><i></i><i></i><i></i></div></div>
 <script src="./app.js"></script>
 </body>
 </html>

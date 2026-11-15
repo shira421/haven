@@ -12,14 +12,14 @@ export async function bundleWorker() {
 }
 
 /** Start the server. With `port`, it listens for real connections; without, use `call` and `socket`. */
-export async function startHub({ port, testClock = true, persist = false } = {}) {
+export async function startHub({ port, testClock = true, persist = false, google = true } = {}) {
   const { Miniflare } = require('miniflare');
   const toml = await readFile(root + 'worker/wrangler.toml', 'utf8');
   const mf = new Miniflare({
     modules: [{ type: 'ESModule', path: 'worker.js', contents: await bundleWorker() }],
     compatibilityDate: toml.match(/compatibility_date\s*=\s*"([^"]+)"/)[1],
     durableObjects: { HUB: { className: 'HubObject', useSQLite: true } },
-    bindings: testClock ? { TEST_CLOCK: '1' } : {},
+    bindings: { ...(testClock ? { TEST_CLOCK: '1' } : {}), ...(google ? { GOOGLE_CLIENT_ID: 'test-client', GOOGLE_CLIENT_SECRET: 'test-secret' } : {}) },
     ...(port ? { port, host: '127.0.0.1' } : {}),
     ...(persist ? { durableObjectsPersist: persist } : {}),
   });

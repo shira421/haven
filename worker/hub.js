@@ -1,9 +1,9 @@
-// The rules of Haven's friends server: profiles, friends, live presence, focusing together, cheers and gifts.
+// The rules of Haven's server: accounts, friends, live presence, focusing together, cheers and gifts.
 // This file knows nothing about Cloudflare. It is given a SQL function, a way to push a message to a
 // person's open connections, and a way to ask whether someone is connected; worker.js supplies those.
 import { speciesById } from '../src/catalog.js';
 
-export const VERSION = '1.3.0';
+export const VERSION = '1.4.0';
 const MIN = 60000;
 export const RULES = {
   maxFriends: 200,
@@ -15,7 +15,10 @@ export const RULES = {
   early: 30000, // a session may be reported finished this much before the server's clock agrees
   countdown: 5000, // rooms start this long after the host presses Start
   lobbyLife: 2 * 60 * MIN,
-  linkLife: 10 * MIN,
+  grantLife: 10 * MIN, // a Google sign-in must be finished within this
+  maxTokens: 20, // devices signed in to one account; the oldest is signed out beyond this
+  passMin: 8,
+  passMax: 128,
   ticketLife: 30000,
   logWindow: 7 * 24 * 60 * MIN, // offline sessions can be reported this long afterwards
   stateBytes: 600000,
@@ -47,7 +50,8 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS members_user ON members(user_id)`,
   `CREATE TABLE IF NOT EXISTS inbox(id INTEGER PRIMARY KEY AUTOINCREMENT, to_id TEXT NOT NULL, from_id TEXT NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL DEFAULT '{}', created INTEGER NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS inbox_to ON inbox(to_id)`,
-  `CREATE TABLE IF NOT EXISTS links(code TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires INTEGER NOT NULL)`,
+  // Short-lived one-time codes for signing in with Google: 'state' while at Google, 'sign' on the way back, 'link' to connect an account.
+  `CREATE TABLE IF NOT EXISTS grants(code TEXT PRIMARY KEY, kind TEXT NOT NULL, data TEXT NOT NULL DEFAULT '{}', expires INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS tickets(ticket TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS limits(key TEXT PRIMARY KEY, exp INTEGER NOT NULL, n INTEGER NOT NULL)`,
   // Sanctuaries: groups whose havens are joined into one land. A keeper is a member.
@@ -58,6 +62,12 @@ const SCHEMA = [
 
 const ADDED_COLUMNS = [
   'ALTER TABLE users ADD COLUMN state_rev INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE users ADD COLUMN pass TEXT', // "pbkdf2$<rounds>$<salt>$<hash>", or null for an account that signs in with Google only
+  'ALTER TABLE users ADD COLUMN google TEXT', // Google's id for the person, when connected
+];
+const AFTER_COLUMNS = [
+  'CREATE UNIQUE INDEX IF NOT EXISTS users_google ON users(google) WHERE google IS NOT NULL',
+  'DROP TABLE IF EXISTS links', // one-time codes for adding a device, replaced by signing in
 ];
 
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no I, L, O, 0 or 1
@@ -77,6 +87,38 @@ export async function sha256(text) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
 }
+
+// ——— Passwords ———
+// Stored as PBKDF2-SHA-256 with a salt of their own. 100,000 rounds is the most the Workers runtime allows.
+const PASS_ROUNDS = 100000;
+const hex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+const unhex = text => new Uint8Array((text.match(/../g) || []).map(h => parseInt(h, 16)));
+async function pbkdf2(password, salt, rounds) {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  return hex(new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: rounds }, key, 256)));
+}
+export async function hashPassword(password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  return `pbkdf2$${PASS_ROUNDS}$${hex(salt)}$${await pbkdf2(password, salt, PASS_ROUNDS)}`;
+}
+/** Whether the password matches. Takes the same time whether or not there is anything stored. */
+export async function checkPassword(password, stored) {
+  const [kind, rounds, salt, hash] = String(stored || '').split('$');
+  const real = kind === 'pbkdf2' && hash;
+  const got = await pbkdf2(String(password ?? ''), real ? unhex(salt) : new Uint8Array(16), real ? Number(rounds) : PASS_ROUNDS);
+  if (!real || got.length !== hash.length) return false;
+  let diff = 0;
+  for (let i = 0; i < got.length; i++) diff |= got.charCodeAt(i) ^ hash.charCodeAt(i);
+  return diff === 0;
+}
+export function cleanPassword(v, handle = '') {
+  const password = typeof v === 'string' ? v : '';
+  if ([...password].length < RULES.passMin) throw bad(`Use a password of at least ${RULES.passMin} characters.`);
+  if (password.length > RULES.passMax) throw bad(`Keep the password to ${RULES.passMax} characters or fewer.`);
+  if (handle && password.toLowerCase() === handle.toLowerCase()) throw bad('Choose a password that is not your username.');
+  return password;
+}
+
 export const cleanCode = v => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 // Control characters and invisible direction marks are removed from names.
 const INVISIBLE = /[\u0000-\u001f\u007f\u200b-\u200f\u2028-\u202e\u2066-\u2069]/g;
@@ -99,8 +141,12 @@ const int = (v, lo, hi, message) => {
   return n;
 };
 const pair = (x, y) => (x < y ? [x, y] : [y, x]);
+/** What an account's own devices are told about it. */
+const account = u => ({ id: u.id, name: u.name, handle: u.handle, code: u.code, avatar: u.avatar, hasPassword: Boolean(u.pass), google: Boolean(u.google) });
 const publicUser = u => ({ id: u.id, name: u.name, handle: u.handle, avatar: u.avatar });
 const parse = (text, fallback) => { try { const v = JSON.parse(text); return v && typeof v === 'object' ? v : fallback; } catch { return fallback; } };
+
+const OPEN_ROUTES = new Set(['POST /api/register', 'POST /api/login', 'POST /api/google/claim']);
 
 export class Hub {
   /**
@@ -109,8 +155,10 @@ export class Hub {
    * @param {(userId: string, message: object) => void} io.push
    * @param {(userId: string) => boolean} io.online
    * @param {(fn: () => any) => any} [io.tx]
+   * @param {{google?: boolean, returns?: string[]}} [io.config] whether Google sign-in is set up, and the pages it may send people back to
    */
-  constructor({ sql, push, online, tx = fn => fn() }) {
+  constructor({ sql, push, online, tx = fn => fn(), config = {} }) {
+    this.config = { google: false, returns: [], dev: false, ...config };
     this.sql = sql;
     this.push = push;
     this.online = online;
@@ -118,6 +166,7 @@ export class Hub {
     for (const statement of SCHEMA) sql(statement);
     // Columns added after the first release. Adding one that is already there fails harmlessly.
     for (const column of ADDED_COLUMNS) { try { sql(column); } catch { /* already added */ } }
+    for (const statement of AFTER_COLUMNS) sql(statement);
   }
 
   one(query, ...params) { return this.sql(query, ...params)[0] || null; }
@@ -331,18 +380,129 @@ export class Hub {
 
   // ——— Routes ———
 
-  /** Create a profile. No password and no email: the device keeps a secret token. */
-  register(body, ctx) {
-    this.limit('reg:' + ctx.ip, 5, 3600, ctx.now, 'Too many new profiles from this network. Try again in an hour.');
-    const name = cleanName(body.name), handle = cleanHandle(body.handle);
+  /** A new device signed in: give it its own token, and sign the oldest out if there are too many. */
+  issueToken(userId, ctx) {
+    this.sql('INSERT INTO tokens(hash,user_id,created) VALUES(?,?,?)', ctx.newTokenHash, userId, ctx.now);
+    this.sql('DELETE FROM tokens WHERE user_id=? AND hash NOT IN (SELECT hash FROM tokens WHERE user_id=? ORDER BY created DESC, rowid DESC LIMIT ?)', userId, userId, RULES.maxTokens);
+    return ctx.newToken;
+  }
+  createUser({ name, handle, avatar, pass = null, google = null }, now) {
     if (this.one('SELECT 1 AS ok FROM users WHERE handle=?', handle)) throw new ApiError(409, 'That username is taken. Try another.');
-    const avatar = speciesById(body.avatar) ? body.avatar : 'rabbit';
     let id, code;
     do { id = randomString(12, ID_ALPHABET); } while (this.user(id));
     do { code = randomString(8, CODE_ALPHABET); } while (this.one('SELECT 1 AS ok FROM users WHERE code=?', code));
-    this.sql('INSERT INTO users(id,handle,name,code,avatar,created,seen) VALUES(?,?,?,?,?,?,?)', id, handle, name, code, avatar, ctx.now, ctx.now);
-    this.sql('INSERT INTO tokens(hash,user_id,created) VALUES(?,?,?)', ctx.newTokenHash, id, ctx.now);
-    return { user: { id, name, handle, code, avatar }, token: ctx.newToken };
+    this.sql('INSERT INTO users(id,handle,name,code,avatar,created,seen,pass,google) VALUES(?,?,?,?,?,?,?,?,?)', id, handle, name, code, speciesById(avatar) ? avatar : 'rabbit', now, now, pass, google);
+    return this.user(id);
+  }
+
+  /** Create an account: a username and a password. The password was hashed before this runs. */
+  register(body, ctx) {
+    this.limit('reg:' + ctx.ip, 5, 3600, ctx.now, 'Too many new accounts from this network. Try again in an hour.');
+    const handle = cleanHandle(body.handle), name = cleanName(body.name ?? body.handle);
+    if (!ctx.passHash) throw bad('Update Haven to create an account: accounts now have a password.');
+    const user = this.createUser({ name, handle, avatar: body.avatar, pass: ctx.passHash }, ctx.now);
+    return { user: account(user), token: this.issueToken(user.id, ctx) };
+  }
+
+  /** Sign in on any device with the username and password. The password was checked before this runs. */
+  login(body, ctx) {
+    const user = this.one('SELECT * FROM users WHERE handle=?', ctx.handle);
+    if (user && !user.pass && user.google) throw new ApiError(401, 'This account signs in with Google. Choose "Continue with Google".');
+    if (user && !user.pass) throw new ApiError(401, 'This account has no password yet. Open Haven on the phone where you are signed in, and it will ask you to set one.');
+    if (!user || !ctx.passOk) throw new ApiError(401, 'Wrong username or password.');
+    return { user: account(user), token: this.issueToken(user.id, ctx) };
+  }
+
+  /** Set a password, or change it. Changing it signs every other device out. */
+  password(me, body, ctx) {
+    if (me.pass && !ctx.passOk) throw new ApiError(403, 'The current password is wrong.');
+    this.sql('UPDATE users SET pass=? WHERE id=?', ctx.passHash, me.id);
+    if (me.pass) this.sql('DELETE FROM tokens WHERE user_id=? AND hash<>?', me.id, ctx.tokenHash);
+    return { me: account({ ...me, pass: ctx.passHash }) };
+  }
+
+  // ——— Signing in with Google ———
+  // worker.js talks to Google; these keep the one-time codes that tie the steps together.
+
+  grant(kind, data, now) {
+    this.sql('DELETE FROM grants WHERE expires<?', now);
+    const code = randomString(40, ID_ALPHABET);
+    this.sql('INSERT INTO grants(code,kind,data,expires) VALUES(?,?,?,?)', code, kind, JSON.stringify(data), now + RULES.grantLife);
+    return code;
+  }
+  /** The grant with this code, if it is of this kind and has not run out. `take` uses it up. */
+  granted(code, kind, now, take = true) {
+    const row = this.one('SELECT * FROM grants WHERE code=? AND kind=?', String(code || ''), kind);
+    if (!row || row.expires < now) return null;
+    if (take) this.sql('DELETE FROM grants WHERE code=?', row.code);
+    return parse(row.data, null);
+  }
+  /** Where Google sign-in may send someone back to: the app itself, or a page this server was told about. */
+  returnTo(v) {
+    const to = String(v || '');
+    if (to === 'haven://auth') return to;
+    if (this.config.dev && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/[\w./-]*$/.test(to)) return to;
+    return this.config.returns.some(base => to === base || to.startsWith(base.endsWith('/') ? base : base + '/')) && !/[#?]/.test(to) ? to : null;
+  }
+  /** Someone is about to be sent to Google. Returns the `state` to send with them. */
+  googleStart(query, now, ip = 'unknown') {
+    if (!this.config.google) throw gone('Signing in with Google is not set up on this server.');
+    this.limit('gstart:' + ip, 30, 3600, now);
+    const to = this.returnTo(query.return);
+    if (!to) throw bad('That is not a page Haven can return to.');
+    let link = null;
+    if (query.link) { link = this.granted(query.link, 'link', now)?.user || null; if (!link) throw bad('That link has run out. Try again from Settings.'); }
+    // The app may send the hash of a secret it keeps. Only someone who can show the secret can then
+    // finish the sign-in, so a one-time code is no use to another app that sees it on the way back.
+    const challenge = /^[0-9a-f]{64}$/.test(String(query.challenge || '')) ? query.challenge : null;
+    return this.grant('state', { to, link, challenge }, now);
+  }
+  /** Google sent them back. `who` is what Google says about them, or null if it did not work out. Returns where to send them. */
+  googleBack(state, who, now) {
+    const s = this.granted(state, 'state', now);
+    if (!s) return null;
+    const back = (key, value) => (s.to === 'haven://auth' ? `${s.to}?${key}=${encodeURIComponent(value)}` : `${s.to}#${key}=${encodeURIComponent(value)}`);
+    if (!who?.sub) return back('google-error', 'cancelled');
+    const owner = this.one('SELECT * FROM users WHERE google=?', who.sub);
+    if (s.link) {
+      const me = this.user(s.link);
+      if (!me) return back('google-error', 'gone');
+      if (owner && owner.id !== me.id) return back('google-error', 'taken');
+      this.sql('UPDATE users SET google=? WHERE id=?', who.sub, me.id);
+      this.push(me.id, { t: 'account' });
+      return back('google', 'linked');
+    }
+    return back('google', this.grant('sign', { ...(owner ? { user: owner.id } : { sub: who.sub, name: String(who.name || '').slice(0, 24) }), challenge: s.challenge || null }, now));
+  }
+  /**
+   * Finish signing in with Google. For someone new the first call says so, and the second,
+   * with the username they chose, makes the account.
+   */
+  googleClaim(body, ctx) {
+    this.limit('gclaim:' + ctx.ip, 30, 3600, ctx.now);
+    const g = this.granted(body.code, 'sign', ctx.now, false);
+    if (!g || (g.challenge && g.challenge !== ctx.verifierHash)) throw gone('That sign-in has run out. Choose "Continue with Google" again.');
+    let user = g.user ? this.user(g.user) : this.one('SELECT * FROM users WHERE google=?', g.sub);
+    if (!user) {
+      if (g.user) throw gone('That account no longer exists.');
+      if (body.handle === undefined) return { needsProfile: true, name: g.name || '' };
+      this.limit('reg:' + ctx.ip, 5, 3600, ctx.now, 'Too many new accounts from this network. Try again in an hour.');
+      const handle = cleanHandle(body.handle);
+      user = this.createUser({ name: cleanName(body.name ?? g.name ?? handle), handle, avatar: body.avatar, google: g.sub }, ctx.now);
+    }
+    this.sql('DELETE FROM grants WHERE code=?', String(body.code));
+    return { user: account(user), token: this.issueToken(user.id, ctx) };
+  }
+  /** A one-time code that lets this account be connected to Google from the browser. */
+  googleLink(me, body, ctx) {
+    if (!this.config.google) throw gone('Signing in with Google is not set up on this server.');
+    this.limit('glink:' + me.id, 10, 3600, ctx.now);
+    return { code: this.grant('link', { user: me.id }, ctx.now) };
+  }
+  googleUnlink(me) {
+    if (!me.pass) throw bad('Set a password first, so you can still sign in.');
+    this.sql('UPDATE users SET google=NULL WHERE id=?', me.id);
+    return { me: account({ ...me, google: null }) };
   }
 
   me(me, query, ctx) {
@@ -351,7 +511,7 @@ export class Hub {
     const outgoing = this.sql('SELECT u.id,u.name,u.handle,u.avatar,r.created FROM requests r JOIN users u ON u.id=r.to_id WHERE r.from_id=? ORDER BY r.created DESC', me.id).map(u => ({ ...publicUser(u), created: u.created }));
     const mine = this.one("SELECT COALESCE(SUM(minutes),0) AS today FROM sessions WHERE user_id=? AND status='done' AND start>=?", me.id, since);
     return {
-      me: { id: me.id, name: me.name, handle: me.handle, code: me.code, avatar: me.avatar, today: mine.today, backupAt: me.state_at || null },
+      me: { ...account(me), today: mine.today, backupAt: me.state_at || null },
       friends: this.friendList(me, since, ctx.now), incoming, outgoing, inbox: this.inboxFor(me), room: this.currentRoom(me.id, ctx.now), now: ctx.now,
     };
   }
@@ -368,7 +528,7 @@ export class Hub {
     this.sql('UPDATE users SET name=?, avatar=?, card=? WHERE id=?', name, avatar, card, me.id);
     if (name !== me.name || avatar !== me.avatar) this.pushFriends(me.id, { t: 'friends' });
     if (card !== me.card || name !== me.name || avatar !== me.avatar) this.pushKeepers(me.id, { t: 'haven', id: me.id });
-    return { me: { id: me.id, name, handle: me.handle, code: me.code, avatar } };
+    return { me: account({ ...me, name, avatar }) };
   }
 
   /** Look someone up by friend code or exact username. There is no directory to browse. */
@@ -681,27 +841,6 @@ export class Hub {
     return { room };
   }
 
-  linkCreate(me, body, ctx) {
-    this.limit('link:' + me.id, 10, 3600, ctx.now);
-    this.sql('DELETE FROM links WHERE user_id=? OR expires<?', me.id, ctx.now);
-    const code = randomString(8, CODE_ALPHABET);
-    this.sql('INSERT INTO links(code,user_id,expires) VALUES(?,?,?)', code, me.id, ctx.now + RULES.linkLife);
-    return { code, expires: ctx.now + RULES.linkLife };
-  }
-
-  /** A second device proves it holds the code shown on the first, and gets its own token. */
-  linkClaim(body, ctx) {
-    this.limit('claim:' + ctx.ip, 10, 3600, ctx.now, 'Too many tries. Wait an hour and try again.');
-    const code = cleanCode(body.code);
-    const row = this.one('SELECT * FROM links WHERE code=?', code);
-    if (!row || row.expires < ctx.now) throw gone('That code is wrong or has run out. Make a new one on your other device.');
-    this.sql('DELETE FROM links WHERE code=?', code);
-    const me = this.user(row.user_id);
-    if (!me) throw gone('That profile no longer exists.');
-    this.sql('INSERT INTO tokens(hash,user_id,created) VALUES(?,?,?)', ctx.newTokenHash, me.id, ctx.now);
-    return { user: { id: me.id, name: me.name, handle: me.handle, code: me.code, avatar: me.avatar }, token: ctx.newToken };
-  }
-
   /**
    * Save the haven every device of this person shares. `base` is the revision the device last saw:
    * if another device has saved since, the save is refused and the device joins the two first.
@@ -741,7 +880,7 @@ export class Hub {
     const friends = this.friendIds(me.id);
     for (const row of this.sql('SELECT sid FROM keepers WHERE user_id=?', me.id)) this.dropKeeper(row.sid, me.id);
     for (const row of this.sql("SELECT r.code FROM members m JOIN rooms r ON r.code=m.room WHERE m.user_id=? AND r.state IN ('lobby','running')", me.id)) this.roomLeave(me, { code: row.code }, ctx);
-    for (const q of ['DELETE FROM tokens WHERE user_id=?', 'DELETE FROM sessions WHERE user_id=?', 'DELETE FROM members WHERE user_id=?', 'DELETE FROM links WHERE user_id=?', 'DELETE FROM tickets WHERE user_id=?', 'DELETE FROM users WHERE id=?']) this.sql(q, me.id);
+    for (const q of ['DELETE FROM tokens WHERE user_id=?', 'DELETE FROM sessions WHERE user_id=?', 'DELETE FROM members WHERE user_id=?', 'DELETE FROM tickets WHERE user_id=?', 'DELETE FROM users WHERE id=?']) this.sql(q, me.id);
     for (const q of ['DELETE FROM friends WHERE a=? OR b=?', 'DELETE FROM requests WHERE from_id=? OR to_id=?', 'DELETE FROM blocks WHERE user_id=? OR blocked_id=?', 'DELETE FROM inbox WHERE to_id=? OR from_id=?']) this.sql(q, me.id, me.id);
     for (const id of friends) this.push(id, { t: 'friends' });
     return { status: 'deleted' };
@@ -775,7 +914,7 @@ export class Hub {
     this.sql("DELETE FROM members WHERE room IN (SELECT code FROM rooms WHERE created < ?)", now - 2 * day);
     this.sql('DELETE FROM rooms WHERE created < ?', now - 2 * day);
     this.sql('DELETE FROM inbox WHERE created < ?', now - 30 * day);
-    this.sql('DELETE FROM links WHERE expires < ?', now);
+    this.sql('DELETE FROM grants WHERE expires < ?', now);
     this.sql('DELETE FROM tickets WHERE expires < ?', now);
     this.sql("DELETE FROM sessions WHERE status IN ('abandoned','short','failed') AND start < ?", now - 30 * day);
     this.sql("UPDATE sessions SET status='abandoned', ended=? WHERE status='active' AND start < ?", now, now - (RULES.maxMinutes + 30) * MIN);
@@ -793,10 +932,31 @@ export class Hub {
     const route = `${call.method} ${call.path}`;
     // Everything that awaits happens here, before the database is touched, so a check and the write
     // that depends on it can never be separated by another request.
-    const open = route === 'POST /api/register' || route === 'POST /api/link/claim';
+    const open = OPEN_ROUTES.has(route);
     if (open) { ctx.newToken = randomString(48, ID_ALPHABET); ctx.newTokenHash = await sha256(ctx.newToken); }
     else if (call.token) ctx.tokenHash = await sha256(call.token);
     try {
+      // Passwords are hashed and checked here too. Tries are counted outside the transaction, so
+      // a wrong password still counts.
+      const body = call.body || {};
+      if (route === 'POST /api/register' && body.password !== undefined) ctx.passHash = await hashPassword(cleanPassword(body.password, String(body.handle || '').trim().replace(/^@/, '')));
+      if (route === 'POST /api/google/claim' && body.verifier !== undefined) ctx.verifierHash = await sha256(String(body.verifier));
+      if (route === 'POST /api/login') {
+        ctx.handle = String(body.handle ?? '').trim().replace(/^@/, '').toLowerCase();
+        this.limit('login:' + ctx.ip, 40, 3600, ctx.now, 'Too many tries from this network. Wait an hour and try again.');
+        // Ten tries per account from one network, so a stranger guessing cannot lock the owner out; fifty from everywhere.
+        this.limit(`login@${ctx.handle}@${ctx.ip}`, 10, 900, ctx.now, 'Too many tries for this account. Wait 15 minutes and try again.');
+        this.limit('login@' + ctx.handle, 50, 3600, ctx.now, 'Too many tries for this account. Wait an hour and try again.');
+        ctx.passOk = await checkPassword(body.password, this.one('SELECT pass FROM users WHERE handle=?', ctx.handle)?.pass);
+        if (ctx.passOk) this.sql('DELETE FROM limits WHERE key=?', `login@${ctx.handle}@${ctx.ip}`);
+      }
+      if (route === 'POST /api/password' && ctx.tokenHash) {
+        const me = this.one('SELECT u.id, u.handle, u.pass FROM tokens t JOIN users u ON u.id=t.user_id WHERE t.hash=?', ctx.tokenHash);
+        if (me) {
+          if (me.pass) { this.limit('pass:' + me.id, 10, 900, ctx.now); ctx.passOk = await checkPassword(body.current, me.pass); }
+          ctx.passHash = await hashPassword(cleanPassword(body.password, me.handle));
+        }
+      }
       return { status: 200, body: this.tx(() => this.answer(route, call, ctx)) };
     } catch (error) {
       if (error instanceof ApiError) return { status: error.status, body: { error: error.message } };
@@ -806,10 +966,12 @@ export class Hub {
 
   answer(route, call, ctx) {
     this.clean(ctx.now);
-    if (route === 'GET /health') return { ok: true, service: 'haven-hub', version: VERSION, now: ctx.now };
+    if (route === 'GET /health') return { ok: true, service: 'haven-hub', version: VERSION, google: Boolean(this.config.google), now: ctx.now };
     if (route === 'POST /api/register') return this.register(call.body, ctx);
-    if (route === 'POST /api/link/claim') return this.linkClaim(call.body, ctx);
-    if (!ctx.tokenHash) throw new ApiError(401, 'Sign in to use friends.');
+    if (route === 'POST /api/login') return this.login(call.body, ctx);
+    if (route === 'POST /api/google/claim') return this.googleClaim(call.body, ctx);
+    if (route === 'POST /api/link' || route === 'POST /api/link/claim') throw new ApiError(410, 'Update Haven: you now sign in with your username and password.');
+    if (!ctx.tokenHash) throw new ApiError(401, 'Sign in to use Haven with friends.');
     const me = this.one('SELECT u.* FROM tokens t JOIN users u ON u.id=t.user_id WHERE t.hash=?', ctx.tokenHash);
     if (!me) throw new ApiError(401, 'This device is signed out. Sign in again.');
     if (ctx.now - me.seen > 5 * MIN) this.sql('UPDATE users SET seen=? WHERE id=?', ctx.now, me.id);
@@ -839,7 +1001,9 @@ export class Hub {
       case 'POST /api/rooms/invite': return this.roomInvite(me, body, ctx);
       case 'POST /api/rooms/start': return this.roomStart(me, body, ctx);
       case 'POST /api/rooms/species': return this.roomSpecies(me, body, ctx);
-      case 'POST /api/link': return this.linkCreate(me, body, ctx);
+      case 'POST /api/password': return this.password(me, body, ctx);
+      case 'POST /api/google/link': return this.googleLink(me, body, ctx);
+      case 'POST /api/google/unlink': return this.googleUnlink(me);
       case 'PUT /api/state': return this.statePut(me, body, ctx);
       case 'GET /api/state': return this.stateGet(me);
       case 'GET /api/news': return this.news(me, query, ctx);

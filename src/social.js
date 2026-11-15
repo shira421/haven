@@ -1,4 +1,4 @@
-// The app's side of friends: the profile on this device, calls to the friends server, and the live
+// The app's side of accounts and friends: who is signed in on this device, calls to the friends server, and the live
 // connection that brings requests, presence, rooms, cheers and gifts as they happen.
 import { startOfDay, startOfWeek, startOfMonth } from './core.js';
 import { mergeStates } from './store.js';
@@ -6,6 +6,8 @@ import { threeWay, comparable } from './sync.js';
 
 export const SITE = 'https://shira421.github.io/haven/';
 const ACCOUNT_KEY = 'haven-account';
+const OWNER_KEY = 'haven-owner'; // whose haven is on this device, kept after signing out
+const VERIFIER_KEY = 'haven-google-secret'; // kept between leaving for Google and coming back
 const SYNC_KEY = 'haven-sync'; // {user, rev, base}: the last copy of the haven this device agreed on with the server
 
 export class SocialError extends Error {
@@ -21,7 +23,7 @@ export async function discoverApi({ storage, build, location, fetchImpl = fetch 
   if (['localhost', '127.0.0.1'].includes(location?.hostname)) return `http://${location.hostname}:8787`;
   try {
     // A copy of the app built before the server existed asks the website where it is.
-    const res = await fetchImpl(SITE + 'config.json', { cache: 'no-store' });
+    const res = await fetchImpl(SITE + 'config.json', { cache: 'no-store', signal: AbortSignal.timeout(5000) });
     const found = clean((await res.json()).api);
     if (found) { storage?.setItem('haven-api-found', found); return found; }
   } catch { /* offline, or no website yet */ }
@@ -42,6 +44,7 @@ export class Social {
     this.ws = null; this.attempt = 0; this.retryTimer = null; this.pingTimer = null; this.pongTimer = null;
     this.handled = new Set(); // inbox items already shown
     this.cardTimer = null; this.backupTimer = null;
+    this.features = { google: false }; // what the server offers, asked at start
     this.reset();
   }
 
@@ -56,7 +59,7 @@ export class Social {
   // ——— Calls ———
 
   async api(method, path, body) {
-    if (!this.base) throw new SocialError('no-server', 'Friends are not switched on for this copy of Haven yet.');
+    if (!this.base) throw new SocialError('no-server', 'This copy of Haven has no server to sign in to yet.');
     let res;
     try {
       res = await this.fetch(this.base + path, {
@@ -66,7 +69,7 @@ export class Social {
         signal: AbortSignal.timeout(12000),
       });
     } catch {
-      throw new SocialError('offline', 'Cannot reach the friends server. Check your connection and try again.');
+      throw new SocialError('offline', 'Cannot reach Haven. Check your connection and try again.');
     }
     let json = {};
     try { json = await res.json(); } catch { /* not JSON */ }
@@ -79,8 +82,17 @@ export class Social {
   // ——— Profile ———
 
   saveAccount(user, token) {
-    this.account = { id: user.id, name: user.name, handle: user.handle, code: user.code, avatar: user.avatar, token: token || this.account?.token };
-    this.storage.setItem(ACCOUNT_KEY, JSON.stringify(this.account));
+    // `hasPassword` is unknown (undefined) for an account saved by Haven before 1.4, until the server says.
+    this.account = { id: user.id, name: user.name, handle: user.handle, code: user.code, avatar: user.avatar, hasPassword: user.hasPassword ?? this.account?.hasPassword, google: user.google ?? this.account?.google ?? false, token: token || this.account?.token };
+    try { this.storage.setItem(ACCOUNT_KEY, JSON.stringify(this.account)); this.storage.setItem(OWNER_KEY, user.id); } catch { /* storage closed */ }
+  }
+  /** An account made before passwords, which must choose one before going on. */
+  get needsPassword() { return Boolean(this.account && this.account.hasPassword === false && !this.account.google); }
+  /** Ask the server what it offers. Quietly keeps the last answer when it cannot be reached. */
+  async discoverFeatures() {
+    if (!this.base) return this.features;
+    try { const r = await this.fetch(this.base + '/health', { signal: AbortSignal.timeout(6000) }); const j = await r.json(); this.features = { google: Boolean(j.google) }; } catch { /* offline */ }
+    return this.features;
   }
   forget() {
     this.account = null;
@@ -90,31 +102,81 @@ export class Social {
     this.setStatus('signed-out');
     this.emit('change');
   }
-  async register(name, handle, avatar) {
-    const r = await this.api('POST', '/api/register', { name, handle, avatar });
-    this.saveAccount(r.user, r.token);
+  /**
+   * This device now belongs to `user`. If someone else's haven is still on it (they were signed
+   * out without their changes being saved), it is put aside so the two are never joined.
+   */
+  enter(user, token) {
+    let owner = null;
+    try { owner = this.storage.getItem(OWNER_KEY); } catch { /* storage closed */ }
+    if (owner && owner !== user.id) this.store.reset();
+    this.saveAccount(user, token);
     this.setStatus('connecting');
+  }
+  async register(name, handle, password, avatar) {
+    const r = await this.api('POST', '/api/register', { name, handle, password, avatar });
+    this.enter(r.user, r.token);
     this.pushCard(0);
     await this.connect();
     return r.user;
   }
-  /** Sign this device in to a profile that exists on another one, and bring its haven over. */
-  async claim(code) {
-    const r = await this.api('POST', '/api/link/claim', { code });
-    this.saveAccount(r.user, r.token);
-    this.setStatus('connecting');
+  /** Sign in with the username and password, and bring the account's haven to this device. */
+  async login(handle, password) {
+    const r = await this.api('POST', '/api/login', { handle, password });
+    this.enter(r.user, r.token);
     await this.sync().catch(() => {});
     await this.connect();
     return r.user;
   }
+  /** Set the password of an account that has none, or change it (which signs other devices out). */
+  async setPassword(password, current) {
+    const r = await this.api('POST', '/api/password', { password, ...(current === undefined ? {} : { current }) });
+    this.saveAccount(r.me);
+    this.emit('change');
+  }
+  /**
+   * The address that starts signing in with Google. `back` is where Google returns to. A secret is
+   * kept on this device and only its hash is sent, so the one-time code that comes back is of no
+   * use to anything else that might see it.
+   */
+  async googleUrl(back, link = null) {
+    let challenge = '';
+    try {
+      const secret = Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2, '0')).join('');
+      const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(secret))), b => b.toString(16).padStart(2, '0')).join('');
+      this.storage.setItem(VERIFIER_KEY, secret);
+      challenge = '&challenge=' + hash;
+    } catch { try { this.storage.removeItem(VERIFIER_KEY); } catch { /* storage closed */ } }
+    return `${this.base}/auth/google/start?return=${encodeURIComponent(back)}${link ? `&link=${link}` : ''}${challenge}`;
+  }
+  /** Finish signing in with Google. Resolves the user, or {needsProfile, name} for someone new who must pick a username. */
+  async googleClaim(code, profile = null) {
+    let verifier;
+    try { verifier = this.storage.getItem(VERIFIER_KEY) || undefined; } catch { /* storage closed */ }
+    const r = await this.api('POST', '/api/google/claim', { code, verifier, ...(profile || {}) });
+    if (r.needsProfile) return r;
+    try { this.storage.removeItem(VERIFIER_KEY); } catch { /* storage closed */ }
+    this.enter(r.user, r.token);
+    if (profile) this.pushCard(0);
+    await this.sync().catch(() => {});
+    await this.connect();
+    return r.user;
+  }
+  async googleLinkCode() { return (await this.api('POST', '/api/google/link')).code; }
+  async googleUnlink() { const r = await this.api('POST', '/api/google/unlink'); this.saveAccount(r.me); this.emit('change'); }
   async rename(name, avatar) {
     const r = await this.api('POST', '/api/profile', { name, avatar });
     this.saveAccount(r.me);
     this.emit('change');
   }
-  async signOut() { try { await this.api('POST', '/api/logout'); } catch { /* signing out locally anyway */ } this.forget(); }
-  async deleteAccount() { await this.api('POST', '/api/account/delete'); this.forget(); }
-  linkCode() { return this.api('POST', '/api/link'); }
+  /** Sign out. The haven on this device is cleared: it lives in the account. */
+  async signOut() {
+    try { await this.api('POST', '/api/logout'); } catch { /* signing out locally anyway */ }
+    this.forget();
+    this.leave();
+  }
+  async deleteAccount() { await this.api('POST', '/api/account/delete'); this.forget(); this.leave(); }
+  leave() { try { this.storage.removeItem(OWNER_KEY); } catch { /* storage closed */ } this.store.reset(); }
 
   /** Send the public card (level, totals, haven layout) soon after it changes. */
   pushCard(delay = 4000) {
@@ -270,7 +332,7 @@ export class Social {
       if (!wasFocusing && friend.focusing) this.emit('friend-focus', friend);
       return;
     }
-    if (m.t === 'friends') { this.refresh().catch(() => {}); return; }
+    if (m.t === 'friends' || m.t === 'account') { this.refresh().catch(() => {}); return; }
     if (m.t === 'state') { if (m.rev !== this.loadSync()?.rev) this.sync().catch(() => {}); return; }
     if (m.t === 'request') { this.refresh().catch(() => {}); this.emit('news', { kind: 'request', from: m.from }); return; }
     // The acceptance also arrives in the inbox, which is where it is announced.

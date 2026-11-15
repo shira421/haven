@@ -1,6 +1,6 @@
 // Haven's shell: starts everything, draws the chosen screen, and routes taps, typing and
 // server messages to the screen that handles them.
-import { e, $, icon, toast, initDialog, openDialog, closeDialog, dialogOpen, confirmDialog, paintRanges } from './ui.js';
+import { e, $, icon, toast, initDialog, openDialog, closeDialog, dialogOpen, confirmDialog, paintRanges, veil, unveil } from './ui.js';
 import { Store } from './store.js';
 import { Social, discoverApi } from './social.js';
 import { Timer } from './timer.js';
@@ -17,6 +17,7 @@ import * as friends from './views/friends.js';
 import * as journal from './views/journal.js';
 import * as settings from './views/settings.js';
 import * as sanctuary from './views/sanctuary.js';
+import * as welcome from './views/welcome.js';
 
 /* global __HAVEN_API__, __HAVEN_VERSION__ */
 const VERSION = typeof __HAVEN_VERSION__ === 'string' ? __HAVEN_VERSION__ : 'dev';
@@ -24,7 +25,7 @@ const BUILD_API = typeof __HAVEN_API__ === 'string' ? __HAVEN_API__ : '';
 // The home screen is the haven itself, with the focus controls under it.
 const PAGES = { focus, collection, friends, journal, sanctuary };
 const TABS = [['focus', 'Haven', 'haven'], ['collection', 'Collection', 'collection'], ['friends', 'Friends', 'friends'], ['journal', 'Journal', 'journal']];
-const views = [focus, haven, collection, friends, journal, settings, sanctuary];
+const views = [focus, haven, collection, friends, journal, settings, sanctuary, welcome];
 const merge = key => Object.assign({}, ...views.map(v => v[key] || {}));
 const actions = merge('actions'), forms = merge('forms'), inputs = merge('inputs'), changes = merge('changes');
 
@@ -34,7 +35,7 @@ const app = {
   version: VERSION, store, sound, social: null, timer: null,
   now: () => Date.now(),
   ui: { page: 'focus', collection: 'plant', friendsTab: 'friends', boardPeriod: 'week', board: null, journal: { kind: 'week', anchor: Date.now() }, edit: { on: false, picked: null, item: null }, pendingAdd: null },
-  render, go, confirm: confirmDialog, applyTheme, syncReminder,
+  render, go, confirm: confirmDialog, applyTheme, syncReminder, veil, unveil,
   renderIf(page) { if (app.ui.page === page) render(); },
   /** Say what just happened and anything it earned, in one message. */
   announce(list, lead = '') {
@@ -59,11 +60,27 @@ function shell() {
 <button class="iconbutton" data-action="settings" aria-label="Settings">${icon('settings')}</button></div></header>
 <main id="view" tabindex="-1"></main>
 <dialog id="dialog" aria-labelledby="dialog-title"></dialog>
+<div id="veil" class="veil" role="status" aria-live="polite" hidden></div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>`;
 }
 
+/** The screen in front of the app while nobody is signed in (or a password is still to be set). */
+let gated = null;
 function render() {
-  const page = PAGES[app.ui.page] || focus, view = $('#view');
+  const view = $('#view'), was = gated;
+  gated = welcome.gate(app);
+  document.body.classList.toggle('gated', Boolean(gated));
+  if (gated) {
+    // Typing is never interrupted: the screen is only drawn again when it becomes a different one.
+    if (was === gated && view.querySelector('.welcome') && view.dataset.welcome === welcomeKey()) return;
+    view.innerHTML = welcome.render(app, gated);
+    view.dataset.welcome = welcomeKey();
+    document.body.dataset.page = 'welcome';
+    if (was !== gated) { view.scrollTop = 0; window.scrollTo(0, 0); }
+    return;
+  }
+  delete view.dataset.welcome;
+  const page = PAGES[app.ui.page] || focus;
   const scroll = view.scrollTop, focused = document.activeElement?.closest?.('#view') ? document.activeElement : null;
   const key = focused ? [focused.dataset.action, focused.dataset.id, focused.dataset.value, focused.dataset.page].join('|') : null;
   view.innerHTML = page.render(app);
@@ -79,9 +96,12 @@ function render() {
   page.mounted?.(app);
 }
 
+const welcomeKey = () => [gated, app.ui.welcomeTab || 'in', app.social.features.google, Boolean(app.ui.pendingAdd)].join('|');
+
 function go(page) {
   if (page === 'haven') page = 'focus';
   if (!PAGES[page]) return;
+  if (welcome.gate(app)) { app.ui.page = page; render(); return; }
   if (dialogOpen()) closeDialog();
   if (page !== 'focus' || app.ui.page !== 'focus') app.ui.edit = { on: false, picked: null, item: null };
   const changed = app.ui.page !== page;
@@ -215,6 +235,7 @@ function listen() {
     if (type === 'status') syncNewsAccount(app.social, store);
     if (type === 'friends-count') return app.announce(store.setFriendCount(payload));
     if (type === 'status' || type === 'change') {
+      if (gated || welcome.gate(app)) { if (dialogOpen() && !gated) closeDialog(); render(); return; }
       if (app.ui.page === 'friends' || (app.ui.page === 'focus' && !store.state.active)) { if (!document.activeElement?.closest?.('#view form')) render(); }
       else if (store.state.active?.room && app.ui.page === 'focus') render();
       return;
@@ -263,7 +284,24 @@ function roomChanged({ room, by }) {
 
 // ——— Start ———
 
+/** The opening screen is taken away once Haven knows what to show first. */
+function hideSplash() {
+  const el = document.getElementById('splash');
+  if (!el) return;
+  el.classList.add('gone');
+  setTimeout(() => el.remove(), 400);
+}
+
+/** Back from Google in a browser: the answer is in the address, which is then tidied. */
+function googleFromAddress() {
+  if (!/[#&]google(-error)?=/.test(location.hash)) return null;
+  const params = new URLSearchParams(location.hash.slice(1));
+  history.replaceState(null, '', location.pathname + location.search);
+  return params;
+}
+
 async function boot() {
+  const opened = Date.now();
   shell();
   initDialog();
   applyTheme();
@@ -273,16 +311,28 @@ async function boot() {
   wire();
   haven.wire(app);
   listen();
+  const fromGoogle = googleFromAddress();
   const add = /[#&]add=([A-Za-z0-9-]{8,9})/.exec(location.hash);
   if (add) { app.ui.pendingAdd = add[1]; app.ui.page = 'friends'; history.replaceState(null, '', location.pathname + location.search); }
-  render();
+  // The Android app comes back from Google through haven://auth, which the shell keeps until asked.
+  const takeAuth = async () => { const query = await device.takeAuth(); if (query) await welcome.googleReturned(app, new URLSearchParams(String(query))); };
+  window.__havenTakeAuth = takeAuth;
+  app.afterSignIn = () => {
+    syncNewsAccount(app.social, store);
+    if (app.ui.pendingAdd) { const code = app.ui.pendingAdd; app.ui.pendingAdd = null; app.go('friends'); friends.addDialog(app, code); }
+  };
   await app.timer.resume();
-  render();
   if (!safeStorage()) toast('This browser is not letting Haven save. Turn off private browsing to keep your haven.');
   app.social.base = await discoverApi({ storage, build: BUILD_API, location });
+  // Someone signed in sees their haven at once; someone who is not waits a moment to learn how they can sign in.
+  if (app.social.base && !app.social.signedIn) await app.social.discoverFeatures(); else if (app.social.base) app.social.discoverFeatures().then(() => { if (gated) render(); });
+  render();
+  await new Promise(resolve => setTimeout(resolve, Math.max(0, 600 - (Date.now() - opened))));
+  hideSplash();
   if (app.social.base) {
-    render();
-    if (app.social.signedIn) { await app.social.connect(); if (app.ui.pendingAdd) { const code = app.ui.pendingAdd; app.ui.pendingAdd = null; friends.addDialog(app, code); } }
+    if (fromGoogle) await welcome.googleReturned(app, fromGoogle);
+    await takeAuth();
+    if (app.social.signedIn) { await app.social.connect(); app.afterSignIn(); }
   }
   syncReminder();
   reportLastCrash();
@@ -294,5 +344,5 @@ async function boot() {
 }
 
 // The shells and the tests can ask how things stand.
-window.__haven = { app, device, version: VERSION, state: () => ({ page: app.ui.page, active: Boolean(store.state.active), social: app.social?.status, friends: app.social?.data.friends.length ?? 0 }) };
+window.__haven = { app, device, version: VERSION, state: () => ({ page: gated ? 'welcome' : app.ui.page, gate: gated, active: Boolean(store.state.active), social: app.social?.status, friends: app.social?.data.friends.length ?? 0 }) };
 boot();
