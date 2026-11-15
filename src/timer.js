@@ -8,8 +8,13 @@ import * as device from './device.js';
 const MIN = 60000;
 
 export class Timer {
-  constructor({ store, social, sound, now = () => Date.now(), native = () => Boolean(device.bridge()) }) {
-    this.store = store; this.social = social; this.sound = sound; this.now = now; this.native = native;
+  /**
+   * `askAway`: in a phone's browser, which cannot tell a locked screen from another app, someone
+   * back after longer than the allowance is asked which it was instead of losing the session.
+   */
+  constructor({ store, social, sound, now = () => Date.now(), native = () => Boolean(device.bridge()), askAway = () => !native() && device.phoneBrowser() }) {
+    this.store = store; this.social = social; this.sound = sound; this.now = now; this.native = native; this.askAway = askAway;
+    this.asking = null; // {id, away} while the question is on screen
     this.listeners = new Set();
     this.interval = null; this.completing = false; this.lastBeat = 0;
   }
@@ -81,9 +86,12 @@ export class Timer {
   tick() {
     const active = this.active, now = this.now();
     if (!active) return this.tickBreak(now);
+    // Waiting for the answer to "was the screen off, or another app?".
+    if (this.asking?.id === active.id) return;
     // A browser keeps running while hidden, so it can tell the moment the allowance runs out.
     // The apps are paused in the background and are judged when they come back (see visible()).
-    if (active.hiddenAt && !this.native()) {
+    // A phone's browser is judged on return instead, where it can ask (see visible()).
+    if (active.hiddenAt && !this.native() && !this.askAway()) {
       const until = Math.min(now, this.endOf(active));
       if (active.deep && !this.warned && until - active.hiddenAt >= warnAfter(active.allowance) * 1000) { this.warned = true; this.warn(active, 'now'); }
       if (awayVerdict({ deep: active.deep, allowance: active.allowance, hiddenAt: active.hiddenAt, now: until }) === 'withered') return this.fail('left', { away: Math.round((until - active.hiddenAt) / 1000) });
@@ -108,7 +116,8 @@ export class Timer {
 
   /** "Come back": sent a third of the way through the time someone may be away. */
   warn(active, at) {
-    if (!this.settings.notify.away) return;
+    // A phone's browser cannot tell a locked screen from another app, so it does not nag.
+    if (!this.settings.notify.away || this.askAway()) return;
     const species = speciesById(active.species);
     const what = species.kind === 'animal' ? `the ${species.name.toLowerCase()} will leave` : species.kind === 'nature' ? `your ${species.name.toLowerCase()} will be left unfinished` : `your ${species.name.toLowerCase()} will wither`;
     const left = active.allowance - warnAfter(active.allowance);
@@ -129,7 +138,13 @@ export class Timer {
       if (this.native()) { const away = await device.lastAway(); locked = Boolean(away?.locked && Math.abs(away.at - leftAt) < 8000); }
       if (this.active?.id !== active.id) return;
       const until = Math.min(this.now(), this.endOf(active));
-      if (awayVerdict({ deep: active.deep, allowance: active.allowance, hiddenAt: leftAt, now: until, locked }) === 'withered') return this.fail('left', { away: Math.round((until - leftAt) / 1000) });
+      if (awayVerdict({ deep: active.deep, allowance: active.allowance, hiddenAt: leftAt, now: until, locked }) === 'withered') {
+        const away = Math.round((until - leftAt) / 1000);
+        if (!this.askAway()) return this.fail('left', { away });
+        this.asking = { id: active.id, away };
+        this.emit('ask-away', this.asking);
+        return;
+      }
       this.store.markVisible();
     }
     if (this.settings.keepAwake) device.keepAwake(true);
@@ -185,6 +200,7 @@ export class Timer {
 
   fail(reason, extra = {}) {
     const active = this.active;
+    this.asking = null;
     if (!active) return;
     const r = this.store.fail(reason);
     this.halt();
@@ -192,6 +208,17 @@ export class Timer {
     if (this.settings.haptics) device.haptic('warning');
     if (active.remote || active.room) this.social.sessionEnded(active.id, 'failed');
     this.emit('failed', { session: r.session, reason, ...extra });
+  }
+
+  /** The answer to "was the screen off, or another app?". A locked screen is not leaving. */
+  answerAway(screenOff) {
+    const asked = this.asking, active = this.active;
+    this.asking = null;
+    if (!asked || active?.id !== asked.id) return;
+    if (!screenOff) return this.fail('left', { away: asked.away });
+    this.store.markVisible();
+    if (this.settings.keepAwake) device.keepAwake(true);
+    this.tick();
   }
 
   /** Seconds left in which the session can be cancelled without a trace. */

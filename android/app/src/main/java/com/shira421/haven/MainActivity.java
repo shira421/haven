@@ -16,6 +16,7 @@ import android.os.PowerManager;
 import android.view.HapticFeedbackConstants;
 import android.view.WindowManager;
 import android.webkit.JavascriptInterface;
+import android.webkit.RenderProcessGoneDetail;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -23,6 +24,8 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import androidx.webkit.WebViewAssetLoader;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.List;
 import org.json.JSONObject;
@@ -31,6 +34,8 @@ import org.json.JSONObject;
 public final class MainActivity extends Activity {
     private static final int REQUEST_NOTIFICATIONS = 1;
     private static final String PREFS = "haven-away";
+    private static final String CRASH = "haven-crash";
+    private static int rendererLosses = 0;
     /** True while Haven is on screen; background news checks then leave it to the app. */
     static volatile boolean inFront = false;
     private WebView webView;
@@ -85,6 +90,22 @@ public final class MainActivity extends Activity {
                     Inbox.setAccount(this, m.optString("base", ""), m.optString("token", ""), m.optJSONObject("kinds"));
                     reply(id, true, null);
                     break;
+                case "openSettings": {
+                    // Haven's notification settings, where notifications refused earlier can be turned on.
+                    Intent settings = new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName());
+                    startActivity(settings);
+                    reply(id, true, null);
+                    break;
+                }
+                case "lastCrash": {
+                    // What went wrong the last time Haven closed unexpectedly, once.
+                    SharedPreferences crash = getSharedPreferences(CRASH, Context.MODE_PRIVATE);
+                    String text = crash.getString("text", "");
+                    crash.edit().clear().apply();
+                    reply(id, text.isEmpty() ? null : text, null);
+                    break;
+                }
                 case "keepAwake":
                     if (m.optBoolean("on")) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                     else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -95,7 +116,7 @@ public final class MainActivity extends Activity {
                     int effect = Build.VERSION.SDK_INT >= 30 && "success".equals(kind) ? HapticFeedbackConstants.CONFIRM
                         : Build.VERSION.SDK_INT >= 30 && "warning".equals(kind) ? HapticFeedbackConstants.REJECT
                         : HapticFeedbackConstants.KEYBOARD_TAP;
-                    webView.performHapticFeedback(effect);
+                    if (webView != null) webView.performHapticFeedback(effect);
                     reply(id, true, null);
                     break;
                 }
@@ -154,9 +175,26 @@ public final class MainActivity extends Activity {
         for (String id : waiting) reply(id, granted && Notifier.allowed(this) ? "granted" : "denied", null);
     }
 
+    /** Keep what went wrong if Haven is about to close, so it can say so the next time it opens. */
+    private void recordCrashes() {
+        final Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
+        final Context app = getApplicationContext();
+        Thread.setDefaultUncaughtExceptionHandler((thread, error) -> {
+            try {
+                StringWriter trace = new StringWriter();
+                error.printStackTrace(new PrintWriter(trace));
+                String text = "Haven " + BuildConfig.VERSION_NAME + " on Android " + Build.VERSION.RELEASE + " (" + Build.MODEL + ")\n" + trace;
+                app.getSharedPreferences(CRASH, Context.MODE_PRIVATE).edit().putString("text", text.length() > 6000 ? text.substring(0, 6000) : text).commit();
+            } catch (Throwable ignored) { }
+            if (previous != null) previous.uncaughtException(thread, error);
+        });
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        recordCrashes();
+        if (BuildConfig.WEB_DEBUG) WebView.setWebContentsDebuggingEnabled(true);
         boolean night = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
         webView = new WebView(this);
         webView.setBackgroundColor(night ? 0xff14152b : 0xfff5f5fb);
@@ -175,6 +213,21 @@ public final class MainActivity extends Activity {
             .build();
         webView.setWebChromeClient(new WebChromeClient());
         webView.setWebViewClient(new WebViewClient() {
+            /**
+             * Android can stop the web view's page process, for example when memory runs low. Without
+             * this the whole app closes. Start the page again instead; a running session is in storage.
+             */
+            @Override
+            public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                rendererLosses++;
+                if (webView == view) {
+                    webView = null;
+                    view.destroy();
+                    if (rendererLosses <= 3) recreate(); else finish();
+                }
+                return true;
+            }
+
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 return assetLoader.shouldInterceptRequest(request.getUrl());

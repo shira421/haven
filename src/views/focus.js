@@ -7,7 +7,7 @@ import { sprite, stageAt } from '../art.js';
 import { skyHTML, skyUpdate, skyNow, worldHTML, thingsFromStore } from '../scene.js';
 import { drawing } from '../art.js';
 import * as haven from './haven.js';
-import { bridge } from '../device.js';
+import { bridge, phoneBrowser } from '../device.js';
 
 const MODES = [['timer', 'Timer'], ['stopwatch', 'Stopwatch'], ['pomodoro', 'Pomodoro']];
 const lower = s => s.name.toLowerCase();
@@ -24,7 +24,7 @@ function world(app, stage = null) {
 function awayText(settings, species) {
   if (!settings.deep) return 'Deep focus is off. You can use other apps while the timer runs.';
   const what = species.kind === 'animal' ? `the ${lower(species)} leaves` : species.kind === 'nature' ? `the ${lower(species)} is left unfinished` : `the ${lower(species)} withers`;
-  const lock = bridge() ? ' Locking the phone is fine.' : ' In a browser, keep Haven on screen: a locked phone counts as leaving.';
+  const lock = bridge() || phoneBrowser() ? ' Locking the phone is fine.' : '';
   return `Deep focus is on. Away from Haven for more than ${formatAway(settings.allowance)} and ${what}.${lock}`;
 }
 
@@ -202,6 +202,15 @@ export function resultDialog(app, result) {
 <div class="button-row"><button class="primary wide" data-action="close-dialog" autofocus>Done</button></div>`, { cls: 'result' });
 }
 
+/** Back after longer than allowed, in a phone's browser: ask whether the screen was simply off. */
+export function askAwayDialog(app, { away }) {
+  const species = speciesById(app.store.state.active?.species || 'clover');
+  const lost = species.kind === 'animal' ? `the ${lower(species)} leaves` : species.kind === 'nature' ? `the ${lower(species)} is left unfinished` : `the ${lower(species)} withers`;
+  openDialog('Welcome back', `<p class="lead">You were away for ${away >= 120 ? formatMinutes(away / 60) : `${away} s`}. Was your screen off, or were you using another app?</p>
+<p class="note">A browser cannot tell the two apart, so Haven asks. A locked screen is fine. Another app for this long and ${lost}.</p>
+<div class="button-row"><button class="secondary" data-action="away-answer" data-value="app">Another app</button><button class="primary" data-action="away-answer" data-value="off" autofocus>My screen was off</button></div>`, { locked: true });
+}
+
 export function failedDialog(app, { session, reason, away, who }) {
   const species = speciesById(session.species), minutes = Math.floor((session.end - session.start) / 60000);
   const title = species.kind === 'animal' ? `The ${lower(species)} wandered off` : species.kind === 'nature' ? `The ${lower(species)} was not finished` : `The ${lower(species)} withered`;
@@ -226,6 +235,7 @@ export function pickSpecies(app, id) {
 }
 
 export const actions = {
+  'away-answer'(app, d) { closeDialog(); app.timer.answerAway(d.value === 'off'); },
   mode(app, d) { app.store.set({ mode: d.value }); },
   'choose-length': app => lengthDialog(app),
   'choose-species': app => speciesDialog(app),

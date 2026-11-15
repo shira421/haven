@@ -109,6 +109,7 @@ function wire() {
     const name = el.dataset.action;
     if (name === 'close-dialog') return closeDialog();
     if (name === 'go') return go(el.dataset.page);
+    if (name === 'copy-crash') { device.copyText(app.crashText || '').then(ok => toast(ok ? 'Details copied.' : 'Could not copy.')); return; }
     const handler = actions[name];
     if (handler) { if (store.state.settings.haptics && el.matches('.primary')) device.haptic('light'); handler(app, el.dataset, el, event); }
   });
@@ -139,6 +140,28 @@ function wire() {
 
 // ——— Events from the store, the timer and the server ———
 
+/**
+ * Ask once to send notifications, at the moment they start to matter: the first session (it ends
+ * with one) or a new profile (friends' news). The phone shows its own prompt.
+ */
+async function askForNotifications() {
+  try { if (localStorage.getItem('haven-asked-notify')) return; } catch { return; }
+  if ((await device.notificationPermission(false)) !== 'default') return;
+  try { localStorage.setItem('haven-asked-notify', '1'); } catch { /* storage closed */ }
+  const answer = await device.notificationPermission(true);
+  if (answer === 'granted') { syncReminders(store, app.now()); syncNewsAccount(app.social, store); }
+}
+app.askForNotifications = askForNotifications;
+
+/** If the app closed unexpectedly last time, say so and offer the details for a bug report. */
+async function reportLastCrash() {
+  const text = await device.lastCrash();
+  if (!text) return;
+  openDialog('Haven closed unexpectedly', `<p class="lead">Sorry about that. Your haven and sessions are safe. If it keeps happening, copy the details and send them to the developer.</p>
+<div class="button-row"><button class="secondary" data-action="copy-crash">Copy details</button><button class="primary" data-action="close-dialog" autofocus>OK</button></div>`);
+  app.crashText = String(text);
+}
+
 /** Reminders depend on sessions and animals; work them out again shortly after either changes. */
 let reminderTimer = null;
 function remindersSoon() { clearTimeout(reminderTimer); reminderTimer = setTimeout(() => syncReminders(store, app.now()), 1500); }
@@ -168,9 +191,10 @@ function listen() {
   app.timer.on((type, payload) => {
     if (type === 'tick') return focus.tick(app, payload);
     if (type === 'break-tick') return focus.tickBreak(app, payload);
-    if (type === 'started') { if (dialogOpen()) closeDialog(); app.ui.edit = { on: false, picked: null, item: null }; if (app.ui.page !== 'focus') go('focus'); else render(); return; }
+    if (type === 'started') { askForNotifications(); if (dialogOpen()) closeDialog(); app.ui.edit = { on: false, picked: null, item: null }; if (app.ui.page !== 'focus') go('focus'); else render(); return; }
     if (type === 'finished') { render(); focus.resultDialog(app, payload); if (document.visibilityState === 'hidden' && store.state.settings.notify.done) notifyDone(payload); return; }
     if (type === 'failed') { render(); focus.failedDialog(app, payload); return; }
+    if (type === 'ask-away') { render(); focus.askAwayDialog(app, payload); return; }
     if (type === 'cancelled') { render(); toast('Session cancelled.'); return; }
     if (type === 'short') { render(); toast(`Under ${payload.least} min, so nothing grew this time. You focused for ${payload.minutes} min.`); return; }
     if (type === 'break-over') { render(); toast('Break over. Start the next round when you are ready.'); return; }
@@ -253,6 +277,7 @@ async function boot() {
     if (app.social.signedIn) { await app.social.connect(); if (app.ui.pendingAdd) { const code = app.ui.pendingAdd; app.ui.pendingAdd = null; friends.addDialog(app, code); } }
   }
   syncReminder();
+  reportLastCrash();
   syncReminders(store, app.now());
   syncNewsAccount(app.social, store);
   if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('./sw.js').catch(() => {});
@@ -261,5 +286,5 @@ async function boot() {
 }
 
 // The shells and the tests can ask how things stand.
-window.__haven = { app, version: VERSION, state: () => ({ page: app.ui.page, active: Boolean(store.state.active), social: app.social?.status, friends: app.social?.data.friends.length ?? 0 }) };
+window.__haven = { app, device, version: VERSION, state: () => ({ page: app.ui.page, active: Boolean(store.state.active), social: app.social?.status, friends: app.social?.data.friends.length ?? 0 }) };
 boot();
