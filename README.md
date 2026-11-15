@@ -30,7 +30,7 @@ One web app runs everywhere: in a browser, installed from the browser on iPhone 
 - **Journal.** Day, week, month and year views with a chart, time by tag, best hour, streaks, every session, and 29 achievements.
 - **Sounds.** Rain, stream, wind, night crickets, campfire, brown and white noise, made on the device, so they work offline.
 - **Notifications.** A session finishing, a reminder to come back, friend requests and acceptances, invitations, cheers, nudges and gifts, a streak about to end, hungry animals, and a daily reminder. Each can be switched off. Haven asks for permission at your first session, and Settings says if notifications are off and takes you to turn them on. While Haven is closed, the apps check for friends' news about every 15 minutes.
-- **One haven on every device.** Sign in a second device with a one-time code. From then on what you grow, move, feed, buy or let go on either one reaches the other within seconds when both are open, and on opening otherwise. Nothing is lost when both changed at once.
+- **An account that goes with you.** Haven opens on a sign-in screen: create an account with a username and a password, or continue with Google where the server offers it. Sign in on any phone or computer and your haven is there. What you grow, move, feed, buy or let go on one device reaches the others within seconds when they are open, and on opening otherwise. Nothing is lost when both changed at once.
 - **Yours to keep.** Works offline. Light and dark. Backup file, server backup.
 
 [PRODUCT.md](PRODUCT.md) lists exactly what is built and what is not.
@@ -51,9 +51,9 @@ Two things are done once in GitHub. Both are needed for the links above to work.
 
 Repository Settings, then Pages, then set **Source** to **GitHub Actions**. Then run the "Deploy web app and friends server" workflow again from the Actions tab.
 
-### 2. Switching friends on
+### 2. Switching accounts and friends on
 
-Friends need a server. Haven's is a Cloudflare Worker that runs on Cloudflare's free plan. The workflow deploys it for you once the repository has two secrets, the same two Aeris uses:
+Accounts and friends need a server. Haven's is a Cloudflare Worker that runs on Cloudflare's free plan. The workflow deploys it for you once the repository has two secrets, the same two Aeris uses:
 
 1. Sign in at https://dash.cloudflare.com and open **Workers & Pages** once, so your account gets a `workers.dev` address.
 2. Copy your **Account ID** from the right side of that page.
@@ -61,7 +61,19 @@ Friends need a server. Haven's is a Cloudflare Worker that runs on Cloudflare's 
 4. In the repository: Settings, then Secrets and variables, then Actions. Add `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`.
 5. Run the "Deploy web app and friends server" workflow, then "Build apps".
 
-The workflow deploys the server, checks that it answers, and builds the web app and the phone apps to use it. Until then the Friends screen says friends are not switched on, and everything else works.
+The workflow deploys the server, checks that it answers, and builds the web app and the phone apps to use it. Until then Haven runs without accounts: there is no sign-in screen, the Friends screen says there is no server, and everything else works.
+
+### 3. Signing in with Google (optional)
+
+The "Continue with Google" button appears once the server has a Google OAuth client. Passwords work without it.
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), make a project, then open **APIs & Services**, then **OAuth consent screen**, and fill it in (External, your email, app name Haven). Publish it so anyone can sign in.
+2. Open **Credentials**, then **Create credentials**, then **OAuth client ID**. Choose **Web application**.
+3. Under **Authorised redirect URIs** add `https://haven-hub.<your workers.dev subdomain>.workers.dev/auth/google/callback` (your server's address followed by `/auth/google/callback`).
+4. In the Cloudflare dashboard open **Workers & Pages**, then **haven-hub**, then **Settings**, then **Variables and Secrets**. Add two entries of type **Secret**: `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, with the values Google showed. Secrets stay in place across deploys.
+5. If your website is not at the address in `worker/wrangler.toml` (`HAVEN_SITE`), change it there, so people are sent back to the right page.
+
+Haven asks Google only who the person is (`openid profile`). It never sees or stores a Google password.
 
 ### Keeping your haven across Android updates (optional)
 
@@ -81,14 +93,14 @@ Needs Node 22.
 ```sh
 npm ci
 npm run build
-npm start          # app on http://localhost:4173, friends server on http://localhost:8787
+npm start          # app on http://localhost:4173, Haven server on http://localhost:8787
 ```
 
-`npm start` runs the real friends server on your machine, on the same runtime Cloudflare uses, so two browser windows can add each other and focus together.
+`npm start` runs the real Haven server on your machine, on the same runtime Cloudflare uses, so two browser windows can add each other and focus together.
 
 ```sh
-npm test               # rules, storage, the animal simulation, session controller, catalogue, and the friends server
-npm run test:browser   # two people in headless Chrome against the local friends server
+npm test               # rules, storage, the animal simulation, session controller, catalogue, and the Haven server
+npm run test:browser   # two people in headless Chrome against the local Haven server
 npm run media          # the same run, saving the screenshots in docs/media
 npm run icons          # redraw the app icons
 ```
@@ -98,7 +110,7 @@ npm run icons          # redraw the app icons
 [ARCHITECTURE.md](ARCHITECTURE.md) explains the parts. In short:
 
 - `src/` is the web app in plain JavaScript modules, bundled by esbuild into `dist/`.
-- `worker/` is the friends server: one Durable Object with its own SQLite database and the live WebSocket connections.
+- `worker/` is the Haven server: one Durable Object with its own SQLite database and the live WebSocket connections.
 - `ios/` and `android/` are thin apps that show `dist/` in a web view and add notifications, screen-on, haptics, sharing and lock detection.
 - `.github/workflows/` tests everything, builds the apps, deploys the server and the website, and publishes downloads.
 
@@ -106,7 +118,7 @@ npm run icons          # redraw the app icons
 
 ## Privacy
 
-Without a profile nothing leaves your device. With a profile, the server stores your name, username, sessions (start, length, what grew), your haven's layout, your friends, the sanctuaries you are in, and a copy of your haven so your devices stay in step. Everyone in a sanctuary with you can see your haven's layout. There is no email, no password, no advertising and no tracking. Delete your profile in Settings and the server removes all of it.
+Your account is kept on the Haven server: your name, username, sessions (start, length, what grew), your haven's layout, your friends, the sanctuaries you are in, and a copy of your haven so every device you sign in on has it. Your password is never stored: only a salted PBKDF2-SHA-256 hash of it is. If you connect Google, the server keeps Google's id for you and nothing else. Everyone in a sanctuary with you can see your haven's layout. There is no email address, no advertising and no tracking. Delete your account in Settings and the server removes all of it.
 
 ## Credits
 

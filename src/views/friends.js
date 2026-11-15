@@ -22,28 +22,15 @@ function presence(f, now) {
 
 export function render(app) {
   const { social } = app;
-  if (!social.base) return `<section class="page friends" data-page="friends"><h1 class="page-title">Friends</h1>${empty('Friends are not switched on for this copy of Haven yet. Everything else works. The README in the repository explains how to switch them on.')}</section>`;
-  if (!social.signedIn) return signedOut(app);
+  if (!social.base) return `<section class="page friends" data-page="friends"><h1 class="page-title">Friends</h1>${empty('This copy of Haven has no server yet, so there are no accounts or friends. Everything else works. The README in the repository explains how to set one up.')}</section>`;
+  if (!social.signedIn) return `<section class="page friends" data-page="friends"><h1 class="page-title">Friends</h1>${empty('Sign in to see your friends.')}</section>`;
   const tab = app.ui.friendsTab, me = social.account;
   const body = tab === 'friends' ? friendsTab(app) : tab === 'together' ? togetherTab(app) : tab === 'sanctuary' ? sanctuary.tab(app) : tab === 'board' ? boardTab(app) : activityTab(app);
   return `<section class="page friends" data-page="friends"><h1 class="page-title">Friends</h1>
 <div class="me-card">${avatar(me.avatar, 'large')}<div class="row-main"><b>${e(me.name)}</b><span>@${e(me.handle)}</span><span class="live ${social.status}" role="status">${STATUS[social.status]}</span></div>
 <button class="primary" data-action="add-friend">${icon('plus')}Add friend</button></div>
-${social.status === 'offline' ? '<p class="note">Cannot reach the friends server. Sessions are saved on this phone and sent when you are back.</p>' : ''}
+${social.status === 'offline' ? '<p class="note">Cannot reach Haven. Sessions are saved on this phone and sent when you are back.</p>' : ''}
 ${segmented('friends-tab', TABS, tab, 'Friends sections')}${body}</section>`;
-}
-
-function signedOut(app) {
-  const pending = app.ui.pendingAdd ? '<p class="notice-text">Make a profile to add the friend who invited you.</p>' : '';
-  return `<section class="page friends" data-page="friends"><h1 class="page-title">Friends</h1>
-<p class="lead">See friends focus live, grow together in a room, cheer each other on, and send plants and animals.</p>${pending}
-<form data-form="register" class="card-form" novalidate>
-${field('Name', '<input name="name" maxlength="24" autocomplete="nickname" required>', 'What friends see.')}
-${field('Username', '<input name="handle" maxlength="20" autocapitalize="none" autocomplete="off" spellcheck="false" required>', '3 to 20 letters, numbers or underscores. Friends can find you by it.')}
-<p class="form-error" role="alert" hidden></p>
-<button class="primary wide" type="submit">Create profile</button>
-<p class="note">No email and no password. This phone keeps you signed in. Your sessions, your haven and your name are stored on the Haven server so friends can see them.</p></form>
-<p class="note"><button class="linklike" data-action="link-device">I already have a profile on another device</button></p></section>`;
 }
 
 function friendsTab(app) {
@@ -159,12 +146,6 @@ export function inviteReceived(app, item) {
 <div class="button-row"><button class="secondary" data-action="invite-decline" data-item="${item.id}">Not now</button><button class="primary" data-action="invite-accept" data-item="${item.id}" data-code="${e(d.code)}" autofocus>Join the room</button></div>`, { close: () => app.social.ack([item.id]) });
 }
 
-function linkDialog(app) {
-  openDialog('Sign in from another device', `<p class="lead">On the device that has your profile, open Settings, then Profile, then "Add another device". Enter the code it shows.</p>
-<form data-form="claim" novalidate>${field('Code', '<input name="code" maxlength="9" autocapitalize="characters" autocomplete="off" spellcheck="false" required>')}
-<p class="form-error" role="alert" hidden></p><button class="primary wide" type="submit">Sign in</button></form>`);
-}
-
 // ——— Actions ———
 
 const guard = async (work, el) => { if (el) el.disabled = true; try { return await work(); } catch (error) { toast(error.message); return null; } finally { if (el?.isConnected) el.disabled = false; } };
@@ -173,7 +154,6 @@ export const actions = {
   'friends-tab'(app, d) { app.ui.friendsTab = d.value; app.render(); load(app); },
   'board-period'(app, d) { app.ui.boardPeriod = d.value; app.ui.board = null; app.render(); load(app); },
   'add-friend': app => addDialog(app),
-  'link-device': app => linkDialog(app),
   'copy-code': async app => { toast((await copyText(prettyCode(app.social.account.code))) ? 'Code copied.' : 'Could not copy. Read the code out instead.'); },
   'share-invite': async app => {
     const me = app.social.account;
@@ -232,21 +212,6 @@ export const actions = {
 };
 
 export const forms = {
-  register: (app, form) => busy(form, async () => {
-    formError(form, '');
-    try {
-      await app.social.register(form.name.value, form.handle.value, speciesById(app.store.state.settings.species)?.kind === 'animal' ? app.store.state.settings.species : 'rabbit');
-      app.askForNotifications?.();
-      toast('Profile created.');
-      app.social.syncSessions().catch(() => {});
-      app.render();
-      if (app.ui.pendingAdd) { const code = app.ui.pendingAdd; app.ui.pendingAdd = null; addDialog(app, code); }
-    } catch (error) { formError(form, error.message); }
-  }),
-  claim: (app, form) => busy(form, async () => {
-    formError(form, '');
-    try { await app.social.claim(form.code.value); closeDialog(); toast('Signed in. Your haven has been brought over.'); app.render(); } catch (error) { formError(form, error.message); }
-  }),
   find: (app, form) => busy(form, async () => {
     formError(form, '');
     const out = $('#find-result');

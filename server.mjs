@@ -24,7 +24,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   createStaticServer().listen(port, host, () => console.log(`Haven app      http://${host === '0.0.0.0' ? 'localhost' : host}:${port}`));
   try {
     const { startHub } = await import('./tests/hub-server.mjs');
-    const hub = await startHub({ port: 8787, testClock: false, persist: '.haven-dev' });
+    const hub = await startHub({ port: 8787, testClock: false, persist: '.haven-dev', google: false });
     console.log(`Friends server ${hub.url} (data in .haven-dev/)`);
     process.on('SIGINT', async () => { await hub.stop(); process.exit(0); });
   } catch (error) { console.log(`Friends server not started: ${error.message}`); }

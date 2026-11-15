@@ -61,7 +61,8 @@ People who study or work in focused blocks and want a reason to stay off their p
 
 | Feature | Notes |
 | --- | --- |
-| Profile | Name and username. No email or password. |
+| Account | Haven opens on a sign-in screen. An account is a username and a password (at least 8 characters), plus the name friends see. Where the server offers it, "Continue with Google" signs in without a password; a new person then chooses a username. Settings changes the password (which signs other devices out), connects or disconnects Google, signs out and deletes the account. |
+| Accounts from before 1.4 | Had no password. On opening Haven they must set one before anything else; it is tied to the username they already have, and their haven and friends stay. |
 | Adding friends | By friend code, exact username or invite link. Requests, accept, decline, cancel, remove, block. |
 | Live presence | Online, focusing and time left, today's minutes. Arrives over a live connection. |
 | Cheer and nudge | Delivered at once, or when the friend is next online. |
@@ -71,9 +72,9 @@ People who study or work in focused blocks and want a reason to stay off their p
 | Board | You and your friends for today, week, month and all time. |
 | Activity | What you and your friends grew in the last 14 days. |
 | Recovery | On Android, if the system stops the page inside the app, Haven reloads it instead of closing. If Haven does close unexpectedly, it says so the next time it opens and offers the details to copy for a bug report. A running session is kept either way. |
-| Other devices | A one-time code signs in a second device and brings the haven with it. After that every change on one device reaches the others: within seconds when they are open, otherwise when they open. Changes made on two devices at once are joined, not overwritten. |
+| Other devices | Signing in with the username and password (or Google) on another phone or computer brings the haven with it, behind a loading screen. One-time device codes are gone. Signing out saves the haven to the account and takes it off the device. After signing in every change on one device reaches the others: within seconds when they are open, otherwise when they open. Changes made on two devices at once are joined, not overwritten. |
 | Sanctuaries | Groups of up to 9. Everyone's havens are joined into one land on a near-square grid, with stepping stones where two meet, and animals cross freely between them. A loading screen while the land is fetched and joined. Make, invite friends, join by code, leave; whoever made it can rename it and ask someone to leave. Up to 5 per person. |
-| Notifications | Asked for once, at the first session or on making a profile. Settings shows when they are off, with a way to turn them on. Session finished, come back, friend requests and acceptances, room and sanctuary invitations, cheers, nudges and gifts, streak about to end (8 pm), hungry animals (by day), daily reminder. Each can be switched off in Settings. |
+| Notifications | Asked for once, at the first session. Settings shows when they are off, with a way to turn them on. Session finished, come back, friend requests and acceptances, room and sanctuary invitations, cheers, nudges and gifts, streak about to end (8 pm), hungry animals (by day), daily reminder. Each can be switched off in Settings. |
 | Backup | To the server when signed in, or as a file. |
 
 ### How Forest's paid features map
@@ -106,8 +107,9 @@ People who study or work in focused blocks and want a reason to stay off their p
 
 ## Limits to know
 
-- The friends server is one Durable Object. It suits a circle of friends up to a few thousand people. See ARCHITECTURE.md.
+- The Haven server is one Durable Object. It suits a circle of friends up to a few thousand people. See ARCHITECTURE.md.
 - Coins, treats, bonds and the haven live on your devices, with a copy on the server that keeps them in step. The server checks session times for the board, not coins.
 - A sanctuary shows each haven as its owner last shared it. Animals there wander on their own; feeding happens in your own haven.
 - Where an animal is wandering is not saved. On opening the app each starts from where it was last put down.
-- A profile can only be reached from a device that is signed in. If every signed-in device is lost, so is access to the profile.
+- Haven has no email address for anyone, so a forgotten password cannot be reset by email. Connecting Google gives a second way in; otherwise whoever runs the server can clear the password of a username (`UPDATE users SET pass=NULL WHERE handle='…'` in the Durable Object's SQL), after which a device that is still signed in is asked to set a new one.
+- Without a server (a copy of Haven built with none) there are no accounts and no sign-in screen; the haven lives on the device only.

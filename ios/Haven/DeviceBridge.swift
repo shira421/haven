@@ -1,13 +1,16 @@
 import UIKit
 import WebKit
 import UserNotifications
+import AuthenticationServices
 
 /// What the phone does for the page: notifications, keeping the screen on, haptics, the share
 /// sheet, and whether the last time away was a locked screen. The page calls
 /// `webkit.messageHandlers.havenDevice.postMessage({action: …})` and gets the answer as a promise.
 /// See src/device.js for the other side.
-final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
+final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply, ASWebAuthenticationPresentationContextProviding {
     weak var host: UIViewController?
+    /// Kept while someone is signing in with Google, so the sheet is not closed under them.
+    private var signIn: ASWebAuthenticationSession?
     private let center = UNUserNotificationCenter.current()
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage,
@@ -48,6 +51,20 @@ final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
             NewsChecker.shared.setAccount(base: body["base"] as? String ?? "", token: body["token"] as? String ?? "",
                                           friends: kinds?["friends"] as? Bool ?? true, social: kinds?["social"] as? Bool ?? true)
             replyHandler(true, nil)
+        case "openExternal":
+            // Signing in with Google, in the system's own sign-in sheet. It ends at haven://auth?...,
+            // and the part after the question mark is the answer the page is waiting for.
+            guard let text = body["url"] as? String, let url = URL(string: text), url.scheme == "https" else { return replyHandler(nil, "Not allowed.") }
+            signIn?.cancel()
+            let session = ASWebAuthenticationSession(url: url, callbackURLScheme: "haven") { [weak self] back, _ in
+                self?.signIn = nil
+                DispatchQueue.main.async { replyHandler(back?.host == "auth" ? back?.query : nil, nil) }
+            }
+            session.presentationContextProvider = self
+            signIn = session
+            if !session.start() { signIn = nil; replyHandler(nil, "Could not open the sign-in page.") }
+        case "takeAuth":
+            replyHandler(nil, nil)
         case "openSettings":
             // Haven's page in the Settings app, where notifications refused earlier can be turned on.
             if let url = URL(string: UIApplication.openNotificationSettingsURLString) { UIApplication.shared.open(url) }
@@ -76,6 +93,10 @@ final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply {
         default:
             replyHandler(nil, "Unknown action.")
         }
+    }
+
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        host?.view.window ?? ASPresentationAnchor()
     }
 
     private func permission(request: Bool, reply: @escaping (Any?, String?) -> Void) {

@@ -69,6 +69,20 @@ const call = async (method, path, token, body) => {
   return j;
 };
 const cleanup = [];
+// Haven opens on the sign-in screen. The test makes a throwaway account on the live server, through
+// the screen itself, and deletes it at the end.
+const handle = 'ci_' + Date.now().toString(36), PASSWORD = 'ci-' + Math.random().toString(36).slice(2) + '-pass';
+async function createAccount() {
+  await page.waitForSelector('.page.welcome', { timeout: 30000 });
+  await page.click('[data-action="welcome-tab"][data-value="up"]');
+  await page.fill('form[data-form="sign-up"] input[name="name"]', 'CI phone');
+  await page.fill('form[data-form="sign-up"] input[name="handle"]', handle);
+  await page.fill('form[data-form="sign-up"] input[name="password"]', PASSWORD);
+  await page.click('form[data-form="sign-up"] button[type="submit"]');
+  await page.waitForSelector('.page.focus', { timeout: 30000 });
+  const token = await js(() => window.__haven.app.social.account.token);
+  cleanup.push(() => call('POST', '/api/account/delete', token));
+}
 
 try {
   adb('install', '-r', '-g', APK); // -g: Android's permissions start granted except notifications, which the test asks for below
@@ -78,7 +92,10 @@ try {
   await attach();
   noCrash('on opening');
   shot('opened');
-  ok('the app opens');
+  assert.equal(await js(() => window.__haven.state().gate), 'welcome', 'Haven opens on the sign-in screen');
+  await createAccount();
+  noCrash('after creating an account');
+  ok('the app opens on the sign-in screen, and an account can be created');
 
   // The first session asks to send notifications, through Android's own prompt.
   await page.click('[data-action="start"]');
@@ -183,12 +200,9 @@ try {
   noCrash('after scheduling reminders');
   ok('the streak and hunger reminders are scheduled');
 
-  // Friends: a profile, a friend request while Haven is closed, and the background check that notices it.
-  const handle = 'ci_' + Date.now().toString(36);
-  await js(h => window.__haven.app.social.register('CI phone', h, 'rabbit'), handle);
+  // Friends: a friend request while Haven is closed, and the background check that notices it.
   const me = await js(() => window.__haven.app.social.account);
-  cleanup.push(() => call('POST', '/api/account/delete', me.token));
-  const other = await call('POST', '/api/register', null, { name: 'CI friend', handle: handle + '_f', avatar: 'fox' });
+  const other = await call('POST', '/api/register', null, { name: 'CI friend', handle: handle + '_f', password: PASSWORD, avatar: 'fox' });
   cleanup.push(() => call('POST', '/api/account/delete', other.token));
   await sleep(2000);
   home();

@@ -39,6 +39,8 @@ public final class MainActivity extends Activity {
     /** True while Haven is on screen; background news checks then leave it to the app. */
     static volatile boolean inFront = false;
     private WebView webView;
+    /** The answer from signing in with Google, until the page collects it. */
+    private String pendingAuth = null;
     private final List<String> notifyWaiting = new ArrayList<>();
 
     private final class Bridge {
@@ -91,6 +93,25 @@ public final class MainActivity extends Activity {
                     Inbox.setAccount(this, m.optString("base", ""), m.optString("token", ""), m.optJSONObject("kinds"));
                     reply(id, true, null);
                     break;
+                case "openExternal": {
+                    // Signing in with Google happens in the phone's browser, never inside the app.
+                    Uri where = Uri.parse(m.optString("url"));
+                    if (!"https".equals(where.getScheme())) { reply(id, null, "Not allowed"); break; }
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, where));
+                        reply(id, true, null);
+                    } catch (ActivityNotFoundException error) {
+                        reply(id, null, "No browser");
+                    }
+                    break;
+                }
+                case "takeAuth": {
+                    // What came back from signing in with Google (haven://auth?...), once.
+                    String query = pendingAuth;
+                    pendingAuth = null;
+                    reply(id, query == null ? JSONObject.NULL : query, null);
+                    break;
+                }
                 case "openSettings": {
                     // Haven's notification settings, where notifications refused earlier can be turned on.
                     Intent settings = new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
@@ -194,6 +215,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        keepAuth(getIntent());
         recordCrashes();
         if (BuildConfig.WEB_DEBUG) WebView.setWebContentsDebuggingEnabled(true);
         boolean night = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
@@ -305,6 +327,23 @@ public final class MainActivity extends Activity {
         super.onResume();
         if (webView != null) webView.onResume();
         tellPage("visible");
+    }
+
+    /** Back from the browser after signing in with Google: haven://auth?google=<one-time code>. */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (keepAuth(intent) && webView != null) webView.evaluateJavascript("window.__havenTakeAuth&&window.__havenTakeAuth()", null);
+    }
+
+    private boolean keepAuth(Intent intent) {
+        Uri data = intent == null ? null : intent.getData();
+        if (data == null || !"haven".equals(data.getScheme()) || !"auth".equals(data.getHost())) return false;
+        String query = data.getEncodedQuery();
+        if (query == null || query.length() > 300) return false;
+        pendingAuth = query;
+        return true;
     }
 
     private void tellPage(String state) {

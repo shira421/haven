@@ -147,3 +147,25 @@ export async function busy(form, work) {
   if (button) button.disabled = true;
   try { return await work(); } finally { if (button?.isConnected) button.disabled = false; }
 }
+
+// ——— The loading screen ———
+// One look for every wait that covers the app: opening Haven, signing in, signing out.
+const VEIL_MIN = 700; // stays up at least this long, so a quick answer does not flash
+let veilSince = 0;
+export const loadingHTML = text => `<div class="isles" aria-hidden="true"><i></i><i></i><i></i><i></i></div><p>${e(text)}</p>`;
+export function veil(text) {
+  const el = $('#veil');
+  if (!el) return;
+  el.innerHTML = loadingHTML(text);
+  if (el.hidden) { veilSince = Date.now(); el.hidden = false; el.classList.remove('gone'); }
+}
+/** Take the loading screen away. Resolves once it has gone. */
+export async function unveil() {
+  const el = $('#veil');
+  if (!el || el.hidden) return;
+  const wait = VEIL_MIN - (Date.now() - veilSince);
+  if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
+  el.classList.add('gone');
+  await new Promise(resolve => setTimeout(resolve, 220));
+  el.hidden = true;
+}
