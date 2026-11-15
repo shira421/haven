@@ -200,6 +200,10 @@ try {
   console.error(`not ok ${step + 1}\n`, error);
   shot('failure');
   try { writeFileSync(OUT + 'android-logcat.txt', adb('logcat', '-d')); } catch { /* best effort */ }
+  // What the app did, for reading in the CI log (artifacts are not always reachable).
+  try { console.error('--- Haven log ---\n' + adb('logcat', '-d', '-s', 'Haven:*', 'AndroidRuntime:*', 'chromium:E').split('\n').slice(-80).join('\n')); } catch { /* best effort */ }
+  try { console.error('--- alarms ---\n' + shell(`dumpsys alarm | grep -i -A3 ${PKG} | head -40`)); } catch { /* best effort */ }
+  try { console.error('--- crash buffer ---\n' + crashes().slice(0, 3000)); } catch { /* best effort */ }
   try { writeFileSync(OUT + 'android-notifications.txt', notifications()); } catch { /* best effort */ }
   process.exitCode = 1;
 } finally {

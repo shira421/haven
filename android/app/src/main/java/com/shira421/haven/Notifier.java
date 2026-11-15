@@ -38,6 +38,7 @@ public final class Notifier extends BroadcastReceiver {
 
     static void post(Context context, String id, String title, String body) {
         NotificationManager manager = context.getSystemService(NotificationManager.class);
+        android.util.Log.i("Haven", "post " + id + " allowed=" + manager.areNotificationsEnabled());
         if (!manager.areNotificationsEnabled()) return;
         manager.createNotificationChannel(new NotificationChannel(CHANNEL, "Sessions and reminders", NotificationManager.IMPORTANCE_DEFAULT));
         Intent open = new Intent(context, MainActivity.class).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
@@ -64,6 +65,7 @@ public final class Notifier extends BroadcastReceiver {
         AlarmManager alarms = context.getSystemService(AlarmManager.class);
         PendingIntent pending = alarmIntent(context, id, title, body);
         boolean exact = Build.VERSION.SDK_INT < 31 || alarms.canScheduleExactAlarms();
+        android.util.Log.i("Haven", "schedule " + id + " in " + (at - System.currentTimeMillis()) + " ms exact=" + exact);
         try {
             if (exact) alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending);
             else alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending);

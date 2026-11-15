@@ -57,6 +57,7 @@ public final class MainActivity extends Activity {
             reply(id, null, "Bad request");
             return;
         }
+        android.util.Log.i("Haven", "bridge " + m.optString("action") + " " + m.optString("id", ""));
         try {
             switch (m.optString("action")) {
                 case "notifyPermission":
