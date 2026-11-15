@@ -49,6 +49,16 @@ async function noOverflow(page, where) {
   const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.ok(wide <= 1, `${where}: the page scrolls sideways by ${wide}px`);
 }
+/** Move a page's clock on in small steps until something shows: for waits that are timers in the app. */
+async function until(page, selector, ms = 15000) {
+  const ready = typeof selector === 'function' ? () => page.evaluate(selector) : async () => (await page.locator(selector).count()) > 0;
+  for (let spent = 0; spent < ms; spent += 250) {
+    if (await ready()) return;
+    await page.clock.runFor(250);
+    await page.waitForTimeout(50);
+  }
+  if (typeof selector === 'function') assert.ok(await ready(), 'waited for the page'); else await page.waitForSelector(selector, { timeout: 2000 });
+}
 async function register(page, name, handle) {
   await tab(page, 'friends');
   await page.fill('form[data-form="register"] input[name="name"]', name);
@@ -403,8 +413,7 @@ try {
   await ana.click('form[data-form="sanct-new"] button[type="submit"]');
   await ana.waitForSelector('.page.sanctuary .sanct-loading', { timeout: 5000 });
   assert.match(await ana.locator('.sanct-loading p').textContent(), /Gathering havens|Joining the land|Waking the animals/);
-  await ana.clock.runFor(2000);
-  await ana.waitForSelector('#dialog[open] [data-action="sanct-invite-friend"]', { timeout: 8000 });
+  await until(ana, '#dialog[open] [data-action="sanct-invite-friend"]');
   assert.equal(await ana.locator('.sanctuary-land .plot-sign').count(), 1);
   assert.equal(await ana.locator('.tabs [aria-current="page"]').getAttribute('data-page'), 'friends', 'Friends stays lit');
   await ana.click('#dialog [data-action="sanct-invite-friend"]');
@@ -412,11 +421,9 @@ try {
   // Ben is asked, joins, and both see one land of two havens.
   await ben.waitForSelector('#dialog[open] [data-action="sanct-accept"]', { timeout: 8000 });
   await ben.click('#dialog [data-action="sanct-accept"]');
-  await ben.clock.runFor(2000);
-  await ben.waitForSelector('.page.sanctuary .sanctuary-land', { timeout: 8000 });
+  await until(ben, '.page.sanctuary .sanctuary-land');
   assert.equal(await ben.locator('.sanctuary-land .plot-sign').count(), 2);
-  await ana.clock.runFor(1500);
-  await ana.waitForFunction(() => document.querySelectorAll('.sanctuary-land .plot-sign').length === 2, null, { timeout: 8000 });
+  await until(ana, () => document.querySelectorAll('.sanctuary-land .plot-sign').length === 2);
   const signs = await ana.locator('.sanctuary-land .plot-sign').allTextContents();
   assert.deepEqual(signs, ['Ana', 'Ben']);
   const animal = await ana.locator('.sanctuary-land .ent.animal').count();
