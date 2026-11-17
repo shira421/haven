@@ -44,10 +44,10 @@ function idle(app) {
   const cycle = store.state.cycle;
   const length = s.mode === 'stopwatch' ? 'Open' : s.mode === 'pomodoro' ? `${s.pomodoro.rounds} × ${s.pomodoro.focus} min` : formatMinutes(s.minutes);
   const clock = s.mode === 'stopwatch' ? '00:00' : formatClock((s.mode === 'pomodoro' ? s.pomodoro.focus : s.minutes) * 60);
-  const room = social.data.room, arranging = app.ui.edit.on;
+  const room = social.data.room, arranging = app.ui.edit.on, feeding = !arranging && app.ui.feeding && store.animals().length > 0;
   const startLabel = s.mode === 'pomodoro' && cycle && !cycle.done ? `Start round ${cycle.round} of ${cycle.rounds}` : 'Start focusing';
   const empty = !Object.keys(store.state.haven.spots).length;
-  const panel = arranging ? haven.arrangePanel(app) : `<div class="panel">
+  const panel = arranging ? haven.arrangePanel(app) : feeding ? haven.feedingPanel(app) : `<div class="panel">
 ${room ? `<div class="notice"><p>You are in a room${room.members.length > 1 ? ` with ${room.members.length - 1} ${room.members.length === 2 ? 'friend' : 'friends'}` : ''}. It starts when the host is ready.</p><button class="secondary" data-action="open-room">Open room</button></div>` : ''}
 ${segmented('mode', MODES, s.mode, 'How to time the session')}
 <div class="choosers">
@@ -60,10 +60,11 @@ ${cycle && !cycle.done && s.mode === 'pomodoro' ? '<button class="secondary wide
 <p class="note">${e(awayText(s, species))} <button class="linklike" data-action="settings" data-section="focus">Change</button></p>
 <p class="note">${today ? `Today: ${formatMinutes(today)} focused.` : empty ? 'Your land is bare. Finish a session and something will live here.' : 'Nothing grown yet today.'}${streak > 1 ? ` ${streak} days in a row.` : ''}</p>
 </div>`;
-  return `<section class="page focus${arranging ? ' arranging' : ''}" data-page="focus"><h1 class="page-title sr-only">Haven</h1>
+  return `<section class="page focus${arranging ? ' arranging' : ''}${feeding ? ' feeding' : ''}" data-page="focus"><h1 class="page-title sr-only">Haven</h1>
 <div class="scene${sky.night ? ' night' : ''}">${skyHTML({ t: sky.t ?? 0.5, night: sky.night, showArc: false })}
-${arranging ? '<p class="scene-label">Arranging</p>' : `<button class="clock" data-action="choose-length" aria-label="Session length, ${e(length)}. Change">${clock}</button>`}
-${world(app)}${arranging ? '' : haven.tools(app)}</div>
+${arranging ? '<p class="scene-label">Arranging</p>' : feeding ? '<p class="scene-label">Feeding</p>' : `<button class="clock" data-action="choose-length" aria-label="Session length, ${e(length)}. Change">${clock}</button>`}
+${world(app)}${arranging || feeding ? '' : haven.tools(app)}</div>
+<div class="care-slot" aria-live="polite">${arranging ? '' : haven.chipHTML(app)}</div>
 ${panel}</section>`;
 }
 
@@ -80,6 +81,7 @@ function running(app) {
 ${label ? `<p class="scene-label">${e(label)}</p>` : ''}
 <div class="clock" role="timer" aria-live="off">${clockText(active, p, now)}</div>
 ${world(app, stageAt(p.fraction))}</div>
+<div class="care-slot" aria-live="polite">${haven.chipHTML(app)}</div>
 <div class="panel">
 <p class="status">${e(verb + rule)}</p>${members}
 <div class="button-row">

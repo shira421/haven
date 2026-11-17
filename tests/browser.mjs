@@ -196,20 +196,35 @@ try {
   await shot(ana, 'haven');
   ok('an animal moves in, roams the haven and hops as it goes');
 
-  // Seven hours later the rabbit is peckish.
+  // Seven hours later the rabbit is peckish. A tap pats it, and a card says how it took it.
   await ana.evaluate(id => { const s = window.__haven.app.store; s.item(id).fed -= 7 * 3600000; s.commit('care'); }, rabbit);
   await ana.locator(`.ent[data-ent="${rabbit}"]`).dispatchEvent('click');
+  await ana.waitForSelector('.care-slot .care-chip');
+  assert.match(await ana.locator('.care-chip').textContent(), /Rabbit.*Loved that\. The bond grew\./);
+  assert.equal(await ana.evaluate(id => window.__haven.app.world.animals.get(id).act, rabbit), 'pet', 'it leans into the pat');
+  await ana.click('.care-chip [data-action="open-care"]');
   await ana.waitForSelector('#dialog [data-action="feed"]');
   assert.match(await ana.locator('#dialog .lead').textContent(), /Peckish\. Likes burrow, clover, tall grass and daisy\./);
+  // A treat goes down on the land; the rabbit comes over and eats it.
   const coinsThen = Number(await ana.locator('#coins').textContent());
   await ana.click('#dialog [data-action="feed"]');
-  await toastSays(ana, /Rabbit ate\. Earned: First meal\. \+50 coins\./);
-  assert.equal(await ana.evaluate(id => window.__haven.app.world.animals.get(id).doing, rabbit), 'eat', 'the rabbit in the haven stops to eat');
+  assert.equal(await ana.locator('#dialog[open]').count(), 0, 'the sheet closes to watch');
+  await ana.waitForSelector('.world.interactive .treat');
+  assert.equal(await ana.evaluate(() => window.__haven.app.store.state.food), 7, 'the treat is not used until eaten');
+  await until(ana, id => window.__haven.app.world.animals.get(id).doing === 'eat', 15000, rabbit);
+  await until(ana, () => /Rabbit ate/.test(document.querySelector('#toast')?.textContent || ''));
+  assert.match(await ana.locator('#toast').textContent(), /Rabbit ate\. Earned: First meal\. \+50 coins\./);
+  assert.equal(await ana.locator('.world.interactive .treat').count(), 0, 'the treat is gone');
   assert.equal(Number(await ana.locator('#coins').textContent()), coinsThen + 50);
+  // Full now: the treat button says so, and the sheet offers no food.
+  await ana.click('[data-action="feeding"]');
+  assert.match(await ana.locator('.panel.feeding').textContent(), /Everyone is full/);
+  await ana.click('.panel.feeding [data-action="feeding"]');
+  await ana.locator(`.ent[data-ent="${rabbit}"]`).dispatchEvent('click');
+  await ana.click('.care-chip [data-action="open-care"]');
+  await ana.waitForSelector('#dialog .facts');
   assert.match(await ana.locator('#dialog .facts').textContent(), /HungerFull/);
   assert.equal(await ana.locator('#dialog [data-action="feed"]').count(), 0, 'a full animal is not offered food');
-  await ana.click('#dialog [data-action="pet"]');
-  await toastSays(ana, /Rabbit liked that/);
   await ana.fill('#dialog form[data-form="rename"] input', 'Mochi');
   await ana.click('#dialog form[data-form="rename"] button');
   assert.equal(await ana.locator('#dialog-title').textContent(), 'Mochi');
@@ -217,7 +232,7 @@ try {
   await ana.keyboard.press('Escape');
   assert.equal(await ana.locator(`.ent[data-ent="${rabbit}"]`).getAttribute('aria-label'), 'Mochi');
   assert.deepEqual(await ana.evaluate(id => { const i = window.__haven.app.store.item(id); return [i.bond, window.__haven.app.store.state.food]; }, rabbit), [5, 6]);
-  ok('an animal can be fed, petted and named, and its bond grows');
+  ok('a tap pats an animal; a treat put down is fetched and eaten; it can be named, and its bond grows');
 
   await tab(ana, 'collection');
   await ana.click('.species-card[data-id="daisy"]');
@@ -530,11 +545,32 @@ try {
   const placesBefore = await ana.evaluate(() => [...document.querySelectorAll('.sanctuary-land .ent.animal')].map(el => el.style.left + el.style.top).join());
   // Animals rest now and then, so give them up to 20 s to set off.
   await until(ana, before => [...document.querySelectorAll('.sanctuary-land .ent.animal')].map(el => el.style.left + el.style.top).join() !== before, 20000, placesBefore);
+  // Someone who joins with the code and is not a friend yet can be added from their row.
+  const cy = await person('Cy');
+  await signUp(cy, 'Cy', 'cy_e2e');
+  const sanctCode = await ana.evaluate(() => window.__haven.app.ui.sanct.data.code);
+  await tab(cy, 'friends');
+  await cy.click('.segmented [data-value="sanctuary"]');
+  await cy.click('[data-action="sanct-join"]');
+  await cy.fill('form[data-form="sanct-join"] input[name="code"]', sanctCode);
+  await cy.click('form[data-form="sanct-join"] button[type="submit"]');
+  await until(cy, '.page.sanctuary .sanctuary-land');
+  await until(ana, '.page.sanctuary [data-action="sanct-befriend"]');
+  assert.equal(await ana.locator('.page.sanctuary [data-action="sanct-befriend"]').count(), 1, 'only Cy, who is not a friend yet');
+  const viewBefore = await ana.evaluate(() => document.querySelector('.sanct-scroll').scrollLeft);
+  await ana.click('.page.sanctuary [data-action="sanct-befriend"]');
+  await until(ana, () => /Request sent/.test(document.querySelector('.page.sanctuary .rows').textContent));
+  assert.ok(Math.abs(await ana.evaluate(() => document.querySelector('.sanct-scroll').scrollLeft) - viewBefore) < 4, 'the view stays where it was');
+  await until(cy, '.page.sanctuary [data-action="sanct-befriend"][data-accept]');
+  await cy.click('.page.sanctuary [data-action="sanct-befriend"][data-accept]');
+  await until(ana, () => !document.querySelector('.page.sanctuary .row-end .minutes'));
+  assert.ok(await cy.evaluate(() => window.__haven.app.social.data.friends.some(f => f.handle === 'ana_e2e')));
+  await cy.close();
   await noOverflow(ana, 'sanctuary');
   await shot(ana, 'sanctuary');
   await ana.click('[data-action="sanct-back"]');
   await ana.waitForSelector('.page.friends .sanct-card');
-  ok('a sanctuary joins two havens into one land, after a loading screen, and its animals move');
+  ok('a sanctuary joins havens into one land, after a loading screen; its animals move, and members can become friends');
   await tab(ana, 'focus');
 
   await ana.reload();

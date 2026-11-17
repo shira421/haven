@@ -210,3 +210,76 @@ test('in a sanctuary, animals cross from one haven to the next and stay on the l
   assert.ok(Object.values(visited).some(s => s.size >= 2), 'someone visited a neighbour');
   assert.deepEqual(world.fit(7, 7).map(n => Math.round(n * 10) / 10).some(n => n <= 5), true, 'the open corner is not land');
 });
+
+// ——— Care: treats, pats and waking at night ———
+
+test('a treat put down is fetched and eaten by someone who can eat, and not by someone full', () => {
+  const world = new World({ side: 6, random: seeded(11) });
+  world.sync([thing('hungry', 'rabbit', 1, 1), thing('full', 'dog', 4.6, 4.6)]);
+  const ctx = { canEat: id => id === 'hungry', hungry: new Set(['hungry']) };
+  const f = world.putFood(4.4, 4.4);
+  assert.ok(f, 'the treat is down');
+  let ate = null, gap = 9;
+  run(world, 30, ctx, w => { for (const e of w.events.splice(0)) if (e.type === 'ate') { ate = e; gap = w.near(w.animals.get(e.id), f); } });
+  assert.ok(ate, 'it was eaten');
+  assert.equal(ate.id, 'hungry', 'by the one who could eat, though the full dog was nearer');
+  assert.equal(world.foodLeft(), 0);
+  assert.ok(gap < 0.5, 'the rabbit went right up to it');
+});
+
+test('a treat nobody can eat gets a sniff, then is taken away untouched', () => {
+  const world = new World({ side: 5, random: seeded(12) });
+  world.sync([thing('a', 'cat', 2, 2)]);
+  world.putFood(2.6, 2.6);
+  const events = [];
+  run(world, 50, { canEat: () => false }, w => events.push(...w.events.splice(0)));
+  assert.ok(!events.some(e => e.type === 'ate'), 'nobody ate it');
+  assert.ok(events.some(e => e.type === 'gone'), 'it was taken away');
+  assert.equal(world.foodLeft(), 0);
+});
+
+test('a pat makes an animal lean in with a heart; a few in a row make it jump for joy', () => {
+  const world = new World({ side: 5, random: seeded(13) });
+  world.sync([thing('a', 'dog', 2, 2)]);
+  run(world, 2);
+  assert.equal(world.pet('a'), 'pat');
+  run(world, 0.2);
+  const a = world.animals.get('a');
+  assert.equal(a.act, 'pet');
+  assert.equal(a.emote, 'heart');
+  world.pet('a'); world.pet('a');
+  run(world, 0.1);
+  assert.equal(a.act, 'joy');
+  assert.equal(world.pet('missing'), null);
+});
+
+test('at night a tap wakes a sleeping animal, and left alone it yawns and goes back to sleep', () => {
+  const world = new World({ side: 5, random: seeded(14) });
+  world.sync([thing('a', 'rabbit', 2, 2)]);
+  const night = { night: true };
+  run(world, 3, night);
+  const a = world.animals.get('a');
+  assert.equal(a.state, 'sleep');
+  assert.equal(world.pet('a'), 'woke');
+  run(world, 0.5, night);
+  assert.equal(a.act, 'wake', 'it stretches');
+  assert.equal(a.emote, 'surprise');
+  run(world, 10, night);
+  assert.notEqual(a.state, 'sleep', 'still up a while after');
+  world.pet('a');
+  run(world, 20, night);
+  assert.notEqual(a.state, 'sleep', 'each pat keeps it up longer');
+  let yawned = false;
+  run(world, 12, night, () => { if (a.act === 'yawn') yawned = true; });
+  assert.ok(yawned, 'it yawned');
+  assert.equal(a.state, 'sleep', 'and is asleep again');
+  // A treat at night: only the one that is awake comes for it.
+  world.sync([thing('a', 'rabbit', 2, 2), thing('b', 'cat', 3, 3)]);
+  run(world, 2, night);
+  world.pet('b');
+  world.putFood(3.4, 3.4);
+  let ate = null;
+  run(world, 20, night, w => { for (const e of w.events.splice(0)) if (e.type === 'ate') ate = e.id; });
+  assert.equal(ate, 'b');
+  assert.equal(a.state, 'sleep', 'the sleeper slept through it');
+});

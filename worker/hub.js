@@ -3,7 +3,7 @@
 // person's open connections, and a way to ask whether someone is connected; worker.js supplies those.
 import { speciesById } from '../src/catalog.js';
 
-export const VERSION = '1.4.0';
+export const VERSION = '1.5.0';
 const MIN = 60000;
 export const RULES = {
   maxFriends: 200,
@@ -22,7 +22,10 @@ export const RULES = {
   ticketLife: 30000,
   logWindow: 7 * 24 * 60 * MIN, // offline sessions can be reported this long afterwards
   stateBytes: 600000,
-  maxKeepers: 9, // people in one sanctuary: up to a 3 × 3 square of havens
+  maxKeepers: 8, // people in one sanctuary: with the great tree's clearing, a 3 × 3 square
+  treePerKeeper: 120, // minutes a week each person brings toward the great tree's bloom
+  treeLeast: 240,
+  maxPals: 200, // animal friendships kept in one sanctuary
   maxSanctuaries: 5, // sanctuaries one person can belong to
   cardBytes: 8000,
 };
@@ -58,17 +61,30 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS sanctuaries(id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL, owner TEXT NOT NULL, created INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS keepers(sid TEXT NOT NULL, user_id TEXT NOT NULL, joined INTEGER NOT NULL, PRIMARY KEY(sid,user_id))`,
   `CREATE INDEX IF NOT EXISTS keepers_user ON keepers(user_id)`,
+  // Animals from different havens that met in a sanctuary and became friends. a and b are "owner:item".
+  `CREATE TABLE IF NOT EXISTS pals(sid TEXT NOT NULL, a TEXT NOT NULL, b TEXT NOT NULL, since INTEGER NOT NULL, PRIMARY KEY(sid,a,b))`,
+  // The weeks each sanctuary's great tree came into full bloom.
+  `CREATE TABLE IF NOT EXISTS blooms(sid TEXT NOT NULL, week INTEGER NOT NULL, at INTEGER NOT NULL, PRIMARY KEY(sid,week))`,
+  // Reports of people, for whoever runs the server to look at.
+  `CREATE TABLE IF NOT EXISTS reports(id INTEGER PRIMARY KEY AUTOINCREMENT, from_id TEXT NOT NULL, about_id TEXT NOT NULL, reason TEXT NOT NULL, place TEXT NOT NULL, about_name TEXT NOT NULL, about_handle TEXT NOT NULL, created INTEGER NOT NULL)`,
 ];
 
 const ADDED_COLUMNS = [
   'ALTER TABLE users ADD COLUMN state_rev INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE users ADD COLUMN pass TEXT', // "pbkdf2$<rounds>$<salt>$<hash>", or null for an account that signs in with Google only
   'ALTER TABLE users ADD COLUMN google TEXT', // Google's id for the person, when connected
+  'ALTER TABLE rooms ADD COLUMN sid TEXT', // a campfire lit for a sanctuary
 ];
 const AFTER_COLUMNS = [
   'CREATE UNIQUE INDEX IF NOT EXISTS users_google ON users(google) WHERE google IS NOT NULL',
   'DROP TABLE IF EXISTS links', // one-time codes for adding a device, replaced by signing in
 ];
+
+/** Monday 00:00 UTC of the week holding `now`. */
+export function weekStart(now) {
+  const d = new Date(now), day = (d.getUTCDay() + 6) % 7;
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - day * 86400000;
+}
 
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no I, L, O, 0 or 1
 const ID_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -180,6 +196,10 @@ export class Hub {
     if (row.n >= max) throw new ApiError(429, message);
     this.sql('UPDATE limits SET n=n+1 WHERE key=?', key);
   }
+  /** Like limit(), but answers whether it is allowed instead of refusing. */
+  allowed(key, max, seconds, now) {
+    try { this.limit(key, max, seconds, now); return true; } catch (error) { if (error instanceof ApiError && error.status === 429) return false; throw error; }
+  }
   user(id) { return typeof id === 'string' ? this.one('SELECT * FROM users WHERE id=?', id) : null; }
   areFriends(x, y) { const [a, b] = pair(x, y); return Boolean(this.one('SELECT 1 AS ok FROM friends WHERE a=? AND b=?', a, b)); }
   blockedEitherWay(x, y) { return Boolean(this.one('SELECT 1 AS ok FROM blocks WHERE (user_id=? AND blocked_id=?) OR (user_id=? AND blocked_id=?)', x, y, y, x)); }
@@ -238,6 +258,8 @@ export class Hub {
   pushRoom(code, now, extra = {}) {
     const room = this.roomView(code, now);
     if (room) for (const m of room.members) this.push(m.id, { t: 'room', room, ...extra });
+    const sid = this.one('SELECT sid FROM rooms WHERE code=?', code)?.sid;
+    if (sid) this.pushSanctuary(sid);
     return room;
   }
   /** The room this person is in, if it is still open or running. */
@@ -276,7 +298,49 @@ export class Hub {
       ...publicUser(u), joined: u.joined, online: this.online(u.id), focusing: this.focusing(this.activeSession(u.id), now),
       ...(cards ? { card: parse(u.card, {}) } : { level: Number(parse(u.card, {}).level) || 1 }),
     }));
-    return { id: row.id, code: row.code, name: row.name, owner: row.owner, created: row.created, members };
+    const view = { id: row.id, code: row.code, name: row.name, owner: row.owner, created: row.created, members };
+    if (cards) Object.assign(view, { tree: this.tree(id, now), campfire: this.sanctuaryFire(id, now), pals: this.palsOf(id) });
+    return view;
+  }
+
+  /**
+   * The great tree in the middle of a sanctuary: it grows through the week (Monday to Sunday, UTC)
+   * with every minute its members focus, and comes into bloom at the week's goal.
+   */
+  tree(sid, now) {
+    const week = weekStart(now), ids = this.sql('SELECT user_id FROM keepers WHERE sid=?', sid).map(r => r.user_id);
+    const minutes = ids.length ? this.one(`SELECT COALESCE(SUM(minutes),0) AS n FROM sessions WHERE status='done' AND start>=? AND user_id IN (${ids.map(() => '?').join(',')})`, week, ...ids).n : 0;
+    const goal = Math.max(RULES.treeLeast, RULES.treePerKeeper * ids.length), share = minutes / goal;
+    const stage = share >= 1 ? 5 : share >= 0.8 ? 4 : share >= 0.55 ? 3 : share >= 0.3 ? 2 : share >= 0.1 ? 1 : 0;
+    const blooms = this.one('SELECT COUNT(*) AS n FROM blooms WHERE sid=?', sid).n;
+    return { week, minutes, goal, stage, blooms, top: this.treeTop(ids, week) };
+  }
+  /** Who brought the most minutes to the tree this week. */
+  treeTop(ids, week) {
+    if (!ids.length) return [];
+    return this.sql(`SELECT user_id AS id, SUM(minutes) AS minutes FROM sessions WHERE status='done' AND start>=? AND user_id IN (${ids.map(() => '?').join(',')}) GROUP BY user_id ORDER BY minutes DESC LIMIT 3`, week, ...ids);
+  }
+  /** A session was finished: any sanctuary of this person whose tree has just reached its goal blooms. */
+  checkBlooms(me, now) {
+    for (const { sid } of this.sql('SELECT sid FROM keepers WHERE user_id=?', me.id)) {
+      const t = this.tree(sid, now);
+      if (t.minutes < t.goal || this.one('SELECT 1 AS ok FROM blooms WHERE sid=? AND week=?', sid, t.week)) continue;
+      this.sql('INSERT INTO blooms(sid,week,at) VALUES(?,?,?)', sid, t.week, now);
+      const name = this.one('SELECT name FROM sanctuaries WHERE id=?', sid)?.name;
+      for (const k of this.sql('SELECT user_id FROM keepers WHERE sid=?', sid)) { const to = this.user(k.user_id); if (to) this.deliver(to, me, 'bloom', { sid, name }, now); }
+      this.pushSanctuary(sid);
+    }
+  }
+  /** The campfire lit for this sanctuary, while it is open or burning. */
+  sanctuaryFire(sid, now) {
+    const row = this.one("SELECT code FROM rooms WHERE sid=? AND state IN ('lobby','running') ORDER BY created DESC LIMIT 1", sid);
+    const room = row && this.roomView(row.code, now);
+    if (!room || !['lobby', 'running'].includes(room.state)) return null;
+    if (room.state === 'running' && now > room.start + room.minutes * MIN) return null;
+    return { code: room.code, host: room.host, minutes: room.minutes, rule: room.rule, state: room.state, start: room.start, members: room.members.map(m => ({ id: m.id, status: m.status })) };
+  }
+  palsOf(sid) {
+    return this.sql('SELECT a, b, since FROM pals WHERE sid=? ORDER BY since DESC LIMIT 100', sid);
   }
   /** The sanctuary, if this person is in it. */
   requireKeeper(me, id) {
@@ -348,8 +412,9 @@ export class Hub {
   }
   dropKeeper(sid, userId) {
     this.sql('DELETE FROM keepers WHERE sid=? AND user_id=?', sid, userId);
+    this.sql('DELETE FROM pals WHERE sid=? AND (a LIKE ? OR b LIKE ?)', sid, userId + ':%', userId + ':%');
     const next = this.one('SELECT user_id FROM keepers WHERE sid=? ORDER BY joined, rowid LIMIT 1', sid);
-    if (!next) { this.sql('DELETE FROM sanctuaries WHERE id=?', sid); return; }
+    if (!next) { for (const q of ['DELETE FROM sanctuaries WHERE id=?', 'DELETE FROM pals WHERE sid=?', 'DELETE FROM blooms WHERE sid=?']) this.sql(q, sid); return; }
     this.sql('UPDATE sanctuaries SET owner=? WHERE id=? AND owner=?', next.user_id, sid, userId);
     this.pushSanctuary(sid);
     this.push(userId, { t: 'sanctuary', id: sid });
@@ -372,10 +437,83 @@ export class Hub {
   // ——— Sessions ———
 
   /** Mark a session finished or failed, tell friends, and return what it earned. */
+  /** Light a campfire for the sanctuary: everyone in it is invited at once. */
+  sanctuaryCampfire(me, body, ctx) {
+    this.requireKeeper(me, body.id);
+    if (this.sanctuaryFire(body.id, ctx.now)) throw bad('A campfire is already lit here. Join it instead.');
+    const { room } = this.roomCreate(me, body, ctx);
+    this.sql('UPDATE rooms SET sid=? WHERE code=?', body.id, room.code);
+    const s = this.one('SELECT name FROM sanctuaries WHERE id=?', body.id);
+    for (const k of this.sql('SELECT user_id FROM keepers WHERE sid=? AND user_id<>?', body.id, me.id)) {
+      const other = this.user(k.user_id);
+      if (!other || this.blockedEitherWay(me.id, other.id)) continue;
+      this.sql("DELETE FROM inbox WHERE to_id=? AND from_id=? AND kind='invite'", other.id, me.id);
+      this.deliver(other, me, 'invite', { code: room.code, minutes: room.minutes, rule: room.rule, sanctuary: s.name }, ctx.now);
+    }
+    this.pushSanctuary(body.id);
+    return { room: this.roomView(room.code, ctx.now) };
+  }
+
+  /** Another keeper of the sanctuary, checked: someone in it, not you, not blocked. */
+  requireKeeperOther(me, sid, id) {
+    this.requireKeeper(me, sid);
+    const other = typeof id === 'string' && this.one('SELECT 1 AS ok FROM keepers WHERE sid=? AND user_id=?', sid, id) ? this.user(id) : null;
+    if (!other || other.id === me.id || this.blockedEitherWay(me.id, other.id)) throw gone('That haven is no longer in the sanctuary.');
+    return other;
+  }
+  /**
+   * A treat or a pat for an animal in someone else's haven in the sanctuary. The treat came out of
+   * the giver's own treats. Its owner hears about it; pats are told at most every half hour.
+   */
+  sanctuaryCare(me, body, ctx) {
+    const other = this.requireKeeperOther(me, body.id, body.to);
+    const kind = body.kind === 'treat' ? 'treat' : 'pet';
+    const item = String(body.item || '').slice(0, 40), species = speciesById(body.species) ? body.species : null;
+    if (!item || !species || speciesById(species).kind !== 'animal') throw bad('That animal is not there.');
+    this.limit('care:' + me.id, 60, 3600, ctx.now, 'That is a lot of care for one hour. Give it a rest.');
+    const name = this.one('SELECT name FROM sanctuaries WHERE id=?', body.id).name;
+    if (kind === 'pet' && !this.allowed(`carepet:${me.id}:${other.id}`, 1, 1800, ctx.now)) return { status: 'ok' };
+    this.deliver(other, me, 'care', { kind, item, species, sid: body.id, name }, ctx.now);
+    return { status: 'ok' };
+  }
+  /** Two animals from different havens met and got on: they are friends from now on. */
+  sanctuaryPal(me, body, ctx) {
+    this.requireKeeper(me, body.id);
+    const keys = [body.a, body.b].map(k => String(k || '')).sort();
+    const parts = keys.map(k => /^([a-z0-9]{12}):([\w-]{1,40}):([a-z]+)$/.exec(k));
+    if (parts.some(x => !x) || parts[0][1] === parts[1][1] || parts.some(x => speciesById(x[3])?.kind !== 'animal')) throw bad('Those animals cannot be friends.');
+    for (const x of parts) if (!this.one('SELECT 1 AS ok FROM keepers WHERE sid=? AND user_id=?', body.id, x[1])) throw gone('That haven is no longer in the sanctuary.');
+    this.limit('pal:' + me.id, 30, 3600, ctx.now);
+    if (this.one('SELECT COUNT(*) AS n FROM pals WHERE sid=?', body.id).n >= RULES.maxPals) return { status: 'full' };
+    const fresh = this.sql('INSERT OR IGNORE INTO pals(sid,a,b,since) VALUES(?,?,?,?) RETURNING since', body.id, keys[0], keys[1], ctx.now).length > 0;
+    if (!fresh) return { status: 'known' };
+    const name = this.one('SELECT name FROM sanctuaries WHERE id=?', body.id).name;
+    const [x, y] = parts.map(p => this.user(p[1]));
+    if (x && y) {
+      this.deliver(x, y, 'pal', { sid: body.id, name, mine: parts[0][3], theirs: parts[1][3] }, ctx.now);
+      this.deliver(y, x, 'pal', { sid: body.id, name, mine: parts[1][3], theirs: parts[0][3] }, ctx.now);
+    }
+    this.pushSanctuary(body.id);
+    return { status: 'friends' };
+  }
+
+  /** Someone reported a person. It is kept for whoever runs the server; the person is not told. */
+  report(me, body, ctx) {
+    this.limit('report:' + me.id, 20, 86400, ctx.now, 'You have sent a lot of reports today. Try again tomorrow.');
+    const other = this.user(String(body.id || ''));
+    if (!other || other.id === me.id) throw gone('That person could not be found.');
+    const reason = ['name', 'harassment', 'spam', 'other'].includes(body.reason) ? body.reason : 'other';
+    const place = String(body.place || '').replace(INVISIBLE, '').slice(0, 60);
+    if (this.one('SELECT 1 AS ok FROM reports WHERE from_id=? AND about_id=? AND created>?', me.id, other.id, ctx.now - 86400000)) return { status: 'reported' };
+    this.sql('INSERT INTO reports(from_id,about_id,reason,place,about_name,about_handle,created) VALUES(?,?,?,?,?,?,?)', me.id, other.id, reason, place, other.name, other.handle, ctx.now);
+    return { status: 'reported' };
+  }
+
   closeSession(me, row, status, minutes, now) {
     this.sql('UPDATE sessions SET status=?, minutes=?, ended=? WHERE id=?', status, minutes, now, row.id);
     this.pushFriends(me.id, { t: 'presence', id: me.id, focusing: null, ...(status === 'done' ? { last: now, add: minutes, start: row.start } : {}) });
     if (status === 'done') this.pushFriends(me.id, { t: 'feed', item: { id: row.id, user: publicUser(me), species: row.species, minutes, start: row.start, room: row.room || null } });
+    if (status === 'done') { this.checkBlooms(me, now); for (const k of this.sql('SELECT sid FROM keepers WHERE user_id=?', me.id)) this.pushSanctuary(k.sid); }
   }
 
   // ——— Routes ———
@@ -882,6 +1020,8 @@ export class Hub {
     for (const row of this.sql("SELECT r.code FROM members m JOIN rooms r ON r.code=m.room WHERE m.user_id=? AND r.state IN ('lobby','running')", me.id)) this.roomLeave(me, { code: row.code }, ctx);
     for (const q of ['DELETE FROM tokens WHERE user_id=?', 'DELETE FROM sessions WHERE user_id=?', 'DELETE FROM members WHERE user_id=?', 'DELETE FROM tickets WHERE user_id=?', 'DELETE FROM users WHERE id=?']) this.sql(q, me.id);
     for (const q of ['DELETE FROM friends WHERE a=? OR b=?', 'DELETE FROM requests WHERE from_id=? OR to_id=?', 'DELETE FROM blocks WHERE user_id=? OR blocked_id=?', 'DELETE FROM inbox WHERE to_id=? OR from_id=?']) this.sql(q, me.id, me.id);
+    // Reports someone made are theirs and go with them. Reports about them are kept for whoever runs the server, with the name and username as they were.
+    this.sql('DELETE FROM reports WHERE from_id=?', me.id);
     for (const id of friends) this.push(id, { t: 'friends' });
     return { status: 'deleted' };
   }
@@ -1013,6 +1153,10 @@ export class Hub {
       case 'POST /api/sanctuaries/invite': return this.sanctuaryInvite(me, body, ctx);
       case 'POST /api/sanctuaries/leave': return this.sanctuaryLeave(me, body, ctx);
       case 'POST /api/sanctuaries/edit': return this.sanctuaryEdit(me, body, ctx);
+      case 'POST /api/sanctuaries/campfire': return this.sanctuaryCampfire(me, body, ctx);
+      case 'POST /api/sanctuaries/care': return this.sanctuaryCare(me, body, ctx);
+      case 'POST /api/sanctuaries/pal': return this.sanctuaryPal(me, body, ctx);
+      case 'POST /api/report': return this.report(me, body, ctx);
       case 'POST /api/logout': return this.logout(me, body, ctx);
       case 'POST /api/account/delete': return this.deleteAccount(me, body, ctx);
       case 'POST /api/live/ticket': return this.liveTicket(me, body, ctx);

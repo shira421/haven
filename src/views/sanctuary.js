@@ -51,12 +51,21 @@ ${s ? `<button class="secondary" data-action="sanct-invite" aria-label="Invite">
   const me = app.social.account?.id, night = isNight(app.now());
   // At zoom 1 the whole land fits the screen's width; zooming in makes it wider and it scrolls.
   const zoom = ui.zoom || 1;
-  const members = s.members.map(m => `<li class="row"><button class="row-main pick" data-action="sanct-find" data-id="${m.id}">${avatar(m.avatar)}<span><b>${e(m.id === me ? 'You' : m.name)}</b><small class="presence">${m.id === s.owner ? 'Looks after it. ' : ''}${m.focusing ? 'Focusing now' : m.online ? 'Online' : `Level ${Number(m.card?.level) || 1}`}</small></span></button></li>`).join('');
+  const members = s.members.map(m => `<li class="row"><button class="row-main pick" data-action="sanct-find" data-id="${m.id}" aria-label="Show ${e(m.id === me ? 'your' : `${m.name}'s`)} haven">${avatar(m.avatar)}<span><b>${e(m.id === me ? 'You' : m.name)}</b><small class="presence">${m.id === s.owner ? 'Looks after it. ' : ''}${m.focusing ? 'Focusing now' : m.online ? 'Online' : `Level ${Number(m.card?.level) || 1}`}</small></span></button>${befriend(app, m)}</li>`).join('');
   return `<section class="page sanctuary${night ? ' night' : ''}" data-page="sanctuary">${head}
 <div class="sanct-stage"><div class="sanct-scroll" tabindex="0" aria-label="The sanctuary. Scroll to look around."><div class="sanct-inner" style="width:${Math.round(zoom * 100)}%">${sanctuaryHTML({ plots, things, label: `${s.name}: ${s.members.map(m => m.name).join(', ')}` })}</div></div>
 <div class="zoom" role="group" aria-label="Zoom"><button class="pill" data-action="sanct-zoom" data-step="-1" aria-label="Zoom out" ${zoom <= 1 ? 'disabled' : ''}>−</button><button class="pill" data-action="sanct-zoom" data-step="1" aria-label="Zoom in" ${zoom >= 4 ? 'disabled' : ''}>+</button></div></div>
 <h2 class="section-title">In this sanctuary</h2><ul class="rows">${members}</ul>
 <div class="button-row quiet">${s.owner === me ? '<button class="linklike" data-action="sanct-manage">Rename or ask someone to leave</button>' : ''}<button class="linklike danger" data-action="sanct-leave">Leave the sanctuary</button></div></section>`;
+}
+
+/** On a member's row: a way to become friends, or where that stands. */
+function befriend(app, m) {
+  const d = app.social.data;
+  if (m.id === app.social.account?.id || d.friends.some(f => f.id === m.id)) return '';
+  if (d.incoming.some(u => u.id === m.id)) return `<div class="row-end"><button class="primary" data-action="sanct-befriend" data-id="${m.id}" data-accept="1">Accept</button></div>`;
+  if (d.outgoing.some(u => u.id === m.id)) return '<div class="row-end"><span class="minutes">Request sent</span></div>';
+  return `<div class="row-end"><button class="secondary" data-action="sanct-befriend" data-id="${m.id}" aria-label="Add ${e(m.name)} as a friend">${icon('plus')}Add friend</button></div>`;
 }
 
 function loading(ui) {
@@ -130,9 +139,15 @@ export function mounted(app) {
   for (const el of host.querySelectorAll('.ent[data-ent]')) els.set(el.dataset.ent, el);
   stage = { root: host, world: ui.world, els, dims: ui.layout.dims };
   paintStage(stage);
-  // Start looking at the middle of the land.
+  // Start looking at the middle; after that a redraw (someone moved something, a friend accepted)
+  // keeps looking where you were.
   const scroll = $('.page.sanctuary .sanct-scroll');
-  if (scroll && !ui.scrolled) { ui.scrolled = true; scroll.scrollLeft = (scroll.scrollWidth - scroll.clientWidth) / 2; scroll.scrollTop = (scroll.scrollHeight - scroll.clientHeight) / 2; }
+  if (scroll) {
+    const [fx, fy] = ui.looking || [0.5, 0.5];
+    scroll.scrollLeft = fx * scroll.scrollWidth - scroll.clientWidth / 2;
+    scroll.scrollTop = fy * scroll.scrollHeight - scroll.clientHeight / 2;
+    scroll.addEventListener('scroll', () => { ui.looking = [(scroll.scrollLeft + scroll.clientWidth / 2) / scroll.scrollWidth, (scroll.scrollTop + scroll.clientHeight / 2) / scroll.scrollHeight]; }, { passive: true });
+  }
   last = 0;
   if (!calm()) raf = requestAnimationFrame(frame);
   function frame(ts) {
@@ -194,6 +209,12 @@ export const actions = {
     toast(r.status === 'joined' ? `${name} is already in it.` : `Invited ${name}.`);
     el.textContent = 'Invited';
   }, el),
+  'sanct-befriend': (app, d, el) => guard(async () => {
+    const m = app.ui.sanct?.data?.members.find(x => x.id === d.id), name = m?.name || 'They';
+    if (d.accept) { await app.social.respond(d.id, true); toast(`You and ${name} are friends now.`); }
+    else { const r = await app.social.request(d.id); toast(r.status === 'friends' ? `You and ${name} are friends now.` : `Friend request sent to ${name}.`); }
+    app.renderIf('sanctuary');
+  }, el),
   'sanct-copy': async app => { toast((await copyText(prettyCode(app.ui.sanct.data.code))) ? 'Code copied.' : 'Could not copy. Read the code out instead.'); },
   'sanct-share': async app => {
     const s = app.ui.sanct.data;
@@ -201,12 +222,9 @@ export const actions = {
     if (how === 'copied') toast('Invite copied.'); else if (how === 'failed') toast('Could not share. Read the code out instead.');
   },
   'sanct-zoom': (app, d) => {
-    const ui = app.ui.sanct, scroll = $('.page.sanctuary .sanct-scroll');
-    const fx = scroll ? (scroll.scrollLeft + scroll.clientWidth / 2) / scroll.scrollWidth : 0.5, fy = scroll ? (scroll.scrollTop + scroll.clientHeight / 2) / scroll.scrollHeight : 0.5;
+    const ui = app.ui.sanct;
     ui.zoom = Math.min(4, Math.max(1, (ui.zoom || 1) * (Number(d.step) > 0 ? 1.25 : 0.8)));
-    app.render();
-    const again = $('.page.sanctuary .sanct-scroll');
-    if (again) { again.scrollLeft = fx * again.scrollWidth - again.clientWidth / 2; again.scrollTop = fy * again.scrollHeight - again.clientHeight / 2; }
+    app.render(); // the view stays centred on the same spot (see mounted)
   },
   /** Scroll to a member's haven. */
   'sanct-find': (app, d) => {

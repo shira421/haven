@@ -220,7 +220,7 @@ function listen() {
   app.timer.on((type, payload) => {
     if (type === 'tick') return focus.tick(app, payload);
     if (type === 'break-tick') return focus.tickBreak(app, payload);
-    if (type === 'started') { askForNotifications(); if (dialogOpen()) closeDialog(); app.ui.edit = { on: false, picked: null, item: null }; if (app.ui.page !== 'focus') go('focus'); else render(); return; }
+    if (type === 'started') { askForNotifications(); if (dialogOpen()) closeDialog(); app.ui.edit = { on: false, picked: null, item: null }; app.ui.feeding = false; if (app.ui.page !== 'focus') go('focus'); else render(); return; }
     if (type === 'finished') { render(); focus.resultDialog(app, payload); if (offScreen() && store.state.settings.notify.done) notifyDone(payload); return; }
     if (type === 'failed') { render(); focus.failedDialog(app, payload); return; }
     if (type === 'cancelled') { render(); toast('Session cancelled.'); return; }
@@ -236,7 +236,7 @@ function listen() {
     if (type === 'friends-count') return app.announce(store.setFriendCount(payload));
     if (type === 'status' || type === 'change') {
       if (gated || welcome.gate(app)) { if (dialogOpen() && !gated) closeDialog(); render(); return; }
-      if (app.ui.page === 'friends' || (app.ui.page === 'focus' && !store.state.active)) { if (!document.activeElement?.closest?.('#view form')) render(); }
+      if (app.ui.page === 'friends' || app.ui.page === 'sanctuary' || (app.ui.page === 'focus' && !store.state.active)) { if (!document.activeElement?.closest?.('#view form')) render(); }
       else if (store.state.active?.room && app.ui.page === 'focus') render();
       return;
     }

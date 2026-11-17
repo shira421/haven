@@ -2,7 +2,7 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startHub } from './hub-server.mjs';
-import { cleanName, cleanHandle, cleanCode, cleanPassword, hashPassword, checkPassword, randomString } from '../worker/hub.js';
+import { cleanName, cleanHandle, cleanCode, cleanPassword, hashPassword, checkPassword, randomString, weekStart } from '../worker/hub.js';
 
 const MIN = 60000;
 const PASS = 'correct horse battery';
@@ -312,6 +312,7 @@ test('focusing together: everyone starts at the same moment and finishes with a 
   assert.equal(room.state, 'lobby');
   await ok('POST', '/api/rooms/invite', a.token, { code: room.code, to: b.id });
   const invite = await sb.next(m => m.t === 'inbox' && m.item.kind === 'invite');
+  assert.equal((await ok('GET', '/api/me', c.token)).inbox.filter(i => i.kind === 'invite').length, 0, 'someone who blocked the one lighting it is not invited');
   assert.deepEqual(invite.item.data, { code: room.code, minutes: 25, rule: 'together' });
   await ok('POST', '/api/rooms/join', b.token, { code: room.code, species: 'fern' });
   assert.equal((await sa.next(m => m.t === 'room' && m.room.members.length === 2)).room.members[1].name, 'Vik');
@@ -618,12 +619,109 @@ test('sanctuaries: make one, invite a friend, join by code, see every haven, lea
   sa.close(); sb.close();
 });
 
-test('sanctuaries have limits: nine havens each, five each person', async () => {
+test('sanctuaries have limits: eight havens each round the great tree, five each person', async () => {
   const owner = await person('Owner');
   const s = (await ok('POST', '/api/sanctuaries', owner.token, { name: 'Big' })).sanctuary;
-  for (let i = 0; i < 8; i++) { const p = await person('P' + i); await ok('POST', '/api/sanctuaries/join', p.token, { code: s.code }); }
+  for (let i = 0; i < 7; i++) { const p = await person('P' + i); await ok('POST', '/api/sanctuaries/join', p.token, { code: s.code }); }
   const late = await person('Late');
   assert.match((await api('POST', '/api/sanctuaries/join', late.token, { code: s.code })).body.error, /full/);
   for (let i = 0; i < 4; i++) await ok('POST', '/api/sanctuaries', owner.token, { name: 'More ' + i });
   assert.match((await api('POST', '/api/sanctuaries', owner.token, { name: 'Too many' })).body.error, /up to 5/);
+});
+
+test('the great tree grows with the week\'s focus and blooms once at the goal', async () => {
+  T = weekStart(T) + 7 * 86400000 + 3600000; // early on a Monday
+  const a = await person('Tia'), b = await person('Uri');
+  const s = (await ok('POST', '/api/sanctuaries', a.token, { name: 'Grove' })).sanctuary;
+  await ok('POST', '/api/sanctuaries/join', b.token, { code: s.code });
+  let tree = (await ok('GET', `/api/sanctuaries/${s.id}`, a.token)).sanctuary.tree;
+  assert.deepEqual([tree.minutes, tree.goal, tree.stage, tree.blooms], [0, 240, 0, 0], 'two people: 240 min to bloom');
+  const sa = await live(a);
+  let n = 0;
+  const focus = async (p, minutes) => {
+    const id = `tree${++n}${p.id.slice(0, 4)}`;
+    await ok('POST', '/api/session/start', p.token, { id, planned: minutes, species: 'oak' });
+    T += minutes * MIN;
+    await ok('POST', '/api/session/end', p.token, { id, status: 'done' });
+  };
+  await focus(a, 90);
+  await focus(b, 60);
+  tree = (await ok('GET', `/api/sanctuaries/${s.id}`, b.token)).sanctuary.tree;
+  assert.deepEqual([tree.minutes, tree.stage], [150, 3]);
+  assert.deepEqual(tree.top.map(t => [t.id, t.minutes]), [[a.id, 90], [b.id, 60]]);
+  await focus(b, 90);
+  const bloom = await sa.next(m => m.t === 'inbox' && m.item.kind === 'bloom');
+  assert.equal(bloom.item.data.name, 'Grove');
+  tree = (await ok('GET', `/api/sanctuaries/${s.id}`, a.token)).sanctuary.tree;
+  assert.deepEqual([tree.stage, tree.blooms], [5, 1]);
+  await focus(a, 30);
+  assert.equal((await ok('GET', `/api/sanctuaries/${s.id}`, a.token)).sanctuary.tree.blooms, 1, 'once a week');
+  // A new week starts the tree again.
+  T = weekStart(T) + 7 * 86400000 + 60000;
+  tree = (await ok('GET', `/api/sanctuaries/${s.id}`, a.token)).sanctuary.tree;
+  assert.deepEqual([tree.minutes, tree.stage, tree.blooms], [0, 0, 1]);
+  sa.close();
+});
+
+test('a campfire lit in a sanctuary invites everyone in it, friends or not, and shows there', async () => {
+  T += 3600000;
+  const a = await person('Vi'), b = await person('Wes'), c = await person('Xan');
+  const s = (await ok('POST', '/api/sanctuaries', a.token, { name: 'Embers' })).sanctuary;
+  for (const p of [b, c]) await ok('POST', '/api/sanctuaries/join', p.token, { code: s.code });
+  await ok('POST', '/api/friends/block', c.token, { id: a.id });
+  const sb = await live(b);
+  const room = (await ok('POST', '/api/sanctuaries/campfire', a.token, { id: s.id, minutes: 25, rule: 'together', species: 'fern' })).room;
+  const invite = await sb.next(m => m.t === 'inbox' && m.item.kind === 'invite');
+  assert.deepEqual([invite.item.data.code, invite.item.data.sanctuary, invite.item.data.minutes], [room.code, 'Embers', 25]);
+  assert.match((await api('POST', '/api/sanctuaries/campfire', b.token, { id: s.id, minutes: 25 })).body.error, /already lit/);
+  let fire = (await ok('GET', `/api/sanctuaries/${s.id}`, b.token)).sanctuary.campfire;
+  assert.deepEqual([fire.code, fire.state, fire.members.length], [room.code, 'lobby', 1]);
+  await ok('POST', '/api/rooms/join', b.token, { code: room.code, species: 'oak' });
+  await sb.next(m => m.t === 'sanctuary' && m.id === s.id);
+  fire = (await ok('GET', `/api/sanctuaries/${s.id}`, a.token)).sanctuary.campfire;
+  assert.equal(fire.members.length, 2);
+  assert.equal((await api('POST', '/api/sanctuaries/campfire', (await person('Out')).token, { id: s.id, minutes: 25 })).status, 404, 'only those in the sanctuary');
+  sb.close();
+});
+
+test('care for animals in other havens of the sanctuary, and animals that meet become friends', async () => {
+  T += 3600000;
+  const a = await person('Yas'), b = await person('Zed'), out = await person('Odd');
+  const s = (await ok('POST', '/api/sanctuaries', a.token, { name: 'Den' })).sanctuary;
+  await ok('POST', '/api/sanctuaries/join', b.token, { code: s.code });
+  const sb = await live(b);
+  await ok('POST', '/api/sanctuaries/care', a.token, { id: s.id, to: b.id, item: 'fox001', species: 'fox', kind: 'treat' });
+  const care = await sb.next(m => m.t === 'inbox' && m.item.kind === 'care');
+  assert.deepEqual([care.item.data.kind, care.item.data.item, care.item.data.species, care.item.from.id], ['treat', 'fox001', 'fox', a.id]);
+  await ok('POST', '/api/sanctuaries/care', a.token, { id: s.id, to: b.id, item: 'fox001', species: 'fox', kind: 'pet' });
+  await ok('POST', '/api/sanctuaries/care', a.token, { id: s.id, to: b.id, item: 'fox001', species: 'fox', kind: 'pet' });
+  const pets = (await ok('GET', '/api/me', b.token)).inbox.filter(i => i.kind === 'care' && i.data.kind === 'pet');
+  assert.equal(pets.length, 1, 'pats are told at most every half hour');
+  assert.equal((await api('POST', '/api/sanctuaries/care', a.token, { id: s.id, to: a.id, item: 'x', species: 'fox' })).status, 404, 'not your own haven');
+  assert.equal((await api('POST', '/api/sanctuaries/care', a.token, { id: s.id, to: b.id, item: 'x', species: 'oak' })).status, 400, 'only animals');
+  assert.equal((await api('POST', '/api/sanctuaries/care', out.token, { id: s.id, to: b.id, item: 'x', species: 'fox' })).status, 404);
+  // Two animals from different havens meet.
+  const ka = `${a.id}:rab01:rabbit`, kb = `${b.id}:fox001:fox`;
+  assert.deepEqual(await ok('POST', '/api/sanctuaries/pal', a.token, { id: s.id, a: ka, b: kb }), { status: 'friends' });
+  assert.deepEqual(await ok('POST', '/api/sanctuaries/pal', b.token, { id: s.id, a: kb, b: ka }), { status: 'known' }, 'seen from either side, once');
+  const pal = await sb.next(m => m.t === 'inbox' && m.item.kind === 'pal');
+  assert.deepEqual([pal.item.data.mine, pal.item.data.theirs, pal.item.from.id], ['fox', 'rabbit', a.id]);
+  assert.equal((await api('POST', '/api/sanctuaries/pal', a.token, { id: s.id, a: ka, b: `${a.id}:cat01:cat` })).status, 400, 'animals from the same haven are already home together');
+  assert.equal((await api('POST', '/api/sanctuaries/pal', a.token, { id: s.id, a: ka, b: `${out.id}:cat01:cat` })).status, 404);
+  assert.deepEqual((await ok('GET', `/api/sanctuaries/${s.id}`, a.token)).sanctuary.pals.map(p => [p.a, p.b]), [[ka, kb].sort()]);
+  await ok('POST', '/api/sanctuaries/leave', b.token, { id: s.id });
+  assert.deepEqual((await ok('GET', `/api/sanctuaries/${s.id}`, a.token)).sanctuary.pals, [], 'leaving takes its friendships with it');
+  sb.close();
+});
+
+test('reporting someone keeps a record for the server owner, once a day per person', async () => {
+  T += 3600000;
+  const a = await person('Rae'), b = await person('Sam');
+  assert.deepEqual(await ok('POST', '/api/report', a.token, { id: b.id, reason: 'name', place: 'sanctuary' }), { status: 'reported' });
+  await ok('POST', '/api/report', a.token, { id: b.id, reason: 'spam' });
+  const rows = (await (await hub.mf.dispatchFetch('http://hub/test/sql', { method: 'POST', body: JSON.stringify({ q: 'SELECT reason, place, about_handle FROM reports WHERE about_id=?', p: [b.id] }) })).json()).rows;
+  assert.deepEqual(rows, [{ reason: 'name', place: 'sanctuary', about_handle: b.handle }]);
+  assert.equal((await api('POST', '/api/report', a.token, { id: a.id })).status, 404);
+  await ok('POST', '/api/account/delete', b.token);
+  assert.equal((await (await hub.mf.dispatchFetch('http://hub/test/sql', { method: 'POST', body: JSON.stringify({ q: 'SELECT COUNT(*) AS n FROM reports WHERE about_id=?', p: [b.id] }) })).json()).rows[0].n, 1, 'kept after they delete their account');
 });

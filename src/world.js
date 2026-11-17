@@ -1,7 +1,8 @@
 // The life of a haven: where each animal is, how it is moving, what it is doing and what it does next.
 // Animals walk with weight (they speed up, slow down and steer round what is in the way), hop in
 // arcs, fly, swim in the pond, drink at its edge, graze, perch, hide in the burrow, sit by the
-// fire, greet and chase each other, and sleep at night.
+// fire, greet and chase each other, and sleep at night. They come to treats put down on the land,
+// lean into a pat, and wake when tapped at night, dozing off again once they are left alone.
 // This file is only the simulation. It has no DOM, takes its random numbers from outside, and is
 // advanced by step(dt), so the same code runs in the app and in tests.
 import { speciesById } from './catalog.js';
@@ -50,6 +51,10 @@ const TRAITS = {
 export const traitsOf = id => TRAITS[id] || { move: 'walk', speed: 0.8, likes: [] };
 
 const MARGIN = 0.4;
+const WAKE_FOR = 25; // seconds a woken animal stays up at night once nobody pays it any mind
+const EAT_FOR = 2.6; // seconds to eat a treat
+const FOOD_WAITS = 45; // a treat nobody comes for is taken away after this long
+const MAX_FOOD = 6;
 const FLY_HEIGHT = 0.9; // how high birds cruise, in tile heights
 const INSECT_HEIGHT = 0.55;
 const GROW = { 1: 0.8, 2: 0.98, 3: 1.18 }; // how big a thing is drawn at each size
@@ -81,7 +86,9 @@ export class World {
     this.t = 0;
     this.animals = new Map();
     this.things = new Map(); // everything that stands still: id → {id, species, u, v, k, solid, soft, pond}
-    this.events = []; // what the picture should react to: rustle, land, splash, leaves
+    this.events = []; // what the picture should react to: rustle, land, splash, leaves, drop, ate, gone
+    this.food = new Map(); // treats put down on the land: id → {id, u, v, left, eater, at}
+    this.foodSeq = 0;
   }
 
   rand(lo, hi) { return lo + this.random() * (hi - lo); }
@@ -141,8 +148,9 @@ export class World {
     for (const a of this.animals.values()) if (a.thing && !this.things.has(a.thing)) this.release(a);
   }
 
-  /** Stop what it is doing and stand where it is. */
+  /** Stop what it is doing and stand where it is. A treat it was going for waits for someone else. */
   release(a, pause = 0) {
+    if (a.food) { const f = this.food.get(a.food); if (f?.eater === a.id) { f.eater = null; f.eating = false; } a.food = null; }
     Object.assign(a, { thing: null, over: null, buddy: null, state: 'idle', doing: null, until: this.t + pause, liftTo: null, moving: false, hop: null, air: false, vu: 0, vv: 0 });
   }
 
@@ -160,6 +168,94 @@ export class World {
   emote(id, kind, seconds = 2.5) {
     const a = this.animals.get(id);
     if (a) { a.emote = kind; a.emoteUntil = this.t + seconds; }
+  }
+
+  // ——— Care: treats, pats and strokes, and waking at night ———
+
+  /** Put a treat down on the land. Someone hungry and awake comes for it. Null when there are too many down. */
+  putFood(u, v) {
+    if (this.food.size >= MAX_FOOD) return null;
+    [u, v] = this.fit(u, v);
+    const f = { id: 'f' + ++this.foodSeq, u, v, left: 1, eater: null, eating: false, at: this.t, sniffed: false };
+    this.food.set(f.id, f);
+    this.events.push({ type: 'drop', u, v });
+    return f;
+  }
+  /** Treats down that nobody has eaten yet. */
+  foodLeft() { return this.food.size; }
+
+  /** Send someone to each treat nobody is going for, and take away treats left too long. */
+  serveFood(ctx) {
+    for (const f of this.food.values()) {
+      if (f.eater) continue;
+      if (this.t - f.at > FOOD_WAITS) { this.food.delete(f.id); this.events.push({ type: 'gone', food: f.id }); continue; }
+      const free = [...this.animals.values()].filter(a => a.state !== 'sleep' && !a.food && a.doing !== 'wake' && a.doing !== 'yawn' && a.state !== 'greet');
+      const eaters = free.filter(a => ctx.canEat ? ctx.canEat(a.id) : true);
+      if (!eaters.length) {
+        // Nobody can eat it: whoever is near and full comes over for a sniff, once.
+        if (!f.sniffed) {
+          f.sniffed = true;
+          for (const a of free.filter(x => this.near(x, f) < 2.5).slice(0, 2)) { this.release(a); this.goTo(a, f.u + this.rand(-0.35, 0.35), f.v + 0.35, 'idle'); this.emote(a.id, 'note', 2.2); }
+        }
+        continue;
+      }
+      // The one it was put down for, if it can come; otherwise the hungriest first, then whoever is nearest.
+      const a = eaters.find(x => x.id === f.for) || eaters.sort((x, y) => (ctx.hungry?.has(y.id) ? 1 : 0) - (ctx.hungry?.has(x.id) ? 1 : 0) || this.near(x, f) - this.near(y, f))[0];
+      const perch = a.doing === 'hide';
+      this.release(a);
+      a.food = f.id; f.eater = a.id;
+      const side = this.random() < 0.5 ? -1 : 1;
+      this.goTo(a, f.u + side * 0.16, f.v + 0.16, 'food');
+      a.rush = this.t + 12;
+      if (perch) a.rest = 0.4;
+      this.emote(a.id, 'sparkle', 1.6);
+      if (traitsOf(a.species).move === 'fly' && !traitsOf(a.species).insect) a.flying = true;
+    }
+  }
+
+  /** Done eating: the treat is gone, and it is happy about it. */
+  eaten(a) {
+    const f = this.food.get(a.food);
+    this.food.delete(a.food);
+    a.food = null;
+    this.events.push({ type: 'ate', id: a.id, food: f?.id, u: f?.u ?? a.u, v: f?.v ?? a.v });
+    a.state = 'enjoy'; a.doing = 'joy'; a.until = this.t + 1.3; a.joyAt = this.t;
+    this.emote(a.id, 'heart', 3);
+    if (a.awakeUntil) a.awakeUntil = Math.max(a.awakeUntil, this.t + WAKE_FOR);
+  }
+
+  /**
+   * A pat (a tap) or a stroke (a finger moving over it). Wakes an animal asleep. Returns what
+   * happened: 'woke', 'pat', or null when it is busy (eating) or not there.
+   */
+  pet(id, kind = 'pat') {
+    const a = this.animals.get(id);
+    if (!a) return null;
+    if (a.state === 'sleep') { this.wake(a); return 'woke'; }
+    if (a.awakeUntil) a.awakeUntil = Math.max(a.awakeUntil, this.t + WAKE_FOR);
+    if (a.food) { this.emote(id, 'heart', 2); return null; }
+    if (a.doing === 'wake') { a.until = Math.max(a.until, this.t + 0.4); this.emote(id, 'heart', 2.2); return 'pat'; }
+    const keep = { over: a.over, liftTo: a.liftTo, perch: a.doing === 'perch' || a.doing === 'hide' ? a.doing : null };
+    this.release(a);
+    if (keep.perch) { a.over = keep.over; a.liftTo = keep.liftTo; }
+    a.pats = (a.pats || 0) + 1;
+    a.state = 'enjoy';
+    // Every third pat in a row, it cannot keep still.
+    const joy = kind === 'pat' && a.pats % 3 === 0 && !keep.perch && !a.wet;
+    a.doing = joy ? 'joy' : 'pet';
+    a.until = this.t + (kind === 'stroke' ? 1.8 : joy ? 1.3 : 1.2);
+    a.joyAt = this.t;
+    a.act = a.doing; // shown at once, not on the next frame
+    this.emote(id, 'heart', 2.4);
+    return 'pat';
+  }
+
+  /** Woken at night: a start, a stretch, then up and about until it is left alone. */
+  wake(a) {
+    // A bird asleep on a branch wakes up there; everyone else wakes where they lie.
+    if (a.doing !== 'perch' && !traitsOf(a.species).insect) a.flying = false;
+    a.state = 'enjoy'; a.doing = 'wake'; a.act = 'wake'; a.until = this.t + 1.8; a.awakeUntil = this.t + WAKE_FOR;
+    a.emote = 'surprise'; a.emoteUntil = this.t + 1.6;
   }
 
   /** The person did something to an animal: it stops to eat, or jumps for joy. */
@@ -215,7 +311,13 @@ export class World {
     const was = { thing: a.thing, over: a.over, liftTo: a.liftTo, doing: a.doing };
     a.buddy = null; a.thing = null; a.doing = null;
     if (!a.wet) { a.over = null; a.liftTo = null; }
-    const others = [...this.animals.values()].filter(o => o !== a && o.state !== 'sleep' && o.cool <= this.t && !ctx.hungry?.has(o.id) && o.doing !== 'hide');
+    const others = [...this.animals.values()].filter(o => o !== a && o.state !== 'sleep' && o.cool <= this.t && !ctx.hungry?.has(o.id) && o.doing !== 'hide' && !o.food && !o.awakeUntil);
+    // Woken in the night: it stays close and drowsy rather than setting off anywhere.
+    if (ctx.night && !trait.nocturnal) {
+      if (this.random() < 0.5) { a.state = 'idle'; a.until = this.t + this.rand(2, 5); return; }
+      this.goTo(a, a.u + this.rand(-0.6, 0.6), a.v + this.rand(-0.6, 0.6), 'idle');
+      return;
+    }
     const r = this.random();
     if (!hungry && a.cool <= this.t && others.length && r < 0.2) {
       // Say hello to whoever is nearest.
@@ -287,6 +389,15 @@ export class World {
     const trait = traitsOf(a.species), hungry = ctx.hungry?.has(a.id), t = this.things.get(a.thing);
     a.moving = false; a.vu = 0; a.vv = 0; a.hop = null; a.air = false; a.rush = 0;
     if (a.flying) a.potter = 0;
+    if (a.next === 'food') {
+      const f = this.food.get(a.food);
+      if (!f || f.eater !== a.id || this.near(a, f) > 0.7) { if (f && f.eater === a.id) f.eater = null; a.food = null; a.state = 'idle'; a.doing = null; a.until = this.t + 0.5; if (a.flying && !trait.insect) a.flying = false; return; }
+      a.state = 'enjoy'; a.doing = 'eat'; a.until = this.t + EAT_FOR; a.eatAt = this.t; f.eating = true;
+      this.faceTo(a, f.u, f.v);
+      if (!trait.insect) { a.flying = false; a.liftTo = null; }
+      else a.liftTo = 0.12;
+      return;
+    }
     if (a.next === 'greet') {
       const o = this.animals.get(a.buddy);
       a.state = 'greet'; a.until = this.t + 2.8;
@@ -320,18 +431,32 @@ export class World {
   /**
    * Move everything on by dt seconds.
    * @param {number} dt
-   * @param {{night?: boolean, hungry?: Set<string>}} [ctx]
+   * @param {{night?: boolean, hungry?: Set<string>, canEat?: (id: string) => boolean}} [ctx]
    */
   step(dt, ctx = {}) {
     const step = Math.min(dt, 0.25);
     this.t += step;
     const ponds = [...this.things.values()].filter(t => t.pond);
+    if (this.food.size) this.serveFood(ctx);
     for (const a of this.animals.values()) {
       const trait = traitsOf(a.species), hungry = ctx.hungry?.has(a.id);
       if (a.emote && a.emote !== 'zzz' && this.t >= a.emoteUntil) a.emote = null;
-      // Night: everyone who is not a night animal settles down where they are.
+      // Night: everyone who is not a night animal settles down where they are. One that was woken
+      // stays up while someone pays it attention, then yawns and goes back to sleep.
       const sleepy = Boolean(ctx.night) && !trait.nocturnal;
-      if (sleepy) {
+      if (sleepy && a.food) a.awakeUntil = Math.max(a.awakeUntil || 0, this.t + 2);
+      if (sleepy && !(a.awakeUntil > this.t)) {
+        if (a.state !== 'sleep' && a.awakeUntil) {
+          if (a.doing !== 'yawn') {
+            const keep = { over: a.over, liftTo: a.liftTo, perch: a.doing === 'perch' || a.doing === 'hide' ? a.doing : null };
+            this.release(a);
+            if (keep.perch) Object.assign(a, { over: keep.over, liftTo: keep.liftTo });
+            a.state = 'enjoy'; a.doing = 'yawn'; a.until = this.t + 1.6; a.emote = null; a.perchBack = keep.perch;
+          }
+          if (this.t < a.until) { this.settle(a, trait, step); this.finish(a, trait, ponds); continue; }
+          a.awakeUntil = 0;
+          if (a.perchBack) a.doing = a.perchBack;
+        }
         if (a.state !== 'sleep') {
           const up = a.doing === 'perch' && a.liftTo ? [a.over, a.liftTo] : null, den = a.doing === 'hide' ? a.over : null;
           this.release(a);
@@ -344,6 +469,7 @@ export class World {
         continue;
       }
       if (a.state === 'sleep') { a.state = 'idle'; a.doing = null; a.until = this.t + this.rand(0.3, 2.5); a.emote = null; if (trait.insect) a.flying = true; }
+      if (!ctx.night && a.awakeUntil) a.awakeUntil = 0;
 
       if (a.state === 'chase') {
         const o = this.animals.get(a.buddy);
@@ -358,8 +484,10 @@ export class World {
         else if (this.t >= a.paddleAt) a.paddle = pondPoint(pond, this.rand(-0.72, 0.72), this.rand(-0.62, 0.62));
         if (this.t >= a.until) { a.paddle = null; this.decide(a, ctx); }
       } else if (this.t >= a.until) {
-        this.decide(a, ctx);
+        if (a.food && a.doing === 'eat') this.eaten(a);
+        else this.decide(a, ctx);
       }
+      if (a.food && a.doing === 'eat') { const f = this.food.get(a.food); if (f) f.left = Math.max(0.15, 1 - (this.t - a.eatAt) / EAT_FOR); }
       this.settle(a, trait, step);
       this.finish(a, trait, ponds);
     }
