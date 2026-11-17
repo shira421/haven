@@ -92,6 +92,8 @@ try {
   await attach();
   noCrash('on opening');
   shot('opened');
+  // The app first finds its server, then shows the sign-in screen.
+  await page.waitForFunction(() => window.__haven.state().gate === 'welcome', null, { timeout: 30000 }).catch(() => {});
   assert.equal(await js(() => window.__haven.state().gate), 'welcome', 'Haven opens on the sign-in screen');
   await createAccount();
   noCrash('after creating an account');
