@@ -7,7 +7,7 @@ import { worldHTML, thingsFromCard } from '../scene.js';
 import { share, copyText } from '../device.js';
 import * as sanctuary from './sanctuary.js';
 
-const TABS = [['friends', 'Friends'], ['together', 'Together'], ['sanctuary', 'Sanctuary'], ['board', 'Board'], ['activity', 'Activity']];
+const TABS = [['friends', 'Friends'], ['campfire', 'Campfire'], ['sanctuary', 'Sanctuary'], ['board', 'Board'], ['activity', 'Activity']];
 const STATUS = { live: 'Live', connecting: 'Connecting', offline: 'Reconnecting', 'signed-out': '' };
 
 function presence(f, now) {
@@ -25,7 +25,7 @@ export function render(app) {
   if (!social.base) return `<section class="page friends" data-page="friends"><h1 class="page-title">Friends</h1>${empty('This copy of Haven has no server yet, so there are no accounts or friends. Everything else works. The README in the repository explains how to set one up.')}</section>`;
   if (!social.signedIn) return `<section class="page friends" data-page="friends"><h1 class="page-title">Friends</h1>${empty('Sign in to see your friends.')}</section>`;
   const tab = app.ui.friendsTab, me = social.account;
-  const body = tab === 'friends' ? friendsTab(app) : tab === 'together' ? togetherTab(app) : tab === 'sanctuary' ? sanctuary.tab(app) : tab === 'board' ? boardTab(app) : activityTab(app);
+  const body = tab === 'friends' ? friendsTab(app) : tab === 'campfire' ? campfireTab(app) : tab === 'sanctuary' ? sanctuary.tab(app) : tab === 'board' ? boardTab(app) : activityTab(app);
   return `<section class="page friends" data-page="friends"><h1 class="page-title">Friends</h1>
 <div class="me-card">${avatar(me.avatar, 'large')}<div class="row-main"><b>${e(me.name)}</b><span>@${e(me.handle)}</span><span class="live ${social.status}" role="status">${STATUS[social.status]}</span></div>
 <button class="primary" data-action="add-friend">${icon('plus')}Add friend</button></div>
@@ -46,32 +46,33 @@ ${outgoing ? `<h2 class="section-title">Waiting for an answer</h2><ul class="row
 
 function roomCard(app, room) {
   const { social, store } = app, me = social.account.id, host = room.host === me;
-  const members = room.members.map(m => { const sp = speciesById(m.species); return `<li class="row">${avatar(m.avatar)}<div class="row-main"><b>${e(m.id === me ? 'You' : m.name)}</b><span>${m.id === room.host ? 'Host, growing' : 'Growing'} a ${e(sp?.name.toLowerCase() || 'clover')}</span></div></li>`; }).join('');
-  const rule = room.rule === 'together' ? 'If one person leaves, it ends for everyone.' : 'Someone leaving costs only them.';
-  return `<div class="room"><h2 class="section-title">Room ${prettyRoom(room.code)}</h2>
-<p class="lead">${formatMinutes(room.minutes)} together. ${rule} Finishing with friends earns 10% more coins for each one.</p>
+  const members = room.members.map(m => { const sp = speciesById(m.species); return `<li class="row">${avatar(m.avatar)}<div class="row-main"><b>${e(m.id === me ? 'You' : m.name)}</b><span>${m.id === room.host ? 'Lit it, growing' : 'Growing'} a ${e(sp?.name.toLowerCase() || 'clover')}</span></div></li>`; }).join('');
+  const rule = room.rule === 'together' ? 'If one person leaves, the fire goes out for everyone.' : 'Someone leaving costs only them.';
+  return `<div class="room"><h2 class="section-title">Campfire ${prettyRoom(room.code)}${room.sanctuary ? ` in ${e(room.sanctuary)}` : ''}</h2>
+<p class="lead">${formatMinutes(room.minutes)} round the fire. ${rule} Finishing together earns 10% more coins for each friend who finishes too.</p>
 <ul class="rows">${members}</ul>
-<div class="button-row"><button class="secondary" data-action="room-invite">${icon('users')}Invite friends</button><button class="secondary" data-action="room-share">${icon('share')}Share code</button></div>
-<div class="button-row"><button class="secondary danger" data-action="room-leave">${host ? 'Close room' : 'Leave room'}</button>${host ? `<button class="primary" data-action="room-start">Start for ${room.members.length === 1 ? 'yourself' : `all ${room.members.length}`}</button>` : ''}</div>
-${host ? '' : '<p class="note">The host starts the session. Keep Haven open.</p>'}
+<div class="button-row"><button class="secondary" data-action="room-invite">${icon('users')}Invite friends</button><button class="secondary" data-action="room-share">${icon('share')}Share the code</button></div>
+<div class="button-row"><button class="secondary danger" data-action="room-leave">${host ? 'Put it out' : 'Leave'}</button>${host ? `<button class="primary" data-action="room-start">Start for ${room.members.length === 1 ? 'yourself' : `all ${room.members.length}`}</button>` : ''}</div>
+${host ? '' : '<p class="note">Whoever lit it starts the session. Keep Haven open.</p>'}
 <p class="note">You are growing a ${e(speciesById(store.state.settings.species).name.toLowerCase())}. <button class="linklike" data-action="choose-species">Change</button></p></div>`;
 }
 const prettyRoom = code => `${code.slice(0, 3)} ${code.slice(3)}`;
 
-function togetherTab(app) {
+function campfireTab(app) {
   const { social, store } = app, room = social.data.room;
   if (room?.state === 'lobby') return roomCard(app, room);
-  if (room?.state === 'running') return `<div class="room"><p class="lead">Your room is focusing now.</p><button class="primary wide" data-action="go" data-page="focus">Go to the session</button></div>`;
+  if (room?.state === 'running') return `<div class="room"><p class="lead">Your campfire is burning. Everyone round it is focusing.</p><button class="primary wide" data-action="go" data-page="focus">Go to the session</button></div>`;
   const minutes = store.state.settings.minutes;
-  return `<h2 class="section-title">Open a room</h2>
+  return `<p class="lead">Focus with friends round one fire. Everyone starts at the same moment, and finishing together earns more.</p>
+<h2 class="section-title">Light a campfire</h2>
 <form data-form="room-create" class="card-form">
 ${field('Length', `<select name="minutes">${[15, 25, 30, 45, 50, 60, 90, 120].map(m => `<option value="${m}" ${m === minutes || (m === 25 && ![15, 30, 45, 50, 60, 90, 120].includes(minutes)) ? 'selected' : ''}>${formatMinutes(m)}</option>`).join('')}</select>`)}
 <fieldset class="choices"><legend>If someone leaves</legend>
-<label><input type="radio" name="rule" value="together" checked><span><b>It ends for everyone</b><small>Everyone's plant withers. You hold each other to it.</small></span></label>
+<label><input type="radio" name="rule" value="together" checked><span><b>The fire goes out for everyone</b><small>Everyone's plant withers. You hold each other to it.</small></span></label>
 <label><input type="radio" name="rule" value="gentle"><span><b>Only they lose theirs</b><small>The rest carry on.</small></span></label></fieldset>
-<p class="form-error" role="alert" hidden></p><button class="primary wide" type="submit">Open room</button></form>
-<h2 class="section-title">Join a room</h2>
-<form data-form="room-join" class="inline-form">${field('Room code', '<input name="code" maxlength="7" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ABC DEF" required>')}<button class="secondary" type="submit">Join</button><p class="form-error" role="alert" hidden></p></form>`;
+<p class="form-error" role="alert" hidden></p><button class="primary wide" type="submit">Light it</button></form>
+<h2 class="section-title">Join a campfire</h2>
+<form data-form="room-join" class="inline-form">${field('Campfire code', '<input name="code" maxlength="7" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ABC DEF" required>')}<button class="secondary" type="submit">Join</button><p class="form-error" role="alert" hidden></p></form>`;
 }
 
 const PERIODS = [['today', 'Today'], ['week', 'Week'], ['month', 'Month'], ['all', 'All time']];
@@ -86,7 +87,7 @@ function activityTab(app) {
   const feed = app.social.data.feed, now = app.social.serverNow(), me = app.social.account.id;
   if (!feed) return empty('Loading what your friends grew.');
   if (!feed.length) return empty('Nothing here yet. Finished sessions from you and your friends show up here.');
-  return `<ul class="rows">${feed.map(f => { const sp = speciesById(f.species); return `<li class="row">${avatar(f.species)}<div class="row-main"><b>${e(f.user.id === me ? 'You' : f.user.name)}</b><span>${formatMinutes(f.minutes)}${f.room ? ' with friends' : ''}, grew a ${e(sp?.name.toLowerCase() || 'plant')}. ${formatAgo(f.start + f.minutes * 60000, now)}</span></div>${f.user.id === me ? '' : `<div class="row-end"><button class="iconbutton" data-action="cheer" data-id="${f.user.id}" data-kind="cheer" aria-label="Cheer ${e(f.user.name)}">${icon('cheer')}</button></div>`}</li>`; }).join('')}</ul>`;
+  return `<ul class="rows">${feed.map(f => { const sp = speciesById(f.species); return `<li class="row">${avatar(f.species)}<div class="row-main"><b>${e(f.user.id === me ? 'You' : f.user.name)}</b><span>${formatMinutes(f.minutes)}${f.room ? ' at a campfire' : ''}, grew a ${e(sp?.name.toLowerCase() || 'plant')}. ${formatAgo(f.start + f.minutes * 60000, now)}</span></div>${f.user.id === me ? '' : `<div class="row-end"><button class="iconbutton" data-action="cheer" data-id="${f.user.id}" data-kind="cheer" aria-label="Cheer ${e(f.user.name)}">${icon('cheer')}</button></div>`}</li>`; }).join('')}</ul>`;
 }
 
 /** Load what a tab needs from the server. */
@@ -124,8 +125,20 @@ async function friendDialog(app, id) {
 <div class="island-wrap friend">${worldHTML({ side, things, label: `${e(f.name)}'s haven` })}</div>
 <dl class="facts"><div><dt>Today</dt><dd>${formatMinutes(page.stats.today)}</dd></div><div><dt>This week</dt><dd>${formatMinutes(page.stats.week)}</dd></div><div><dt>All time</dt><dd>${formatMinutes(page.stats.total)} in ${page.stats.sessions} sessions</dd></div><div><dt>Level</dt><dd>${Number(page.card.level) || 1}</dd></div></dl>
 <div class="button-row"><button class="secondary" data-action="cheer" data-id="${id}" data-kind="cheer">${icon('cheer')}Cheer</button><button class="secondary" data-action="cheer" data-id="${id}" data-kind="nudge">${icon('nudge')}Nudge</button></div>
-<div class="button-row"><button class="secondary" data-action="gift-pick" data-id="${id}">${icon('gift')}Send a gift</button><button class="secondary" data-action="invite-friend" data-id="${id}">${icon('users')}${inRoom ? 'Invite to room' : 'Focus together'}</button></div>
-<div class="button-row quiet"><button class="linklike danger" data-action="remove-friend" data-id="${id}">Remove friend</button><button class="linklike danger" data-action="block-friend" data-id="${id}">Block</button></div>`);
+<div class="button-row"><button class="secondary" data-action="gift-pick" data-id="${id}">${icon('gift')}Send a gift</button><button class="secondary" data-action="invite-friend" data-id="${id}">${icon('users')}${inRoom ? 'Invite to the campfire' : 'Light a campfire'}</button></div>
+<div class="button-row quiet"><button class="linklike" data-action="report" data-id="${id}" data-name="${e(f.name)}" data-place="friend">Report</button><button class="linklike danger" data-action="remove-friend" data-id="${id}">Remove friend</button><button class="linklike danger" data-action="block-friend" data-id="${id}">Block</button></div>`);
+}
+
+/** Tell whoever runs Haven about someone: a name that is not right, being unkind, or spam. */
+export function reportDialog(app, { id, name, place }) {
+  openDialog(`Report ${name}`, `<form data-form="report" data-id="${e(id)}" data-place="${e(place || '')}" novalidate><p class="lead">Reports go to the people who run Haven. ${e(name)} is not told who sent it.</p>
+<fieldset class="choices"><legend>What is wrong</legend>
+<label><input type="radio" name="reason" value="name" checked><span><b>Their name or username</b><small>It is rude, hateful or pretends to be someone.</small></span></label>
+<label><input type="radio" name="reason" value="harassment"><span><b>They are unkind to me</b><small>Cheers, nudges, gifts or invites used to bother you.</small></span></label>
+<label><input type="radio" name="reason" value="spam"><span><b>Spam</b><small>Requests or invites over and over.</small></span></label>
+<label><input type="radio" name="reason" value="other"><span><b>Something else</b></span></label></fieldset>
+<p class="form-error" role="alert" hidden></p><div class="button-row"><button class="primary wide" type="submit">Send report</button></div>
+<p class="note">To stop hearing from them straight away, block them as well.</p></form>`);
 }
 
 function giftPickDialog(app, to) {
@@ -137,13 +150,13 @@ function giftPickDialog(app, to) {
 function inviteDialog(app) {
   const { social } = app, room = social.data.room, inside = new Set(room.members.map(m => m.id));
   const rows = social.data.friends.filter(f => !inside.has(f.id)).map(f => `<li class="row">${avatar(f.avatar)}<div class="row-main"><b>${e(f.name)}</b><span>${e(presence(f, social.serverNow()).text)}</span></div><div class="row-end"><button class="secondary" data-action="invite-send" data-id="${f.id}">Invite</button></div></li>`).join('');
-  openDialog('Invite friends', rows ? `<ul class="rows">${rows}</ul>` : '<p class="lead">Everyone you know is already here, or you have no friends on Haven yet. Share the room code instead.</p>');
+  openDialog('Invite friends', rows ? `<ul class="rows">${rows}</ul>` : '<p class="lead">Everyone you know is already here, or you have no friends on Haven yet. Share the campfire code instead.</p>');
 }
 
 export function inviteReceived(app, item) {
-  const d = item.data, rule = d.rule === 'together' ? 'If one person leaves, it ends for everyone.' : 'Someone leaving costs only them.';
-  openDialog('Focus together?', `<p class="lead">${e(item.from.name)} invites you to focus for ${formatMinutes(d.minutes)}. ${rule}</p>
-<div class="button-row"><button class="secondary" data-action="invite-decline" data-item="${item.id}">Not now</button><button class="primary" data-action="invite-accept" data-item="${item.id}" data-code="${e(d.code)}" autofocus>Join the room</button></div>`, { close: () => app.social.ack([item.id]) });
+  const d = item.data, rule = d.rule === 'together' ? 'If one person leaves, the fire goes out for everyone.' : 'Someone leaving costs only them.';
+  openDialog('Join the campfire?', `<p class="lead">${e(item.from.name)} lit a campfire${d.sanctuary ? ` in ${e(d.sanctuary)}` : ''} for ${formatMinutes(d.minutes)}. ${rule}</p>
+<div class="button-row"><button class="secondary" data-action="invite-decline" data-item="${item.id}">Not now</button><button class="primary" data-action="invite-accept" data-item="${item.id}" data-code="${e(d.code)}" autofocus>Join</button></div>`, { close: () => app.social.ack([item.id]) });
 }
 
 // ——— Actions ———
@@ -174,6 +187,7 @@ export const actions = {
     toast(d.kind === 'nudge' ? `Nudged ${name}.` : `Cheered ${name}.`);
   }, el),
   'gift-pick': (app, d) => giftPickDialog(app, d.id),
+  report: (app, d) => reportDialog(app, d),
   'remove-friend': async (app, d) => {
     const f = app.social.data.friends.find(x => x.id === d.id);
     if (!(await app.confirm('Remove friend?', `${e(f?.name || 'They')} will no longer see your sessions, and you will not see theirs.`, 'Remove friend'))) return;
@@ -188,30 +202,34 @@ export const actions = {
     if (app.social.data.room?.state !== 'lobby') await app.social.roomCreate(app.store.state.settings.minutes, 'together', app.store.state.settings.species);
     await app.social.roomInvite(d.id);
     closeDialog();
-    app.ui.friendsTab = 'together';
+    app.ui.friendsTab = 'campfire';
     app.go('friends');
-    toast('Invitation sent. The room is open.');
+    toast('Invitation sent. The campfire is lit.');
   }, el),
   'room-invite': app => inviteDialog(app),
   'invite-send': (app, d, el) => guard(async () => { await app.social.roomInvite(d.id); el.textContent = 'Invited'; el.dataset.action = ''; toast('Invitation sent.'); }, null),
   'room-share': async app => {
     const room = app.social.data.room;
-    const how = await share({ title: 'Haven', text: `Focus with me on Haven for ${formatMinutes(room.minutes)}. Room code ${prettyRoom(room.code)}.` });
-    if (how === 'copied') toast('Room code copied.'); else if (how === 'failed') toast(`Could not share. The code is ${prettyRoom(room.code)}.`);
+    const how = await share({ title: 'Haven', text: `Focus with me round a campfire on Haven for ${formatMinutes(room.minutes)}. Open Friends, then Campfire, and enter the code ${prettyRoom(room.code)}.` });
+    if (how === 'copied') toast('Campfire code copied.'); else if (how === 'failed') toast(`Could not share. The code is ${prettyRoom(room.code)}.`);
   },
-  'room-leave': (app, d, el) => guard(async () => { await app.social.roomLeave(); toast('You left the room.'); }, el),
+  'room-leave': (app, d, el) => guard(async () => { await app.social.roomLeave(); toast('You left the campfire.'); }, el),
   'room-start': (app, d, el) => guard(async () => { const room = await app.social.roomStart(); app.timer.startRoom(room); app.go('focus'); }, el),
-  'open-room'(app) { app.ui.friendsTab = 'together'; app.go('friends'); },
+  'open-room'(app) { app.ui.friendsTab = 'campfire'; app.go('friends'); },
   'invite-accept': (app, d, el) => guard(async () => {
     await app.social.roomJoin(d.code, app.store.state.settings.species);
     closeDialog();
-    app.ui.friendsTab = 'together';
+    app.ui.friendsTab = 'campfire';
     app.go('friends');
   }, el),
   'invite-decline': () => closeDialog(),
 };
 
 export const forms = {
+  report: (app, form) => busy(form, async () => {
+    try { await app.social.report(form.dataset.id, form.reason.value, form.dataset.place); closeDialog(); toast('Thanks. Your report was sent.'); }
+    catch (error) { formError(form, error.message); }
+  }),
   find: (app, form) => busy(form, async () => {
     formError(form, '');
     const out = $('#find-result');

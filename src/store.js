@@ -541,6 +541,30 @@ export class Store {
     if (fed.length) this.commit('care');
     return { ok: fed.length > 0, fed, bonds, achievements: earned, left: list.length - fed.length, now };
   }
+  /**
+   * A treat given to someone else's animal in a sanctuary: it comes out of your treats. It counts
+   * toward the care you have given, but the bond is between an animal and its own person.
+   */
+  giveTreat() {
+    if (this.state.food < 1) return { ok: false, error: 'You have no treats. Every finished session earns some.' };
+    this.state.food -= 1;
+    this.state.care.feeds += 1;
+    const earned = this.recordAchievements();
+    this.commit('care');
+    return { ok: true, achievements: earned };
+  }
+  /**
+   * Someone in a sanctuary gave one of your animals a treat. It is fed; the bond does not change.
+   * Safe to run twice (each of your devices hears about it).
+   */
+  fedByFriend(itemId, at) {
+    const item = this.item(itemId);
+    if (!item || speciesById(item.s).kind !== 'animal' || !Number.isFinite(at)) return false;
+    if ((item.fed || 0) >= at) return false;
+    item.fed = Math.min(at, this.now());
+    this.commit('care');
+    return true;
+  }
   /** A pat. It counts toward the bond once an hour. */
   pet(itemId) {
     const item = this.item(itemId), now = this.now();
@@ -578,7 +602,10 @@ export class Store {
     const side = this.side(), tiles = [];
     for (const [id, [u, v]] of Object.entries(this.state.haven.spots)) {
       const item = this.item(id);
-      if (item && tiles.length < 100) tiles.push(item.breed && item.breed !== 'mixed' ? [u, v, item.s, item.z, item.breed] : [u, v, item.s, item.z]);
+      if (!item || tiles.length >= 100) continue;
+      // Animals also say which they are and when they last ate, so people in a sanctuary can give them a treat.
+      if (speciesById(item.s).kind === 'animal') tiles.push([u, v, item.s, item.z, item.breed && item.breed !== 'mixed' ? item.breed : 0, item.id, item.fed || item.at]);
+      else tiles.push([u, v, item.s, item.z]);
     }
     const streak = this.streak();
     return { level: this.level().level, minutes: this.totalMinutes(), sessions: doneSessions(this.state.sessions).length, streak: streak.current, best: streak.best, species: this.state.unlocked.length, of: SPECIES.length, side, tiles };

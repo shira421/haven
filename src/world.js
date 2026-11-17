@@ -89,7 +89,19 @@ export class World {
     this.events = []; // what the picture should react to: rustle, land, splash, leaves, drop, ate, gone
     this.food = new Map(); // treats put down on the land: id → {id, u, v, left, eater, at}
     this.foodSeq = 0;
+    this.landmarks = new Map(); // things that are not anyone's, such as a sanctuary's great tree
+    this.pals = new Set(); // pairs of animals that are friends: "a|b", in id order
   }
+
+  /** Something everyone walks round, kept through sync(). Birds perch in it if `perch` is given. */
+  setLandmark({ id, u, v, solid = 0.5, perch = null }) {
+    const t = { id, species: perch ? 'oak' : 'landmark', u, v, k: perch ? perch / 1.15 : 1, solid, soft: false, cool: 0, landmark: true };
+    this.landmarks.set(id, t);
+    this.things.set(id, t);
+  }
+  /** Animals that are friends seek each other out. */
+  setPals(pairs) { this.pals = new Set(pairs.map(([a, b]) => [a, b].sort().join('|'))); }
+  arePals(a, b) { return this.pals.has([a, b].sort().join('|')); }
 
   rand(lo, hi) { return lo + this.random() * (hi - lo); }
 
@@ -122,6 +134,7 @@ export class World {
     if (side !== undefined && side !== this.side) this.setLand(side);
     const seen = new Set();
     this.things.clear();
+    for (const t of this.landmarks.values()) this.things.set(t.id, t);
     for (const p of placed) {
       const kind = speciesById(p.species)?.kind;
       if (!kind) continue;
@@ -320,14 +333,16 @@ export class World {
     }
     const r = this.random();
     if (!hungry && a.cool <= this.t && others.length && r < 0.2) {
-      // Say hello to whoever is nearest.
-      const o = others.reduce((best, x) => (this.near(a, x) < this.near(a, best) ? x : best));
-      if (this.near(a, o) < 4) {
+      // Say hello to whoever is nearest, or go and find a friend.
+      const pal = others.find(x => this.arePals(a.id, x.id) && this.near(a, x) < 8);
+      const o = pal && this.random() < 0.7 ? pal : others.reduce((best, x) => (this.near(a, x) < this.near(a, best) ? x : best));
+      if (this.near(a, o) < (o === pal ? 8 : 4)) {
         const mu = (a.u + o.u) / 2, mv = (a.v + o.v) / 2;
         this.release(o);
         a.buddy = o.id; o.buddy = a.id; a.cool = o.cool = this.t + 24;
         this.goTo(a, mu + 0.24, mv - 0.24, 'greet');
         this.goTo(o, mu - 0.24, mv + 0.24, 'greet');
+        this.events.push({ type: 'meet', a: a.id, b: o.id, pals: o === pal });
         return;
       }
     }

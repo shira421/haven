@@ -48,7 +48,7 @@ function idle(app) {
   const startLabel = s.mode === 'pomodoro' && cycle && !cycle.done ? `Start round ${cycle.round} of ${cycle.rounds}` : 'Start focusing';
   const empty = !Object.keys(store.state.haven.spots).length;
   const panel = arranging ? haven.arrangePanel(app) : feeding ? haven.feedingPanel(app) : `<div class="panel">
-${room ? `<div class="notice"><p>You are in a room${room.members.length > 1 ? ` with ${room.members.length - 1} ${room.members.length === 2 ? 'friend' : 'friends'}` : ''}. It starts when the host is ready.</p><button class="secondary" data-action="open-room">Open room</button></div>` : ''}
+${room ? `<div class="notice"><p>You are at a campfire${room.members.length > 1 ? ` with ${room.members.length - 1} ${room.members.length === 2 ? 'friend' : 'friends'}` : ''}. It starts when whoever lit it is ready.</p><button class="secondary" data-action="open-room">Go to the campfire</button></div>` : ''}
 ${segmented('mode', MODES, s.mode, 'How to time the session')}
 <div class="choosers">
 <button class="chooser" data-action="choose-length"><span>Length</span><b>${e(length)}</b></button>
@@ -72,10 +72,10 @@ function running(app) {
   const { store, timer, social } = app, active = store.state.active, now = app.now();
   const species = speciesById(active.species), p = progress(active, now);
   const room = active.room ? social.data.room : null;
-  const label = active.mode === 'pomodoro' && active.round ? `Round ${active.round} of ${store.state.cycle?.rounds || store.state.settings.pomodoro.rounds}` : active.room ? 'Focusing together' : active.planned ? '' : 'Stopwatch';
+  const label = active.mode === 'pomodoro' && active.round ? `Round ${active.round} of ${store.state.cycle?.rounds || store.state.settings.pomodoro.rounds}` : active.room ? 'Round the campfire' : active.planned ? '' : 'Stopwatch';
   const verb = species.kind === 'animal' ? `Waiting for a ${lower(species)}.` : species.kind === 'nature' ? `Building a ${lower(species)}.` : `Growing a ${lower(species)}.`;
   const rule = active.deep && !bridge() && phoneBrowser() ? ` Lock your phone if you like. More than ${formatAway(active.allowance)} in another app and ${species.kind === 'animal' ? 'it leaves' : species.kind === 'nature' ? 'the work is lost' : 'it withers'}.` : active.deep ? ` Stay in Haven: more than ${formatAway(active.allowance)} away and ${species.kind === 'animal' ? 'it leaves' : species.kind === 'nature' ? 'the work is lost' : 'it withers'}.` : ' You can use other apps.';
-  const members = room ? `<ul class="room-strip" aria-label="In this room">${room.members.map(m => `<li class="${m.status}">${avatar(m.avatar)}<span>${e(m.id === social.account?.id ? 'You' : m.name)}</span><small>${m.status === 'focusing' ? 'Focusing' : m.status === 'done' ? 'Finished' : 'Left'}</small></li>`).join('')}</ul>` : '';
+  const members = room ? `<ul class="room-strip" aria-label="Round the campfire">${room.members.map(m => `<li class="${m.status}">${avatar(m.avatar)}<span>${e(m.id === social.account?.id ? 'You' : m.name)}</span><small>${m.status === 'focusing' ? 'Focusing' : m.status === 'done' ? 'Finished' : 'Left'}</small></li>`).join('')}</ul>` : '';
   return `<section class="page focus running" data-page="focus"><h1 class="page-title sr-only">Focusing</h1>
 <div class="scene">${skyHTML({ t: p.fraction })}
 ${label ? `<p class="scene-label">${e(label)}</p>` : ''}
@@ -211,7 +211,7 @@ export function failedDialog(app, { session, reason, away, who, judged }) {
   const long = away >= 120 ? formatMinutes(away / 60) : `${away} s`, allows = formatAway(app.store.state.settings.allowance);
   const why = reason === 'left' && judged ? `Haven counted ${long} in another app. Deep focus allows ${allows}. ${judged.why}`
     : reason === 'left' ? `You were away from Haven for ${long}. Deep focus allows ${allows}.`
-    : reason === 'friend-left' ? `${who ? e(who) : 'Someone'} left the room. In this kind of room, one person leaving ends it for everyone.`
+    : reason === 'friend-left' ? `${who ? e(who) : 'Someone'} left the campfire. At this campfire, one person leaving puts it out for everyone.`
     : `You stopped after ${minutes < 1 ? 'less than a minute' : formatMinutes(minutes)}.`;
   openDialog(title, `<div class="result-art">${sprite(species.id, { kind: species.kind, withered: true })}</div>
 <p class="lead">${why}</p>
@@ -252,7 +252,7 @@ export const actions = {
     if (!active) return;
     const species = speciesById(active.species);
     const together = active.room && app.social.data.room?.rule === 'together';
-    const ok = await app.confirm('Give up?', `${species.kind === 'animal' ? `The ${lower(species)} will leave` : species.kind === 'nature' ? `The ${lower(species)} will be left unfinished` : `The ${lower(species)} will wither`} and this session will not count.${together ? ' The session ends for everyone in the room.' : ''}`, 'Give up');
+    const ok = await app.confirm('Give up?', `${species.kind === 'animal' ? `The ${lower(species)} will leave` : species.kind === 'nature' ? `The ${lower(species)} will be left unfinished` : `The ${lower(species)} will wither`} and this session will not count.${together ? ' The fire goes out for everyone round it.' : ''}`, 'Give up');
     if (ok) timer.giveUp();
   },
   finish: app => app.timer.complete(),

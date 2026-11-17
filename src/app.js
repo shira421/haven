@@ -208,7 +208,7 @@ function listen() {
     if (what === 'away') return;
     if (['session', 'sessions', 'care', 'haven', 'state'].includes(what)) remindersSoon();
     if (what === 'settings') { remindersSoon(); syncNewsAccount(app.social, store); }
-    if (what === 'care') { app.social.scheduleBackup(); if (app.ui.page === 'focus') render(); else $('#coins').textContent = store.state.coins; return; }
+    if (what === 'care') { app.social.scheduleBackup(); app.social.pushCard(); if (app.ui.page === 'focus') render(); else { $('#coins').textContent = store.state.coins; if (app.ui.page === 'sanctuary') sanctuary.cared(app); } return; }
     if (what === 'haven' || what === 'session' || what === 'collection' || what === 'sessions' || what === 'state') app.social.pushCard();
     // Every change reaches this account's other devices a few seconds later.
     if (what !== 'cycle') app.social.scheduleBackup();
@@ -264,6 +264,7 @@ function inbox(item) {
     if (offScreen()) news(item);
     return sanctuary.invited(app, item);
   }
+  if (item.kind === 'care' && item.data?.kind === 'treat') store.fedByFriend(String(item.data.item || ''), item.created);
   if (item.kind === 'gift') {
     const got = store.receiveGift(item.data.species, from, item.id), sp = speciesById(item.data.species);
     if (got && sp) toast(`${from} sent you a ${sp.name.toLowerCase()}. ${store.state.haven.spots[got.id] ? 'It is in your haven.' : 'It is in storage.'}`);
@@ -279,7 +280,7 @@ function roomChanged({ room, by }) {
   const active = store.state.active;
   if (room.state === 'running' && !active) { app.timer.startRoom(room); return; }
   if (room.state === 'failed' && active?.room === room.code) { app.timer.fail('friend-left', { who: by?.id === app.social.account?.id ? 'You' : by?.name }); return; }
-  if (room.state === 'closed' && app.ui.page === 'friends') toast('The room was closed.');
+  if (room.state === 'closed' && app.ui.page === 'friends') toast('The campfire was put out.');
 }
 
 // ——— Start ———
@@ -310,6 +311,7 @@ async function boot() {
   app.timer = new Timer({ store, social: app.social, sound });
   wire();
   haven.wire(app);
+  sanctuary.wire(app);
   listen();
   const fromGoogle = googleFromAddress();
   const add = /[#&]add=([A-Za-z0-9-]{8,9})/.exec(location.hash);

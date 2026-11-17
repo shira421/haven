@@ -57,7 +57,7 @@ function sessionDialog(app, id) {
   const { store } = app, s = store.state.sessions.find(x => x.id === id);
   if (!s) return;
   const sp = speciesById(s.species);
-  const why = { 'gave-up': 'You gave up.', left: 'You left Haven for too long.', 'friend-left': 'Someone left the room.' }[s.reason] || '';
+  const why = { 'gave-up': 'You gave up.', left: 'You left Haven for too long.', 'friend-left': 'Someone left the campfire.' }[s.reason] || '';
   openDialog(s.status === 'done' ? `${formatMinutes(s.minutes)} session` : 'Unfinished session', `<div class="result-art small">${sprite(s.species, { kind: sp.kind, withered: s.status === 'failed' })}</div>
 <dl class="facts"><div><dt>When</dt><dd>${dayText(s.start)}, ${timeText(s.start)} to ${timeText(s.end)}</dd></div><div><dt>${s.status === 'done' ? 'Grew' : 'Was growing'}</dt><dd>${e(sp.name)}</dd></div><div><dt>Tag</dt><dd>${e(store.tagName(s.tag))}</dd></div>${s.status === 'done' ? `<div><dt>Coins</dt><dd>${s.coins}</dd></div>` : why ? `<div><dt>Why</dt><dd>${why}</dd></div>` : ''}</dl>
 <form data-form="note" data-id="${e(s.id)}">${field('Note', `<input name="note" maxlength="200" value="${e(s.note || '')}" placeholder="What you worked on">`)}

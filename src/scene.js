@@ -89,8 +89,22 @@ const dims = side => (Array.isArray(side) ? side : [side, side]);
 
 /** The box the land is drawn in, in drawing units: [x, y, width, height]. */
 export function landBox(side) {
-  const [U, V] = dims(side);
-  return [-(U * W) / 2 - PAD, -HEADROOM, ((U + V) * W) / 2 + PAD * 2, ((U + V) * H) / 2 + DEPTH + HEADROOM + PAD + 8];
+  const [U, V, room = 0] = dims(side);
+  const top = HEADROOM + room;
+  return [-(U * W) / 2 - PAD, -top, ((U + V) * W) / 2 + PAD * 2, ((U + V) * H) / 2 + DEPTH + top + PAD + 8];
+}
+/** How wide the great tree is drawn, in drawing units, for a clearing of `size` tiles. */
+const treeWidth = size => size * W * 0.95;
+/**
+ * A sanctuary's size as [U, V, room]: `room` is the extra sky above the land so the
+ * great tree's crown is never cut off at the top.
+ */
+export function sanctuarySide(plots, tree) {
+  const U = Math.max(...plots.map(p => p.u0 + p.size)), V = Math.max(...plots.map(p => p.v0 + p.size));
+  const commons = plots.find(p => p.commons);
+  if (!tree || !commons) return [U, V];
+  const top = ((tree.u + tree.v) * H) / 2 - treeWidth(commons.size) * (240 / 200) * 0.94;
+  return [U, V, Math.max(0, Math.ceil(-top - HEADROOM + 10))];
 }
 /**
  * Where a point on the land is in the picture, as percentages of its box.
@@ -123,7 +137,7 @@ function entity(side, t, interactive) {
   const s = speciesById(t.species), at = project(side, t.u, t.v);
   const delay = ((Math.round(t.u * 7) + Math.round(t.v * 13)) % 10) * -0.4;
   const tag = interactive && t.id ? 'button' : 'span';
-  const label = interactive && t.id ? ` data-action="ent" data-ent="${t.id}" aria-label="${escapeHTML(t.label || s.name)}"` : t.id ? ` data-ent="${t.id}"` : '';
+  const label = interactive && t.id ? ` data-action="${t.action || 'ent'}" data-ent="${t.id}" aria-label="${escapeHTML(t.label || s.name)}"` : t.id ? ` data-ent="${t.id}"` : '';
   const growing = t.stage !== undefined && t.stage < 3;
   const trait = s.kind === 'animal' ? traitsOf(s.id) : null;
   const art = t.art || artOf(t.species);
@@ -168,14 +182,14 @@ ${ground}${tufts}</svg>${order.map(t => entity(side, t, interactive)).join('')}<
  * each way, with its corner at (u0, v0). Plots sit on a grid; where the grid is not full the land
  * has a bay. Things are given in the sanctuary's own coordinates.
  */
-export function sanctuaryHTML({ plots, things = [], label = '' }) {
-  const U = Math.max(...plots.map(p => p.u0 + p.size)), V = Math.max(...plots.map(p => p.v0 + p.size));
-  const [x0, y0, w, h] = landBox([U, V]);
+export function sanctuaryHTML({ plots, things = [], label = '', tree = null }) {
+  const side = sanctuarySide(plots, tree), [U, V] = side;
+  const [x0, y0, w, h] = landBox(side);
   const at = (u, v) => [((v - u) * W) / 2, ((u + v) * H) / 2];
   const has = (u, v) => plots.some(p => u >= p.u0 && u < p.u0 + p.size && v >= p.v0 && v < p.v0 + p.size);
   let faces = '', ground = '', tufts = '';
   plots.forEach((p, i) => {
-    const grass = i % 2 ? ['#93cf71', '#8ecb6c'] : GRASS;
+    const grass = p.commons ? ['#a9d97c', '#a3d477'] : i % 2 ? ['#93cf71', '#8ecb6c'] : GRASS;
     // The two sides of soil that face the viewer, where no other plot covers them.
     const [ax, ay] = at(p.u0 + p.size, p.v0), [bx, by] = at(p.u0 + p.size, p.v0 + p.size), [cx, cy] = at(p.u0, p.v0 + p.size);
     if (!has(p.u0 + p.size + 0.5, p.v0 + 0.5)) faces += `<polygon points="${ax} ${ay} ${bx} ${by} ${bx} ${by + DEPTH} ${ax} ${ay + DEPTH}" fill="${SOIL}"/><polygon points="${ax} ${ay} ${bx} ${by} ${bx} ${by + 6} ${ax} ${ay + 6}" fill="${EDGE}"/>`;
@@ -198,28 +212,62 @@ export function sanctuaryHTML({ plots, things = [], label = '' }) {
     if (q.v0 === p.v0 + p.size && q.u0 === p.u0) for (let r = 0.5; r < p.size; r += 1.5) { const [x, y] = at(p.u0 + r, q.v0); paths += `<ellipse cx="${x}" cy="${y}" rx="7" ry="3.4" fill="#e7dcc4" opacity=".85"/>`; }
   }
   // A name sign at the back of each plot, never wider than most of its plot, so signs do not run into each other.
-  const signs = plots.map(p => { const pos = project([U, V], p.u0 + 0.35, p.v0 + p.size / 2); return `<span class="plot-sign" style="left:${pos.left.toFixed(2)}%;top:${pos.top.toFixed(2)}%;max-width:${((p.size * W * 0.8) / w * 100).toFixed(1)}%">${escapeHTML(p.name)}</span>`; }).join('');
+  const signs = plots.filter(p => !p.commons).map(p => { const pos = project(side, p.u0 + 0.35, p.v0 + p.size / 2); return `<span class="plot-sign" style="left:${pos.left.toFixed(2)}%;top:${pos.top.toFixed(2)}%;max-width:${((p.size * W * 0.8) / w * 100).toFixed(1)}%">${escapeHTML(p.name)}</span>`; }).join('');
   const order = things.filter(t => speciesById(t.species));
+  // The great tree stands in the middle of the clearing, wider and taller as the week goes on.
+  const commons = plots.find(p => p.commons);
+  let great = '';
+  if (tree && commons) {
+    const at = project(side, tree.u, tree.v), wide = treeWidth(commons.size) / w * 100;
+    great = `<div class="great-tree" data-stage="${tree.stage}" style="left:${at.left.toFixed(2)}%;top:${at.top.toFixed(2)}%;width:${wide.toFixed(2)}%;z-index:${at.depth}" role="img" aria-label="The great tree: ${escapeHTML(treeStageName(tree.stage).toLowerCase())}">${greatTreeSVG(tree.stage)}</div>`;
+  }
   return `<div class="world sanctuary-land" data-u="${U}" data-v="${V}" style="aspect-ratio:${w} / ${h}"${label ? ` role="group" aria-label="${escapeHTML(label)}"` : ''}>
-<svg class="land" viewBox="${x0} ${y0} ${w} ${h}" aria-hidden="true">${faces}${ground}${paths}${tufts}</svg>${signs}${order.map(t => entity([U, V], t, false)).join('')}</div>`;
+<svg class="land" viewBox="${x0} ${y0} ${w} ${h}" aria-hidden="true">${faces}${ground}${paths}${tufts}</svg>${signs}${great}${order.map(t => entity(side, t, Boolean(t.action))).join('')}</div>`;
 }
 
 /**
- * Lay out members' havens as plots on a near-square grid: each plot is as big as the biggest
- * haven, and each haven sits in the middle of its plot. Returns the plots and every thing in
+ * Lay out members' havens as plots on a near-square grid round a clearing in the middle, where the
+ * great tree grows (and a campfire burns while one is lit). Each plot is as big as the biggest haven,
+ * and each haven sits in the middle of its plot. Returns the plots, the clearing, and every thing in
  * sanctuary coordinates, with ids made unique per member.
  */
-export function sanctuaryLayout(members) {
-  const cols = Math.ceil(Math.sqrt(members.length)) || 1;
+export function sanctuaryLayout(members, { fire = false } = {}) {
+  const cells = members.length + 1, cols = Math.ceil(Math.sqrt(cells)), rows = Math.ceil(cells / cols);
+  const middle = Math.floor((rows - 1) / 2) * cols + Math.floor((cols - 1) / 2);
   const cards = members.map(m => ({ m, ...thingsFromCard(m.card) }));
   const size = Math.max(5, ...cards.map(c => c.side));
-  const plots = [], things = [];
-  cards.forEach(({ m, side, things: own }, i) => {
-    const u0 = Math.floor(i / cols) * size, v0 = (i % cols) * size, off = (size - side) / 2;
+  const plots = [], things = [], place = i => ({ u0: Math.floor(i / cols) * size, v0: (i % cols) * size });
+  const commons = { ...place(middle), size, commons: true, name: 'The great tree', id: 'commons' };
+  let cell = 0;
+  cards.forEach(({ m, side, things: own }) => {
+    if (cell === middle) cell++;
+    const { u0, v0 } = place(cell++), off = (size - side) / 2;
     plots.push({ u0, v0, size, name: m.name, id: m.id });
     own.forEach((t, k) => things.push({ ...t, id: `${m.id}-${k}`, owner: m.id, u: u0 + off + t.u, v: v0 + off + t.v }));
   });
-  return { plots, things, dims: [Math.max(...plots.map(p => p.u0 + p.size)), Math.max(...plots.map(p => p.v0 + p.size))] };
+  const tree = { u: commons.u0 + size / 2, v: commons.v0 + size / 2 };
+  if (fire) things.push({ id: 'campfire', species: 'campfire', size: 2, u: tree.u + 1.3, v: tree.v + 1.3, label: 'The campfire' });
+  const all = [...plots, commons];
+  return { plots: all, things, tree, commons, dims: sanctuarySide(all, tree) };
+}
+
+const TREE_STAGES = ['A seed in the ground', 'A sprout', 'A sapling', 'A young tree', 'A great tree', 'In full bloom'];
+export const treeStageName = stage => TREE_STAGES[Math.max(0, Math.min(5, stage | 0))];
+
+/** The great tree at one of its six stages, from a seed to full bloom. */
+export function greatTreeSVG(stage = 0) {
+  stage = Math.max(0, Math.min(5, stage | 0));
+  const leaf = ['#6fbf5a', '#5cae4c', '#4f9c43', '#7ccb63'], ground = '<ellipse cx="100" cy="226" rx="64" ry="11" fill="#14152b" opacity=".14"/>';
+  if (stage === 0) return `<svg viewBox="0 0 200 240" aria-hidden="true">${ground}<ellipse cx="100" cy="222" rx="26" ry="7" fill="#9c6b44"/><ellipse cx="100" cy="219" rx="9" ry="5" fill="#c58b55"/><path d="M100 218c0-6 2-10 6-12" stroke="#5cae4c" stroke-width="3" fill="none" stroke-linecap="round"/></svg>`;
+  if (stage === 1) return `<svg viewBox="0 0 200 240" aria-hidden="true">${ground}<ellipse cx="100" cy="222" rx="24" ry="6" fill="#9c6b44"/><path d="M100 222V186" stroke="#7a5236" stroke-width="5" stroke-linecap="round"/><path d="M100 196c-14-2-22-10-24-20 13 0 22 7 24 20Z" fill="${leaf[0]}"/><path d="M100 188c13-4 19-13 20-24-12 2-19 10-20 24Z" fill="${leaf[1]}"/></svg>`;
+  // From a sapling on: a trunk that thickens and a crown of leaf clusters that widens with each stage.
+  const k = [0, 0, 0.5, 0.7, 0.88, 1][stage], trunkTop = 222 - 150 * k, girth = 6 + 16 * k;
+  const crown = [[0, -38], [-34, -14], [34, -14], [-20, -52], [22, -54], [0, -70], [-46, -40], [46, -40], [0, -8]];
+  const blobs = crown.slice(0, stage === 2 ? 4 : stage === 3 ? 6 : 9).map(([dx, dy], i) => `<circle cx="${(100 + dx * k).toFixed(1)}" cy="${(trunkTop + 30 + dy * k).toFixed(1)}" r="${(30 * k + 6).toFixed(1)}" fill="${leaf[i % 4]}"/>`).join('');
+  const roots = k > 0.6 ? `<path d="M${100 - girth} 222c-10 2-18 4-24 3M${100 + girth} 222c10 2 18 4 24 3" stroke="#6b4630" stroke-width="${(girth / 2.4).toFixed(1)}" fill="none" stroke-linecap="round"/>` : '';
+  const bloom = stage === 5 ? Array.from({ length: 22 }, (_, i) => { const a = i * 2.4, r = 14 + (i * 37) % 56; return `<circle cx="${(100 + Math.cos(a) * r * k * 1.15).toFixed(1)}" cy="${(trunkTop + 18 + Math.sin(a) * r * k * 0.8).toFixed(1)}" r="${i % 3 ? 4.2 : 5.4}" fill="${i % 4 ? '#f7a8c4' : '#ffd36a'}" stroke="#fff" stroke-width="1"/>`; }).join('') : '';
+  const lanterns = stage === 5 ? `<g class="lanterns"><circle cx="${100 - 40 * k}" cy="${trunkTop + 62}" r="5" fill="#ffd36a"/><circle cx="${100 + 44 * k}" cy="${trunkTop + 58}" r="5" fill="#ffd36a"/></g>` : '';
+  return `<svg viewBox="0 0 200 240" aria-hidden="true">${ground}${roots}<path d="M${100 - girth / 2} 224L${100 - girth / 3} ${trunkTop + 30}h${(girth * 2) / 3}L${100 + girth / 2} 224Z" fill="#7a5236"/><g class="crown">${blobs}${bloom}</g>${lanterns}</svg>`;
 }
 
 /** Everything standing in a store's haven, as things for worldHTML and the simulation. */
@@ -235,6 +283,11 @@ export function thingsFromCard(card) {
   const whole = (Array.isArray(card?.tiles) ? card.tiles : []).every(t => Array.isArray(t) && Number.isInteger(t[0]) && Number.isInteger(t[1]));
   const things = (Array.isArray(card?.tiles) ? card.tiles : []).slice(0, 100)
     .filter(t => Array.isArray(t) && Number.isFinite(t[0]) && Number.isFinite(t[1]) && t[0] >= 0 && t[1] >= 0 && t[0] <= side && t[1] <= side && speciesById(t[2]))
-    .map(([u, v, species, size, breed]) => ({ species: speciesById(species).id, art: artOf(species, typeof breed === 'string' ? breed : null), size: [1, 2, 3].includes(size) ? size : 2, u: whole ? Math.min(side - 0.4, u + 0.5) : u, v: whole ? Math.min(side - 0.4, v + 0.5) : v }));
+    .map(([u, v, species, size, breed, item, fed]) => ({
+      species: speciesById(species).id, art: artOf(species, typeof breed === 'string' ? breed : null), size: [1, 2, 3].includes(size) ? size : 2,
+      u: whole ? Math.min(side - 0.4, u + 0.5) : u, v: whole ? Math.min(side - 0.4, v + 0.5) : v,
+      // Since 1.5 a card also says which of its owner's things each one is, and when an animal last ate.
+      ...(typeof item === 'string' && /^[\w-]{1,40}$/.test(item) ? { item } : {}), ...(Number.isFinite(fed) ? { fed } : {}),
+    }));
   return { side, things };
 }

@@ -372,6 +372,14 @@ export class Social {
   async sanctuaryJoin(code) { const r = await this.api('POST', '/api/sanctuaries/join', { code }); await this.loadSanctuaries().catch(() => {}); return r.sanctuary; }
   sanctuaryInvite(id, to) { return this.api('POST', '/api/sanctuaries/invite', { id, to }); }
   async sanctuaryLeave(id) { await this.api('POST', '/api/sanctuaries/leave', { id }); await this.loadSanctuaries().catch(() => {}); }
+  /** Light a campfire for everyone in the sanctuary. */
+  async sanctuaryCampfire(id, minutes, rule, species) { const r = await this.api('POST', '/api/sanctuaries/campfire', { id, minutes, rule, species }); this.data.room = r.room; this.emit('change'); return r.room; }
+  /** A treat or a pat for an animal in someone else's haven in the sanctuary. */
+  sanctuaryCare(id, to, item, species, kind) { return this.api('POST', '/api/sanctuaries/care', { id, to, item, species, kind }); }
+  /** Two animals from different havens met: they are friends now. Keys are "owner:item:species". */
+  sanctuaryPal(id, a, b) { return this.api('POST', '/api/sanctuaries/pal', { id, a, b }); }
+  /** Report someone to whoever runs the server. */
+  report(id, reason, place) { return this.api('POST', '/api/report', { id, reason, place }); }
   async sanctuaryEdit(id, patch) { const r = await this.api('POST', '/api/sanctuaries/edit', { id, ...patch }); await this.loadSanctuaries().catch(() => {}); return r.sanctuary; }
 
   // ——— Sessions ———

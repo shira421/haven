@@ -253,7 +253,8 @@ export class Hub {
     if (room.state === 'lobby' && now - room.created > RULES.lobbyLife) { this.sql("UPDATE rooms SET state='closed' WHERE code=?", code); room.state = 'closed'; }
     const members = this.sql('SELECT m.status, m.joined, m.species, u.id, u.name, u.handle, u.avatar FROM members m JOIN users u ON u.id=m.user_id WHERE m.room=? ORDER BY m.joined, m.rowid', code)
       .map(m => ({ id: m.id, name: m.name, handle: m.handle, avatar: m.avatar, status: m.status, species: m.species }));
-    return { code: room.code, host: room.host, minutes: room.minutes, rule: room.rule, state: room.state, start: room.start, members, now };
+    const sanctuary = room.sid ? this.one('SELECT name FROM sanctuaries WHERE id=?', room.sid)?.name || null : null;
+    return { code: room.code, host: room.host, minutes: room.minutes, rule: room.rule, state: room.state, start: room.start, members, now, ...(sanctuary ? { sid: room.sid, sanctuary } : {}) };
   }
   pushRoom(code, now, extra = {}) {
     const room = this.roomView(code, now);
@@ -902,10 +903,10 @@ export class Hub {
     this.limit('join:' + me.id, 60, 3600, ctx.now);
     const code = cleanCode(body.code);
     const room = this.roomView(code, ctx.now);
-    if (!room || room.state === 'closed' || this.blockedEitherWay(me.id, room.host)) throw gone('No room has that code. Check it and try again.');
+    if (!room || room.state === 'closed' || this.blockedEitherWay(me.id, room.host)) throw gone('No campfire has that code. Check it and try again.');
     if (room.members.some(m => m.id === me.id)) return { room };
-    if (room.state !== 'lobby') throw bad('That room has already started.');
-    if (room.members.length >= RULES.maxRoom) throw bad(`That room is full. A room holds ${RULES.maxRoom} people.`);
+    if (room.state !== 'lobby') throw bad('That campfire has already started.');
+    if (room.members.length >= RULES.maxRoom) throw bad(`That campfire is full. ${RULES.maxRoom} people fit round one.`);
     if (this.focusing(this.activeSession(me.id), ctx.now)) throw bad('Finish your current session first.');
     this.leaveLobbies(me, ctx.now, code);
     this.sql("INSERT INTO members(room,user_id,status,joined,species) VALUES(?,?,'joined',?,?)", code, me.id, ctx.now, speciesById(body.species) ? body.species : 'clover');
@@ -937,7 +938,7 @@ export class Hub {
   roomInvite(me, body, ctx) {
     const code = cleanCode(body.code);
     const room = this.roomView(code, ctx.now);
-    if (!room || room.state !== 'lobby' || !room.members.some(m => m.id === me.id)) throw gone('That room is no longer open.');
+    if (!room || room.state !== 'lobby' || !room.members.some(m => m.id === me.id)) throw gone('That campfire has gone out.');
     const other = this.requireFriend(me, body.to, 'invite');
     if (room.members.some(m => m.id === other.id)) return { status: 'joined' };
     this.limit(`invite:${me.id}:${other.id}`, 3, 600, ctx.now, `You have already invited ${other.name}.`);
@@ -949,8 +950,8 @@ export class Hub {
   roomStart(me, body, ctx) {
     const code = cleanCode(body.code);
     const room = this.roomView(code, ctx.now);
-    if (!room || room.state !== 'lobby') throw gone('That room is no longer open.');
-    if (room.host !== me.id) throw new ApiError(403, 'Only the person who opened the room can start it.');
+    if (!room || room.state !== 'lobby') throw gone('That campfire has gone out.');
+    if (room.host !== me.id) throw new ApiError(403, 'Only the person who lit the campfire can start it.');
     const start = ctx.now + RULES.countdown;
     this.sql("UPDATE rooms SET state='running', start=? WHERE code=?", start, code);
     this.sql("UPDATE members SET status='focusing' WHERE room=?", code);
@@ -968,14 +969,14 @@ export class Hub {
     const code = cleanCode(body.code);
     if (!speciesById(body.species)) throw bad('Choose a plant or an animal.');
     const changed = this.sql('UPDATE members SET species=? WHERE room=? AND user_id=? RETURNING room', body.species, code, me.id).length;
-    if (!changed) throw gone('That room is no longer open.');
+    if (!changed) throw gone('That campfire has gone out.');
     this.sql("UPDATE sessions SET species=? WHERE room=? AND user_id=? AND status='active'", body.species, code, me.id);
     return { room: this.pushRoom(code, ctx.now) };
   }
 
   roomGet(me, code, ctx) {
     const room = this.roomView(cleanCode(code), ctx.now);
-    if (!room || !room.members.some(m => m.id === me.id)) throw gone('That room is no longer open.');
+    if (!room || !room.members.some(m => m.id === me.id)) throw gone('That campfire has gone out.');
     return { room };
   }
 
