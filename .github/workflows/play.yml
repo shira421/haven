@@ -1,0 +1,74 @@
+name: Google Play
+
+# Run by hand (Actions > Google Play > Run workflow). Builds the signed bundle from main and sends
+# it to a Google Play testing track as a draft, which you then review and roll out in Play Console.
+# Needs the keystore secrets and PLAY_SERVICE_ACCOUNT_JSON (see PLAY.md), and waits for approval in
+# the "google-play" environment. The very first bundle must be uploaded in Play Console by hand.
+on:
+  workflow_dispatch:
+    inputs:
+      track:
+        description: Which track
+        type: choice
+        options: [internal, alpha, beta, production]
+        default: internal
+
+permissions:
+  contents: read
+
+concurrency:
+  group: google-play
+  cancel-in-progress: false
+
+jobs:
+  upload:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: google-play
+    env:
+      ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+      HAVEN_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Build the web app with the friends server's address
+        run: |
+          api="${{ vars.HAVEN_API_URL || '' }}"
+          if [ -z "$api" ] && [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            sub=$(curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s).result?.subdomain||''))") || true
+            [ -n "$sub" ] && api="https://haven-hub.$sub.workers.dev"
+          fi
+          [ -n "$api" ] || { echo "::error::Set the HAVEN_API_URL variable or the Cloudflare secrets, so the app knows its server."; exit 1; }
+          HAVEN_API_URL="$api" npm run build
+      - name: The keystore is set
+        run: |
+          [ -n "$ANDROID_KEYSTORE_B64" ] && [ -n "$HAVEN_KEYSTORE_PASSWORD" ] || { echo "::error::Add the ANDROID_KEYSTORE_B64 and ANDROID_KEYSTORE_PASSWORD secrets (see PLAY.md)."; exit 1; }
+          echo "$ANDROID_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/haven.keystore"
+          echo "HAVEN_KEYSTORE_FILE=$RUNNER_TEMP/haven.keystore" >> "$GITHUB_ENV"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+      - name: Build the bundle
+        working-directory: android
+        run: gradle :app:bundleRelease
+      - uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.shira421.haven
+          releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
+          track: ${{ inputs.track }}
+          status: draft
+      - run: rm -f "$RUNNER_TEMP/haven.keystore"
+        if: always()

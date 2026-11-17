@@ -26,13 +26,15 @@ public final class Inbox extends JobService {
 
     /** Remember where to check and as whom. An empty token stops the checks. */
     static void setAccount(Context context, String base, String token, JSONObject kinds) {
+        // The sign-in only ever goes to the server over https.
+        if (!base.isEmpty() && !base.startsWith("https://")) { base = ""; token = ""; }
         SharedPreferences.Editor edit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit();
         edit.putString("base", base).putString("token", token)
             .putBoolean("friends", kinds == null || kinds.optBoolean("friends", true))
             .putBoolean("social", kinds == null || kinds.optBoolean("social", true)).apply();
         if (token.isEmpty()) context.getSystemService(JobScheduler.class).cancel(JOB);
         else schedule(context);
-        android.util.Log.i("Haven", "news check " + (token.isEmpty() ? "off" : "on"));
+        if (BuildConfig.DEBUG) android.util.Log.i("Haven", "news check " + (token.isEmpty() ? "off" : "on"));
     }
 
     /** Haven is going to the background: what was on screen until now has been seen. */
