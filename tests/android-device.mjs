@@ -40,6 +40,17 @@ async function tapText(pattern, tries = 10) {
 let device, page, attachedPid = '';
 /** Connect to the app's web view (again, after the app was stopped or restarted). */
 async function attach() {
+  // Android can replace the web view just after it was reached (an activity brought back from a
+  // notification). Then reach the new one.
+  for (let tries = 0; ; tries++) {
+    try { return await attachOnce(); } catch (error) {
+      if (tries >= 2 || !/closed/i.test(String(error?.message))) throw error;
+      page = null;
+      await sleep(3000);
+    }
+  }
+}
+async function attachOnce() {
   for (let i = 0; i < 30 && !pid(); i++) await sleep(1000);
   assert.ok(pid(), 'the app is running');
   device ??= (await android.devices())[0];

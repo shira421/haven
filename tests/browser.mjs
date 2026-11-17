@@ -30,8 +30,9 @@ async function person(name, scheme = 'light') {
   const context = await browser.newContext({ viewport: PLAY ? { width: 360, height: 640 } : { width: 390, height: 844 }, deviceScaleFactor: PLAY ? 3 : 2, colorScheme: scheme, hasTouch: true });
   const page = await context.newPage();
   await page.clock.install({ time: START });
-  // Wrong passwords are typed on purpose here; the browser logs each refused request by itself.
-  page.on('console', m => { if (m.type() === 'error' && !/status of (400|401|403) /.test(m.text())) errors.push(`${name}: ${m.text()}`); });
+  // Wrong passwords are typed on purpose here, and two devices of one account can save at the same
+  // moment (409, then joined and saved again). The browser logs each refused request by itself.
+  page.on('console', m => { if (m.type() === 'error' && !/status of (400|401|403|409) /.test(m.text())) errors.push(`${name}: ${m.text()}`); });
   page.on('pageerror', e => errors.push(`${name}: ${e.message}`));
   await page.goto('http://localhost:4173/');
   await page.waitForSelector('.page.welcome');
