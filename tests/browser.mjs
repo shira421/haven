@@ -441,6 +441,11 @@ try {
   await tab(phone2, 'friends');
   await phone2.waitForSelector('.me-card .live.live', { timeout: 10000 });
   assert.equal(await phone2.evaluate(() => window.__haven.app.store.state.sessions.length), await ana.evaluate(() => window.__haven.app.store.state.sessions.length));
+  // The whole haven comes across as it is: coins, treats and where everything stands.
+  const look = page => page.evaluate(() => { const st = window.__haven.app.store.state; return { coins: st.coins, food: st.food, spots: st.haven.spots, unlocked: st.unlocked.length }; });
+  const [mine, there] = [await look(ana), await look(phone2)];
+  assert.ok(mine.coins > 0 && Object.keys(mine.spots).length > 0, 'the first phone has coins and a laid-out haven');
+  assert.deepEqual(there, mine, 'a phone signing in gets the same coins, treats and layout');
   assert.match(await phone2.locator('.row.friend').textContent(), /Ben/);
   ok('another device signs in with the username and password and the haven comes with it');
 

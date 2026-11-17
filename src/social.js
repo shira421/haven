@@ -96,7 +96,9 @@ export class Social {
   }
   forget() {
     this.account = null;
-    try { this.storage.removeItem(ACCOUNT_KEY); this.storage.removeItem(SYNC_KEY); } catch { /* storage closed */ }
+    // The last copy agreed with the server is kept: signing in again as the same person then joins
+    // what changed meanwhile instead of starting over. It is ignored for anyone else.
+    try { this.storage.removeItem(ACCOUNT_KEY); } catch { /* storage closed */ }
     this.disconnect();
     this.reset();
     this.setStatus('signed-out');
@@ -176,7 +178,7 @@ export class Social {
     this.leave();
   }
   async deleteAccount() { await this.api('POST', '/api/account/delete'); this.forget(); this.leave(); }
-  leave() { try { this.storage.removeItem(OWNER_KEY); } catch { /* storage closed */ } this.store.reset(); }
+  leave() { try { this.storage.removeItem(OWNER_KEY); this.storage.removeItem(SYNC_KEY); } catch { /* storage closed */ } this.store.reset(); }
 
   /** Send the public card (level, totals, haven layout) soon after it changes. */
   pushCard(delay = 4000) {

@@ -335,9 +335,37 @@ test('merging two devices loses nothing that was earned', () => {
   assert.equal(merged.sessions.length, 2);
   assert.equal(merged.items.length, 2);
   assert.ok(merged.unlocked.includes('daisy'));
-  assert.equal(merged.coins, b.store.state.coins, 'the newer copy decides the balance');
+  assert.equal(merged.coins, a.store.state.coins + b.store.state.coins, 'two separate havens: both balances');
   assert.ok(merged.achieved.first <= b.store.state.achieved.first);
   assert.equal(mergeStates(merged, merged, T0).sessions.length, 2, 'merging twice changes nothing');
+});
+
+test('a new phone signing in takes the account as it is', () => {
+  const a = make();
+  run(a.store, a.clock, 25);
+  a.store.state.coins = 740;
+  a.store.state.food = 12;
+  const fresh = freshState(T0 + 9 * 3600000); // newer than the account's copy
+  const merged = mergeStates(fresh, a.store.exportState(), T0 + 9 * 3600000);
+  assert.equal(merged.coins, 740);
+  assert.equal(merged.food, 12);
+  assert.deepEqual(merged.haven.spots, a.store.state.haven.spots);
+  assert.deepEqual(merged.settings, a.store.state.settings);
+  assert.equal(mergeStates(a.store.exportState(), freshState(T0), T0).coins, 740, 'and the other way round');
+});
+
+test('two different havens joined add their coins; two copies of one do not', () => {
+  const a = make(), b = make();
+  run(a.store, a.clock, 25);
+  b.clock.t = T0 + 3600000;
+  run(b.store, b.clock, 25);
+  a.store.state.coins = 300; b.store.state.coins = 200;
+  assert.equal(mergeStates(a.store.exportState(), b.store.exportState(), T0 + 7200000).coins, 500, 'different havens');
+  const copy = structuredClone(a.store.exportState());
+  copy.coins = 250; copy.updated += 1000;
+  assert.equal(mergeStates(a.store.exportState(), copy, T0 + 7200000).coins, 250, 'the same haven: the newer copy');
+  const joined = mergeStates(a.store.exportState(), b.store.exportState(), T0 + 7200000);
+  assert.equal(Object.keys(joined.haven.spots).length, 2, 'both havens\' things keep their places');
 });
 
 test('what friends can see holds no private data', () => {

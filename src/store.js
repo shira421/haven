@@ -145,13 +145,27 @@ export function migrate(raw, now = Date.now()) {
   return state;
 }
 
+/** A haven nothing has happened in yet: a new install, or a phone just signed out. */
+export function isPristine(state) {
+  return !state.sessions.length && !state.items.length && !state.coins && !Object.keys(state.achieved).length && !state.active;
+}
+
 /**
- * Join the state on this device with a backup from another one. Nothing earned is lost:
- * sessions, plants, animals, unlocks and achievements are combined; the newer copy decides the rest.
+ * Join the state on this device with a copy from somewhere it shares no saved history with: the
+ * account on a phone that has just signed in, or a backup file. Nothing earned is lost: sessions,
+ * plants, animals, unlocks and achievements are combined.
+ * - A haven nothing has happened in yet (a new phone) takes the other copy as it is.
+ * - Two copies of the same haven (they share sessions or plants) keep the newer one's coins, treats,
+ *   layout and settings, since adding them would count the same coins twice.
+ * - Two different havens being joined (one kept from before signing in) add their coins and treats.
  */
 export function mergeStates(local, remote, now = Date.now()) {
   const a = migrate(local, now), b = migrate(remote, now);
+  if (isPristine(a)) return migrate({ ...structuredClone(b), active: a.active, cycle: a.cycle, updated: now }, now);
+  if (isPristine(b)) return migrate({ ...structuredClone(a), updated: now }, now);
   const [newer, older] = a.updated >= b.updated ? [a, b] : [b, a];
+  const ids = st => new Set([...st.sessions.map(x => x.id), ...st.items.map(x => x.id)]);
+  const olderIds = ids(older), shared = [...ids(newer)].some(id => olderIds.has(id));
   const out = structuredClone(newer);
   const sessions = new Map(older.sessions.map(s => [s.id, s]));
   for (const s of newer.sessions) sessions.set(s.id, s);
@@ -159,12 +173,20 @@ export function mergeStates(local, remote, now = Date.now()) {
   const items = new Map(older.items.map(i => [i.id, i]));
   for (const i of newer.items) items.set(i.id, i);
   out.items = [...items.values()].sort((x, y) => x.at - y.at);
+  // Something only the older copy had keeps its place, so joining never empties a haven.
+  for (const [id, at] of Object.entries(older.haven.spots)) if (!newer.items.some(i => i.id === id) && !out.haven.spots[id]) out.haven.spots[id] = at;
   out.unlocked = [...new Set([...newer.unlocked, ...older.unlocked])];
   out.achieved = { ...older.achieved, ...newer.achieved };
   for (const [id, t] of Object.entries(older.achieved)) out.achieved[id] = Math.min(t, out.achieved[id] ?? t);
+  if (!shared) {
+    out.coins = a.coins + b.coins;
+    out.food = clamp(a.food + b.food, 0, 9999);
+  }
   out.social = { friends: Math.max(a.social.friends, b.social.friends), giftsSent: Math.max(a.social.giftsSent, b.social.giftsSent) };
   out.care = { feeds: Math.max(a.care.feeds, b.care.feeds) };
+  out.created = Math.min(a.created, b.created);
   out.active = a.active; // a running session belongs to this device
+  out.cycle = a.cycle;
   out.updated = now;
   return migrate(out, now);
 }
