@@ -10,6 +10,9 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   if (event.request.method !== 'GET' || url.origin !== self.location.origin || url.pathname.endsWith('/config.json')) return;
+  // Other pages on the site (the privacy policy, account deletion) are not the app: leave them alone.
+  const app = /\/(index\.html)?$/.test(url.pathname);
+  if (event.request.mode === 'navigate' && !app) return;
   // The page itself: newest when online, the kept copy when not.
   if (event.request.mode === 'navigate') {
     event.respondWith(fetch(event.request).then(res => { const copy = res.clone(); caches.open(CACHE).then(c => c.put('./index.html', copy)); return res; }).catch(() => caches.match('./index.html')));

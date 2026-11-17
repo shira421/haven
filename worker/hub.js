@@ -1055,6 +1055,8 @@ export class Hub {
     this.sql("DELETE FROM members WHERE room IN (SELECT code FROM rooms WHERE created < ?)", now - 2 * day);
     this.sql('DELETE FROM rooms WHERE created < ?', now - 2 * day);
     this.sql('DELETE FROM inbox WHERE created < ?', now - 30 * day);
+    // Reports are kept a year, as the privacy policy says.
+    this.sql('DELETE FROM reports WHERE created < ?', now - 365 * day);
     this.sql('DELETE FROM grants WHERE expires < ?', now);
     this.sql('DELETE FROM tickets WHERE expires < ?', now);
     this.sql("DELETE FROM sessions WHERE status IN ('abandoned','short','failed') AND start < ?", now - 30 * day);

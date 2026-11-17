@@ -53,7 +53,7 @@ ${field('Theme', select('theme', [['system', 'Same as the phone'], ['light', 'Li
 <div class="button-row"><button class="secondary" data-action="export">Save a backup file</button><button class="secondary" data-action="import">Open a backup file</button></div>
 <div class="button-row quiet"><button class="linklike danger" data-action="reset">Erase everything on this phone</button></div>
 <h3 class="group-title">About</h3>
-<p class="note">Haven ${e(app.version)}. Friends server: ${social.base ? ({ live: 'connected', connecting: 'connecting', offline: 'not reachable', 'signed-out': 'ready' }[social.status]) : 'not set'}. <a href="https://github.com/shira421/haven" target="_blank" rel="noopener">Source on GitHub</a></p>
+<p class="note">Haven ${e(app.version)}. Friends server: ${social.base ? ({ live: 'connected', connecting: 'connecting', offline: 'not reachable', 'signed-out': 'ready' }[social.status]) : 'not set'}. <a href="https://shira421.github.io/haven/privacy.html" target="_blank" rel="noopener">Privacy policy</a>. <a href="https://github.com/shira421/haven" target="_blank" rel="noopener">Source on GitHub</a>.</p>
 ${field('Friends server address', `<input type="url" inputmode="url" value="${e(social.base || '')}" placeholder="https://" data-change="api-base">`, 'Leave as it is unless you run your own server.')}`, { cls: 'settings' });
   if (section) $('#set-' + section)?.scrollIntoView({ block: 'start' });
   notifyState();

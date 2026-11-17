@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Delete your Haven account</title>
+<meta name="description" content="Delete your Haven account and everything it holds.">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="icons/icon.svg">
+<link rel="stylesheet" href="legal.css">
+</head>
+<body>
+<main>
+<a class="brand" href="./"><img src="icons/icon-192.png" alt="">Haven</a>
+<h1>Delete your Haven account</h1>
+<p class="lead">This removes your account, your haven, your sessions, your friends, your messages and the reports you made. It happens straight away and cannot be undone. See the <a href="privacy.html">privacy policy</a> for details.</p>
+
+<h2>In the app</h2>
+<p>Open Haven, tap Settings at the top right, and choose <b>Delete account</b> at the end of the Account section.</p>
+
+<h2>Here, with your username and password</h2>
+<form class="card" id="delete" novalidate>
+  <label>Username<input type="text" name="handle" autocomplete="username" autocapitalize="none" spellcheck="false" required></label>
+  <label>Password<input type="password" name="password" autocomplete="current-password" required></label>
+  <label class="check"><input type="checkbox" name="sure" required><span>I understand my account and haven are deleted for good.</span></label>
+  <p class="error" id="error" role="alert" hidden></p>
+  <button type="submit">Delete my account</button>
+</form>
+<p class="done" id="done" role="status" hidden>Your account is deleted. Haven no longer keeps anything about you, apart from reports others made about an account, as the privacy policy says.</p>
+
+<h2>If you sign in with Google</h2>
+<p>Open <a href="./">Haven on the web</a>, choose Continue with Google, then go to Settings and choose <b>Delete account</b>. If you cannot sign in at all, write to the contact email on Haven's Google Play page from any address, with your username, and the account will be deleted within 30 days.</p>
+</main>
+<script>
+(() => {
+  const form = document.getElementById('delete'), error = document.getElementById('error'), done = document.getElementById('done');
+  const say = text => { error.textContent = text; error.hidden = !text; };
+  const server = fetch('config.json', { cache: 'no-store' }).then(r => r.json()).then(c => c.api || null).catch(() => null);
+  const call = async (api, path, body, token) => {
+    const r = await fetch(api + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: JSON.stringify(body || {}) });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || 'Something went wrong. Try again.');
+    return data;
+  };
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    say('');
+    const handle = form.handle.value.trim(), password = form.password.value;
+    if (!handle || !password) return say('Enter your username and password.');
+    if (!form.sure.checked) return say('Tick the box to say you understand.');
+    const button = form.querySelector('button');
+    button.disabled = true;
+    try {
+      const api = await server;
+      if (!api) throw new Error('The Haven server cannot be reached from this page. Delete the account in the app instead.');
+      const { token } = await call(api, '/api/login', { handle, password });
+      await call(api, '/api/account/delete', {}, token);
+      form.hidden = true;
+      done.hidden = false;
+    } catch (failure) {
+      say(failure instanceof TypeError ? 'Haven cannot be reached. Check the connection and try again.' : failure.message);
+      button.disabled = false;
+    }
+  });
+})();
+</script>
+</body>
+</html>
