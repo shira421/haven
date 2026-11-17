@@ -32,7 +32,7 @@ const actions = merge('actions'), forms = merge('forms'), inputs = merge('inputs
 const store = new Store({ storage: safeStorage() });
 const sound = new Ambience();
 const app = {
-  version: VERSION, store, sound, social: null, timer: null,
+  version: VERSION, buildApi: BUILD_API, store, sound, social: null, timer: null,
   now: () => Date.now(),
   ui: { page: 'focus', collection: 'plant', friendsTab: 'friends', boardPeriod: 'week', board: null, journal: { kind: 'week', anchor: Date.now() }, edit: { on: false, picked: null, item: null }, pendingAdd: null },
   render, go, confirm: confirmDialog, applyTheme, syncReminder, veil, unveil,

@@ -17,6 +17,11 @@ export function settingsDialog(app, section = null) {
     : device.phoneBrowser() ? 'Locking the phone is fine. Haven counts only time it can see you spent in another app, and gives you the benefit of the doubt.'
     : 'Locking the computer counts as leaving.';
   const me = social.account, google = social.features.google;
+  // The apps from the stores have their server built in: only someone running their own server, or
+  // who already changed it, sees where to change it. A wrong server would be handed the password.
+  let changedServer = false;
+  try { changedServer = Boolean(localStorage.getItem('haven-api')); } catch { /* storage closed */ }
+  const serverField = !app.buildApi || changedServer;
   const profile = !social.base ? '<p class="note">This copy of Haven has no server, so there is no account. Your haven is kept on this phone.</p>'
     : social.signedIn ? `<div class="me-card">${avatar(me.avatar, 'large')}<div class="row-main"><b>${e(me.name)}</b><span>@${e(me.handle)}, code ${prettyCode(me.code)}</span></div></div>
 <div class="button-row"><button class="secondary" data-action="edit-profile">Edit profile</button><button class="secondary" data-action="change-password">${me.hasPassword === false ? 'Set a password' : 'Change password'}</button></div>
@@ -49,12 +54,12 @@ ${switchRow('Remind me to focus every day', 'reminder-on', s.reminder.on)}${fiel
 ${field('Theme', select('theme', [['system', 'Same as the phone'], ['light', 'Light'], ['dark', 'Dark']], s.theme))}
 <h3 class="group-title" id="set-account">Account</h3>${profile}
 <h3 class="group-title">Your data</h3>
-<p class="note">Your haven is kept on this phone and in your account. A backup file holds your sessions, coins and haven.</p>
+<p class="note">${social.signedIn ? 'Your haven is kept on this phone and in your account.' : 'Your haven is kept on this phone.'} A backup file holds your sessions, coins and haven.</p>
 <div class="button-row"><button class="secondary" data-action="export">Save a backup file</button><button class="secondary" data-action="import">Open a backup file</button></div>
-<div class="button-row quiet"><button class="linklike danger" data-action="reset">Erase everything on this phone</button></div>
+${social.signedIn ? '' : '<div class="button-row quiet"><button class="linklike danger" data-action="reset">Erase everything on this phone</button></div>'}
 <h3 class="group-title">About</h3>
 <p class="note">Haven ${e(app.version)}. Friends server: ${social.base ? ({ live: 'connected', connecting: 'connecting', offline: 'not reachable', 'signed-out': 'ready' }[social.status]) : 'not set'}. <a href="https://shira421.github.io/haven/privacy.html" target="_blank" rel="noopener">Privacy policy</a>. <a href="https://github.com/shira421/haven" target="_blank" rel="noopener">Source on GitHub</a>.</p>
-${field('Friends server address', `<input type="url" inputmode="url" value="${e(social.base || '')}" placeholder="https://" data-change="api-base">`, 'Leave as it is unless you run your own server.')}`, { cls: 'settings' });
+${serverField ? field('Friends server address', `<input type="url" inputmode="url" value="${e(social.base || '')}" placeholder="https://" data-change="api-base">`, 'Leave as it is unless you run your own server.') : ''}`, { cls: 'settings' });
   if (section) $('#set-' + section)?.scrollIntoView({ block: 'start' });
   notifyState();
 }
@@ -176,7 +181,7 @@ export const changes = {
   'reminder-time': (app, el) => { if (!el.value) return; app.store.set({ reminder: { ...app.store.state.settings.reminder, time: el.value } }); app.syncReminder(); },
   'api-base': (app, el) => {
     const v = el.value.trim().replace(/\/+$/, '');
-    if (v && !/^https?:\/\/[^\s]+$/.test(v)) { toast('Enter an address that starts with https://'); return; }
+    if (v && !/^https:\/\/[^\s]+$/.test(v) && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(v)) { toast('Enter an address that starts with https://'); return; }
     if (v) localStorage.setItem('haven-api', v); else localStorage.removeItem('haven-api');
     toast('Saved. Reopen Haven to use it.');
   },
