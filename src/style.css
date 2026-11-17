@@ -372,8 +372,9 @@ button.ent.animal:not(.sprouting)::before { content: ""; position: absolute; lef
 .tree-card .row-main { display: grid; gap: 2px; }
 .tree-card small { color: var(--muted); font-size: 14px; line-height: 1.4; }
 .tree-card .note { margin: 0; }
-.fire-card { grid-template-columns: 1fr auto; align-items: center; }
-.fire-card p { margin: 0; }
+.fire-card { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+/* The text keeps a readable width; on a narrow phone the button goes under it. */
+.fire-card p { margin: 0; flex: 1 1 14rem; }
 .fire-card.lit { background: linear-gradient(90deg, rgba(246, 183, 60, .18), transparent 70%), var(--card); }
 .sanct-stage { position: relative; }
 .sanct-tools { position: absolute; z-index: 3; left: var(--s3); right: var(--s3); bottom: var(--s3); display: flex; justify-content: space-between; align-items: end; pointer-events: none; }

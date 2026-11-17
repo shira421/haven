@@ -34,9 +34,17 @@ Every plant, animal and nature item at full size and through its growth stages. 
 
 For 1.3.0, a sweep of every screen and dialog at 320, 390, 768 and 1280 px in light and dark, with long names, a full sanctuary of nine havens, a new person with nothing grown, the phone apps' settings, and a sanctuary that loads slowly or fails, checked by eye and for anything running off the screen. Also the new animals (giraffe, elephant), the seven dog breeds and the two new plants on a sheet; a haven holding all of them, including a shiba saved by 1.2; the breed picker; the notification settings; the sanctuary list, its loading screen and a sanctuary of two havens in light and dark.
 
+## Checked for 1.5.0
+
+- Two devices of one account: a second device that signs in takes the account's coins, treats and layout as they are, and both settle after one save each. Covered by `tests/sync.test.mjs`, `tests/store.test.mjs` and the browser test.
+- The sanctuary in Chrome with two people: the great tree's card and stage, a campfire card, a treat put down eaten by another member's fox and a pat on it, both arriving in the owner's inbox; the member sheet; light and dark at 320 and 390 px.
+- The privacy policy and account deletion page in light and dark; deleting an account on the page against the local server, with a wrong password refused first.
+- The release build: CI builds it with target API 36, checks it is not debuggable and that its version matches `package.json`. The Android 14 to 16 emulator runs use the new bridge (`addWebMessageListener`) and the new back handling.
+- Not yet tried: an upload to Google Play, and the release build on a real phone.
+
 ## Checked on Android emulators on every pull request
 
-`tests/android-device.mjs`, run by `.github/workflows/devices.yml` on Android 14 and Android 15 emulators, drives the real app the way a person would and fails on any crash: Android's notification prompt at the first session, a notification now and at a set time, tapping a notification (also after Android stopped Haven), a session ending in the background, leaving during a session (come-back notification after 10 s, session kept on a quick return), the screen off for 45 s (no notification, session kept), away for 40 s (session lost), the streak and hunger reminders, a friend request arriving through the background check with Haven closed, a sanctuary, and Haven reopening after the system stopped it. The friend steps use the live server with two throwaway profiles that are deleted afterwards.
+`tests/android-device.mjs`, run by `.github/workflows/devices.yml` on Android 14, 15 and 16 emulators, drives the real app the way a person would and fails on any crash: Android's notification prompt at the first session, a notification now and at a set time, tapping a notification (also after Android stopped Haven), a session ending in the background, leaving during a session (come-back notification after 10 s, session kept on a quick return), the screen off for 45 s (no notification, session kept), away for 40 s (session lost), the streak and hunger reminders, a friend request arriving through the background check with Haven closed, a sanctuary, and Haven reopening after the system stopped it. The friend steps use the live server with two throwaway profiles that are deleted afterwards.
 
 ## The phone apps
 

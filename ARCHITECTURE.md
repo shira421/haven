@@ -6,7 +6,7 @@
         ┌────────────────────────── one web app (src/ → dist/) ──────────────────────────┐
         │  core.js   rules: time, coins, levels, streaks, goals, summaries (no DOM)      │
         │  store.js  everything kept on the device, and every change to it               │
-        │  timer.js  runs a session: clock, leaving and returning, breaks, rooms         │
+        │  timer.js  runs a session: clock, leaving and returning, breaks, campfires        │
         │  world.js  the animals' lives: moving, visiting, greeting, sleeping            │
         │  creatures.js  each animal drawn in parts that move    shapes.js  SVG helpers  │
         │  social.js account, calls to the server, the live connection                   │
@@ -53,9 +53,11 @@ Why one object: every friend request, presence change and room touches several p
 - **Tokens.** Every call sends the token as a bearer header. There are no cookies, so any origin may call the API (`Access-Control-Allow-Origin: *`) without cross-site risk.
 - **Live connection.** The app asks for a one-time ticket (30 s) over HTTPS, then opens `wss://…/api/live?ticket=…`. The long-lived token never appears in a URL. The server pushes small messages (`presence`, `request`, `accepted`, `inbox`, `room`, `feed`, `friends`, `state`, `sanctuary`, `haven`); everything the app sends goes over HTTPS. If the socket drops, the app reconnects with backoff and refetches.
 - **Sessions.** The server stamps the start with its own clock and only accepts "finished" once the planned time has passed (30 s tolerance). Sessions done offline can be added for 7 days if they do not overlap others. This keeps the board honest among friends; it is not anti-cheat for strangers.
-- **Rooms.** The host's start sets one start time 5 s ahead on the server's clock. Each app shifts it by its measured clock offset, so everyone counts down together. In a "together" room, one person leaving marks every session in it failed and pushes that to the others.
+- **Campfires** (the `rooms` table). The host's start sets one start time 5 s ahead on the server's clock. Each app shifts it by its measured clock offset, so everyone counts down together. At a "together" campfire, one person leaving marks every session in it failed and pushes that to the others.
 - **Limits.** Each sensitive route is rate-limited per person or per network address (five new accounts an hour per address, one cheer a minute per friend, and so on). Inputs are validated and sized. Old rows are cleaned hourly.
 - **Sanctuaries.** Two tables, `sanctuaries` and `keepers`. Only members can read a sanctuary, and reading it returns each member's public card (the same layout friends see on a visit). Joining is by code or by accepting an invitation from a friend. A change to a member's card is pushed to everyone who shares a sanctuary with them.
+- **The great tree, care and pals.** The tree is the sanctuary's focused minutes since Monday 00:00 UTC (`weekStart`), against 120 min per haven (at least 240); the first time it blooms in a week is kept in `blooms` and everyone is told. `POST /api/sanctuaries/care` sends a treat or pat note to an animal's owner (pats at most one per 30 min per pair), and `POST /api/sanctuaries/pal` records two animals from different havens that met (`pals`, keyed `owner:item:species`). A campfire lit for a sanctuary carries its id (`rooms.sid`) and shows on the sanctuary for every member to join. Inbox items reach every device of a person, so each effect is safe to apply twice: a friend's treat only sets when the animal last ate.
+- **Reports.** `POST /api/report` keeps who reported whom, why and where, for whoever runs the server; kept a year.
 - **Shared haven.** `PUT /api/state` takes the revision the device last saw (`base`) and refuses an older one with 409; each save is pushed to the person's other open devices as `state`. A save without `base` (an older app) is accepted.
 - **News.** `GET /api/news?since=` returns friend requests and inbox items since a time, small enough for a phone to check in the background.
 - **Test clock.** When the `TEST_CLOCK` binding is set (only by the test harness), requests may carry a time. `wrangler.toml` never sets it, and a test checks a server without it ignores the header.

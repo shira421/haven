@@ -12,7 +12,8 @@
     "test:browser": "node tests/browser.mjs",
     "test:rig": "node tests/rig.mjs",
     "icons": "node scripts/make-icons.mjs",
-    "media": "MEDIA=1 node tests/browser.mjs"
+    "media": "MEDIA=1 node tests/browser.mjs",
+    "play-shots": "PLAY=1 node tests/browser.mjs"
   },
   "devDependencies": {
     "@resvg/resvg-js": "2.6.2",

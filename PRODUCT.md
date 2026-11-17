@@ -38,6 +38,7 @@ People who study or work in focused blocks and want a reason to stay off their p
 | Day and night | After 6:30 pm day animals sleep where they are. Owls, foxes, raccoons, hedgehogs and fennecs stay up. The campfire and the lantern glow. |
 | Treats | Every finished session earns one, and one more per 15 min. You start with three. |
 | Feeding | An animal is full for 6 hours after eating, then peckish, and hungry after 20. Feed one, or everyone who will eat. |
+| Treats and pats | Put a treat down on the land and the hungriest awake animal fetches it; a full one only sniffs. Tap an animal to pat it, or stroke it; every third pat in a row delights it. A pat wakes a sleeping animal at night, which yawns and falls back asleep when left alone. |
 | Petting | Any time. It counts toward the bond once an hour. |
 | Bond | Five levels. Each new level pays coins. Feeding a hungry animal bonds a little more. |
 | Names | Any animal can be named. |
@@ -68,20 +69,20 @@ People who study or work in focused blocks and want a reason to stay off their p
 | Cheer and nudge | Delivered at once, or when the friend is next online. |
 | Gifts | Send a plant, animal or nature item you have unlocked. It arrives in their haven. |
 | Visit | See a friend's haven and totals. |
-| Rooms | Up to 8 people. Start together on the server's clock. "Ends for everyone" or "only they lose theirs". |
+| Campfire | Up to 8 people. Lit from Friends, or for a whole sanctuary at once. Start together on the server's clock. "The fire goes out for everyone" or "leaving costs only them". |
 | Board | You and your friends for today, week, month and all time. |
 | Activity | What you and your friends grew in the last 14 days. |
 | Recovery | On Android, if the system stops the page inside the app, Haven reloads it instead of closing. If Haven does close unexpectedly, it says so the next time it opens and offers the details to copy for a bug report. A running session is kept either way. |
 | Other devices | Signing in with the username and password (or Google) on another phone or computer brings the haven with it, behind a loading screen. One-time device codes are gone. Signing out saves the haven to the account and takes it off the device. After signing in every change on one device reaches the others: within seconds when they are open, otherwise when they open. Changes made on two devices at once are joined, not overwritten. |
-| Sanctuaries | Groups of up to 9. Everyone's havens are joined into one land on a near-square grid, with stepping stones where two meet, and animals cross freely between them. A loading screen while the land is fetched and joined. Make, invite friends, join by code, leave; whoever made it can rename it and ask someone to leave. Up to 5 per person. |
-| Notifications | Asked for once, at the first session. Settings shows when they are off, with a way to turn them on. Session finished, come back, friend requests and acceptances, room and sanctuary invitations, cheers, nudges and gifts, streak about to end (8 pm), hungry animals (by day), daily reminder. Each can be switched off in Settings. |
+| Sanctuaries | Up to 8 havens, joined into one land around a clearing with a great tree, with stepping stones where two meet, and animals cross freely between them. The tree grows with the week's focus (2 h per haven, at least 4 h) and blooms; it starts again each Monday. Treats and pats for anyone's animals, and their people are told. Animals from different havens become pals. Each member can be added as a friend, reported or blocked. A loading screen while the land is fetched and joined. |
+| Notifications | Asked for once, at the first session. Settings shows when they are off, with a way to turn them on. Session finished, come back, friend requests and acceptances, campfire and sanctuary invitations, care from sanctuary members, pals and the tree in bloom, cheers, nudges and gifts, streak about to end (8 pm), hungry animals (by day), daily reminder. Each can be switched off in Settings. |
 | Backup | To the server when signed in, or as a file. |
 
 ### How Forest's paid features map
 
 | Forest | Haven |
 | --- | --- |
-| Plant together | Rooms, with both rules. |
+| Plant together | Campfires, with both rules. |
 | Friends and rankings | Friends, live presence, board, activity. |
 | More species, seasonal trees | 64 things to grow and build, four of them seasonal, all free. |
 | Triple coins | Haven pays 2 coins a minute for everyone, with bonuses. |
@@ -109,7 +110,7 @@ People who study or work in focused blocks and want a reason to stay off their p
 
 - The Haven server is one Durable Object. It suits a circle of friends up to a few thousand people. See ARCHITECTURE.md.
 - Coins, treats, bonds and the haven live on your devices, with a copy on the server that keeps them in step. The server checks session times for the board, not coins.
-- A sanctuary shows each haven as its owner last shared it. Animals there wander on their own; feeding happens in your own haven.
+- A sanctuary shows each haven as its owner last shared it. A treat or pat given there reaches the animal's owner as a note; their bond grows only from their own care.
 - Where an animal is wandering is not saved. On opening the app each starts from where it was last put down.
 - Haven has no email address for anyone, so a forgotten password cannot be reset by email. Connecting Google gives a second way in; otherwise whoever runs the server can clear the password of a username (`UPDATE users SET pass=NULL WHERE handle='…'` in the Durable Object's SQL), after which a device that is still signed in is asked to set a new one.
 - Without a server (a copy of Haven built with none) there are no accounts and no sign-in screen; the haven lives on the device only.

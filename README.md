@@ -1,6 +1,6 @@
 # Haven (vibe coded)
 
-A focus timer that grows a living sanctuary. Set a time, stay with it, and a plant grows, an animal moves in, or a pond gets dug in your haven. Leave early and it is lost. The animals are not ornaments: they wander, visit the plants and places they like, greet each other, sleep at night, and get hungry. Friends see each other focus live, grow together in rooms, cheer each other on and send gifts.
+A focus timer that grows a living sanctuary. Set a time, stay with it, and a plant grows, an animal moves in, or a pond gets dug in your haven. Leave early and it is lost. The animals are not ornaments: they wander, visit the plants and places they like, greet each other, sleep at night, and get hungry. Friends see each other focus live, sit round a campfire to focus together, share a sanctuary, cheer each other on and send gifts.
 
 One web app runs everywhere: in a browser, installed from the browser on iPhone and Android, and inside small native apps for iOS and Android. Everything is unlocked for everyone. There is nothing to buy.
 
@@ -8,24 +8,24 @@ One web app runs everywhere: in a browser, installed from the browser on iPhone 
 | --- | --- | --- | --- |
 | ![The haven by day](docs/media/haven-day.png) | ![The haven at night](docs/media/haven-night.png) | ![A session in progress](docs/media/session.png) | ![An animal's care screen](docs/media/animal.png) |
 
-| Friends, live | A room | A sanctuary | Journal |
+| Friends, live | A campfire | A sanctuary | Journal |
 | --- | --- | --- | --- |
-| ![Friends screen](docs/media/friends.png) | ![A room about to start](docs/media/room.png) | ![Two havens joined in a sanctuary](docs/media/sanctuary.png) | ![Journal](docs/media/journal.png) |
+| ![Friends screen](docs/media/friends.png) | ![A campfire about to start](docs/media/room.png) | ![Two havens joined in a sanctuary](docs/media/sanctuary.png) | ![Journal](docs/media/journal.png) |
 
 ## What it does
 
 - **The haven is the home screen.** Your land floats under a sky that follows the time of day. Start a session and a day passes over it: the sun rises, crosses and sets as the time runs, while the new plant grows where it was planted.
-- **Animals with lives of their own.** 29 animals, from a ladybird to an elephant, drawn in profile with legs, wings, tails and heads that move. They walk and trot, hop in arcs, fly and land, and steer round rocks and water. Frogs, ducks and otters swim in the pond with ripples round them; deer drink at its edge; rabbits and foxes go down the burrow; birds and squirrels sit up in the trees; bees land on the flower heads; cats lie by the fire. Plants rustle as animals brush past. After dark the day animals lie down and sleep while owls, foxes and hedgehogs stay up. Tap the ground and whoever is near comes over.
+- **Animals with lives of their own.** 29 animals, from a ladybird to an elephant, drawn in profile with legs, wings, tails and heads that move. They walk and trot, hop in arcs, fly and land, and steer round rocks and water. Frogs, ducks and otters swim in the pond with ripples round them; deer drink at its edge; rabbits and foxes go down the burrow; birds and squirrels sit up in the trees; bees land on the flower heads; cats lie by the fire. Plants rustle as animals brush past. After dark the day animals lie down and sleep while owls, foxes and hedgehogs stay up. Tap a sleeping animal and it wakes, yawns, and dozes off again once left alone. Tap the ground and whoever is near comes over.
 - **Dogs, your way.** A dog can be any of seven breeds: mixed, shiba, golden retriever, corgi, husky, dalmatian or dachshund. Choose in its care sheet and change your mind any time.
-- **Care.** Every finished session earns treats. Feed and pet your animals, name them, and watch the bond grow through five levels, each paying coins. A hungry animal is slow and glum, and says so. Nothing ever dies or leaves because you were away.
+- **Care.** Every finished session earns treats. Put a treat down on the land and the hungriest animal trots over to eat it. Tap an animal to pat it, or stroke it with your finger, and it shows how it feels. Name them, and watch the bond grow through five levels, each paying coins. A hungry animal is slow and glum, and says so. Nothing ever dies or leaves because you were away.
 - **Nature you build.** A pond, a campfire, a burrow, a beehive, a bird house and more. Each needs a session of a minimum length (a pond takes 60 min), and animals come to use them. The fire and the lantern glow at night.
 - **29 plants** too, from clover to lily, bougainvillea and cherry blossom. Longer sessions grow bigger ones. Things unlock with coins, through goals (a 7-day streak brings a bear), or free in their season.
 - **Timer, stopwatch and pomodoro.** 5 to 180 minutes, a count-up stopwatch, or pomodoro rounds with breaks.
 - **Deep focus.** Leave Haven for longer than the time you allow (30 s to 2 min) and the session is lost. A third of the way through, a notification asks you to come back. The phone can lock as usual during a session: that does not count as leaving. In the apps Haven can tell the two apart itself; in a phone's browser, which cannot, Haven reads the signs (whether the phone slept, whether a swipe took you away) and counts only time it can see you spent in another app, so the screen can stay off for the whole session. Keeping the screen on is a setting.
 - **Arrange freely.** Drag anything anywhere on the land. The land grows with your level, from room for 25 things to room for 100.
 - **Friends, live.** Add people by code, username or invite link. See who is focusing right now and for how long. Cheer or nudge them. Visit their haven. Send them a plant, an animal or a piece of nature.
-- **Sanctuaries.** Make a group of up to nine friends and your havens are joined into one land, a square where it can be and a bay where it cannot. Everyone's animals wander from haven to haven. Opening one shows a short loading screen while the havens are fetched and joined.
-- **Focus together.** Open a room, invite friends, and everyone starts at the same moment. Choose whether one person leaving ends it for everyone or only for them. Finishing together earns more coins.
+- **Sanctuaries.** Make a group of up to eight havens and they are joined into one land around a clearing. Everyone's animals wander from haven to haven, and animals from different havens become pals. A great tree in the middle grows through the week as everyone focuses, and blooms when the group reaches its goal. Put treats down for anyone's animals and pat them; their people hear about it. Add anyone in it as a friend, or report or block them.
+- **Campfire.** Light a campfire and invite friends, or light one in a sanctuary for everyone there to join, and everyone starts at the same moment. Choose whether one person leaving puts the fire out for everyone or only costs them. Finishing together earns more coins.
 - **Board and activity.** Rank yourself and your friends for today, the week, the month or all time, and see what everyone grew.
 - **Journal.** Day, week, month and year views with a chart, time by tag, best hour, streaks, every session, and 29 achievements.
 - **Sounds.** Rain, stream, wind, night crickets, campfire, brown and white noise, made on the device, so they work offline.
@@ -40,7 +40,7 @@ One web app runs everywhere: in a browser, installed from the browser on iPhone 
 After the first successful build on `main`:
 
 - **Web and iPhone:** open https://shira421.github.io/haven/. On an iPhone use Safari, then Share, then Add to Home Screen.
-- **Android:** download `Haven-Android.apk` from the [latest build](https://github.com/shira421/haven/releases/tag/latest-build) and open it.
+- **Android:** on Google Play once it is published ([PLAY.md](PLAY.md) is the checklist), or download `Haven-Android.apk` from the [latest build](https://github.com/shira421/haven/releases/tag/latest-build) and open it.
 - **iPhone app:** download `Haven-iOS-unsigned.ipa` from the same page and install it with AltStore, SideStore or Sideloadly.
 
 ## Setting up the repository
@@ -75,6 +75,10 @@ The "Continue with Google" button appears once the server has a Google OAuth cli
 
 Haven asks Google only who the person is (`openid profile`). It never sees or stores a Google password.
 
+### 4. Google Play
+
+[PLAY.md](PLAY.md) walks through everything: the upload key, the GitHub secrets and settings, Play Console, the store listing (the screenshots and graphics are in `docs/play`), and testing.
+
 ### Keeping your haven across Android updates (optional)
 
 Without a keystore each Android build is signed with a new key, so Android asks you to uninstall the old app first, which removes its data. Sign in on the Friends screen first and your haven is backed up and comes back. To avoid the uninstall altogether, make a keystore once and add it as secrets:
@@ -84,7 +88,7 @@ keytool -genkeypair -keystore haven.keystore -alias haven -keyalg RSA -keysize 2
 base64 -w0 haven.keystore   # put this in the secret ANDROID_KEYSTORE_B64
 ```
 
-Add `ANDROID_KEYSTORE_B64` and `ANDROID_KEYSTORE_PASSWORD`. Keep the keystore file somewhere safe and never commit it.
+Add `ANDROID_KEYSTORE_B64` and `ANDROID_KEYSTORE_PASSWORD`. Keep the keystore file somewhere safe and never commit it. The same keystore is the upload key for Google Play, and with it the downloads are release builds.
 
 ## Run it yourself
 
@@ -102,6 +106,7 @@ npm start          # app on http://localhost:4173, Haven server on http://localh
 npm test               # rules, storage, the animal simulation, session controller, catalogue, and the Haven server
 npm run test:browser   # two people in headless Chrome against the local Haven server
 npm run media          # the same run, saving the screenshots in docs/media
+npm run play-shots     # the same run on a 1080 x 1920 phone, saving Google Play's screenshots in docs/play
 npm run icons          # redraw the app icons
 ```
 
@@ -118,7 +123,7 @@ npm run icons          # redraw the app icons
 
 ## Privacy
 
-Your account is kept on the Haven server: your name, username, sessions (start, length, what grew), your haven's layout, your friends, the sanctuaries you are in, and a copy of your haven so every device you sign in on has it. Your password is never stored: only a salted PBKDF2-SHA-256 hash of it is. If you connect Google, the server keeps Google's id for you and nothing else. Everyone in a sanctuary with you can see your haven's layout. There is no email address, no advertising and no tracking. Delete your account in Settings and the server removes all of it.
+Your account is kept on the Haven server: your name, username, sessions (start, length, what grew), your haven's layout, your friends, the sanctuaries you are in, and a copy of your haven so every device you sign in on has it. Your password is never stored: only a salted PBKDF2-SHA-256 hash of it is. If you connect Google, the server keeps Google's id for you and nothing else. Everyone in a sanctuary with you can see your haven's layout. There is no email address, no advertising and no tracking. Delete your account in Settings, or on the [account deletion page](https://shira421.github.io/haven/delete-account.html), and the server removes all of it. The full [privacy policy](https://shira421.github.io/haven/privacy.html) is on the website.
 
 ## Credits
 

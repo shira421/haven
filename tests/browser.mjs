@@ -10,7 +10,9 @@ import { startHub } from './hub-server.mjs';
 
 const chrome = process.env.CHROME_PATH || ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser'].find(p => existsSync(p));
 if (!chrome) throw new Error('No Chrome found. Set CHROME_PATH.');
-const MEDIA = process.env.MEDIA === '1', shots = MEDIA ? 'docs/media/' : 'tests/output/';
+// MEDIA=1 writes the README screenshots; PLAY=1 writes Google Play's phone screenshots (1080 x 1920).
+const PLAY = process.env.PLAY === '1', MEDIA = process.env.MEDIA === '1' || PLAY;
+const shots = PLAY ? 'docs/play/' : MEDIA ? 'docs/media/' : 'tests/output/';
 await mkdir(shots, { recursive: true });
 
 const server = createStaticServer();
@@ -25,7 +27,7 @@ await setServer(START - Date.now());
 
 async function setServer(ms) { offset = ms; await fetch('http://127.0.0.1:8787/test/clock', { method: 'POST', body: JSON.stringify({ offset }) }); }
 async function person(name, scheme = 'light') {
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, colorScheme: scheme, hasTouch: true });
+  const context = await browser.newContext({ viewport: PLAY ? { width: 360, height: 640 } : { width: 390, height: 844 }, deviceScaleFactor: PLAY ? 3 : 2, colorScheme: scheme, hasTouch: true });
   const page = await context.newPage();
   await page.clock.install({ time: START });
   // Wrong passwords are typed on purpose here; the browser logs each refused request by itself.
@@ -61,8 +63,16 @@ const ok = name => console.log(`ok ${++step} - ${name}`);
 const tab = (page, name) => page.click(`.tabs [data-page="${name}"]`);
 /** Wait until the toast says something that matches. */
 const toastSays = (page, pattern) => page.waitForFunction(source => new RegExp(source).test(document.querySelector('#toast.visible')?.textContent || ''), pattern.source, { timeout: 8000 });
-const KEEP = ['session', 'friends', 'room', 'journal', 'sanctuary'];
-const shot = (page, name) => (MEDIA && KEEP.includes(name) ? page.screenshot({ path: `${shots}${name}.png` }) : Promise.resolve());
+const KEEP = PLAY ? ['session', 'care', 'collection', 'friends', 'room', 'journal', 'sanctuary'] : ['session', 'friends', 'room', 'journal', 'sanctuary'];
+const shot = async (page, name) => {
+  if (!MEDIA || !KEEP.includes(name)) return;
+  // Store screenshots: no passing message, and the page from its top.
+  const clean = PLAY ? await page.addStyleTag({ content: '#toast{display:none!important}' }) : null;
+  if (PLAY && !(await page.locator('#dialog[open]').count())) await page.evaluate(() => { window.scrollTo(0, 0); document.querySelector('.main, main')?.scrollTo?.(0, 0); });
+  if (PLAY && name === 'sanctuary') await page.evaluate(() => document.querySelector('.sanct-stage')?.scrollIntoView({ block: 'start' }));
+  await page.screenshot({ path: `${shots}${name}.png` });
+  if (clean) await clean.evaluate(el => el.remove());
+};
 async function noOverflow(page, where) {
   const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.ok(wide <= 1, `${where}: the page scrolls sideways by ${wide}px`);
