@@ -24,7 +24,15 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci && npm run build
+      - run: npm ci
+      # The address of the live server is built in, as in the store app. Otherwise the app asks the
+      # website at start, and a freshly booted emulator's network is not always up in time.
+      - name: Build the web app with the server's address
+        run: |
+          api="${{ vars.HAVEN_API_URL || '' }}"
+          [ -n "$api" ] || api=$(curl -fsS --retry 3 https://shira421.github.io/haven/config.json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s).api||''))") || true
+          [ -n "$api" ] || echo "::warning::No server address found; the app will look it up when it starts."
+          HAVEN_API_URL="$api" npm run build
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
