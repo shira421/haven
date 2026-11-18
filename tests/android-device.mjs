@@ -112,7 +112,7 @@ try {
 
   // The first session asks to send notifications, through Android's own prompt.
   await page.click('[data-action="start"]');
-  const asked = await tapText(/^Allow$/i);
+  const asked = await tapText(/^Allow$/i, 25); // a slow emulator can take a while to show it
   assert.ok(asked, 'Android asked for permission to send notifications');
   await sleep(1500);
   assert.match(shell(`dumpsys package ${PKG} | grep POST_NOTIFICATIONS`), /granted=true/);

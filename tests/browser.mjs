@@ -407,12 +407,16 @@ try {
   // The last campfire is over but stays, showing how everyone did, until each person leaves it.
   assert.match(await ben.locator('.room').textContent(), /Everyone is done\..*Finished/);
   await ben.click('.room [data-action="room-leave"]');
+  await ben.waitForFunction(() => !window.__haven.app.social.data.room && document.querySelector('form[data-form="room-create"]'));
   await ben.click('form[data-form="room-create"] button[type="submit"]');
   await ben.waitForSelector('.room');
   const code = await ben.evaluate(() => window.__haven.app.social.data.room.code);
   await ana.keyboard.press('Escape');
   await ana.click('.page.friends .segmented [data-value="campfire"]');
   await ana.click('.room [data-action="room-leave"]');
+  // Leaving redraws the tab: type the code only once it has.
+  await ana.waitForFunction(() => !window.__haven.app.social.data.room && document.querySelector('form[data-form="room-join"]'));
+  await ana.waitForTimeout(300);
   await ana.fill('form[data-form="room-join"] input[name="code"]', code);
   await ana.click('form[data-form="room-join"] button[type="submit"]');
   await ben.waitForFunction(() => document.querySelectorAll('.room .rows .row').length === 2, null, { timeout: 8000 });

@@ -224,7 +224,7 @@ export const actions = {
     const how = await share({ title: 'Haven', text: `Focus with me round a campfire on Haven for ${formatMinutes(room.minutes)}. Open Friends, then Campfire, and enter the code ${prettyRoom(room.code)}.` });
     if (how === 'copied') toast('Campfire code copied.'); else if (how === 'failed') toast(`Could not share. The code is ${prettyRoom(room.code)}.`);
   },
-  'room-leave': (app, d, el) => guard(async () => { await app.social.roomLeave(); toast('You left the campfire.'); app.render(); }, el),
+  'room-leave': (app, d, el) => guard(async () => { await app.social.roomLeave(); toast('You left the campfire.'); }, el),
   'room-start': (app, d, el) => guard(async () => { const room = await app.social.roomStart(); app.timer.startRoom(room); app.go('focus'); }, el),
   'open-room'(app) { app.ui.friendsTab = 'campfire'; app.go('friends'); },
   'invite-accept': (app, d, el) => guard(async () => {
