@@ -145,7 +145,9 @@ try {
   shell('cmd statusbar expand-notifications');
   await sleep(1500);
   assert.ok(await tapText(/^Tap me$/), 'the notification can be tapped');
-  await sleep(4000);
+  // Haven starts from cold here, which takes a while on a busy emulator.
+  const inFront = () => /com\.shira421\.haven/.test(shell('dumpsys activity activities | grep -i "ResumedActivity" | head -3'));
+  for (let i = 0; i < 20 && !inFront(); i++) await sleep(1000);
   assert.match(shell('dumpsys activity activities | grep -i "ResumedActivity" | head -3'), /com\.shira421\.haven/, 'Haven is in front');
   await attach();
   noCrash('after tapping a notification');
