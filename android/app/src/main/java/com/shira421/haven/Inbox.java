@@ -37,6 +37,13 @@ public final class Inbox extends JobService {
         if (BuildConfig.DEBUG) android.util.Log.i("Haven", "news check " + (token.isEmpty() ? "off" : "on"));
     }
 
+    /** Where the server is and the sign-in, or null when signed out. */
+    static String[] account(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        String base = prefs.getString("base", ""), token = prefs.getString("token", "");
+        return base.startsWith("https://") && !token.isEmpty() ? new String[] { base, token } : null;
+    }
+
     /** Haven is going to the background: what was on screen until now has been seen. */
     static void schedule(Context context) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
@@ -107,15 +114,16 @@ public final class Inbox extends JobService {
             switch (kind) {
                 case "request": title = "New friend request"; body = who + " wants to be friends on Haven."; break;
                 case "accepted": title = "Friend request accepted"; body = who + " accepted your request."; break;
-                case "invite": title = "Focus together?"; body = who + " invited you to focus together."; break;
+                case "invite": title = "Campfire"; body = who + " invited you to a campfire."; break;
+                case "fire-out": title = "The fire went out"; body = who + " left. Your session ended."; break;
                 case "sanctuary": title = "Join a sanctuary?"; body = who + " invited you to join their sanctuary."; break;
                 case "cheer": title = "A cheer for you"; body = who + " cheered you on."; isFriends = false; break;
                 case "nudge": title = "Time to focus?"; body = who + " is nudging you to focus."; isFriends = false; break;
                 case "gift": title = "You got a gift"; body = who + " sent you something for your haven."; isFriends = false; break;
                 default: break;
             }
-            if (title == null || (isFriends ? !friends : !social)) continue;
-            Notifier.post(context, "news-" + kind + "-" + item.optLong("created"), title, body);
+            if (title == null || (!"fire-out".equals(kind) && (isFriends ? !friends : !social))) continue;
+            Notifier.post(context, ("fire-out".equals(kind) ? "lost-" : "news-") + kind + "-" + item.optLong("created"), title, body);
         }
         prefs.edit().putLong("since", latest).apply();
     }

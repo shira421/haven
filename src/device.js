@@ -85,8 +85,8 @@ export async function notificationPermission(request = false) {
 export const canSchedule = () => Boolean(bridge());
 
 /** Show a notification at `at` (ms). In a browser nothing is scheduled; see notifyNow. */
-export function notifyAt(id, at, title, body) {
-  return bridge() ? quiet(nativeCall('schedule', { id, at, title, body })) : Promise.resolve(null);
+export function notifyAt(id, at, title, body, session = '') {
+  return bridge() ? quiet(nativeCall('schedule', { id, at, title, body, ...(session ? { session } : {}) })) : Promise.resolve(null);
 }
 export function cancelNotification(id) {
   return bridge() ? quiet(nativeCall('cancel', { id })) : Promise.resolve(null);

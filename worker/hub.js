@@ -74,6 +74,7 @@ const ADDED_COLUMNS = [
   'ALTER TABLE users ADD COLUMN pass TEXT', // "pbkdf2$<rounds>$<salt>$<hash>", or null for an account that signs in with Google only
   'ALTER TABLE users ADD COLUMN google TEXT', // Google's id for the person, when connected
   'ALTER TABLE rooms ADD COLUMN sid TEXT', // a campfire lit for a sanctuary
+  'ALTER TABLE members ADD COLUMN gone INTEGER NOT NULL DEFAULT 0', // left a campfire after it was over for them
 ];
 const AFTER_COLUMNS = [
   'CREATE UNIQUE INDEX IF NOT EXISTS users_google ON users(google) WHERE google IS NOT NULL',
@@ -251,25 +252,32 @@ export class Hub {
     const room = this.one('SELECT * FROM rooms WHERE code=?', code);
     if (!room) return null;
     if (room.state === 'lobby' && now - room.created > RULES.lobbyLife) { this.sql("UPDATE rooms SET state='closed' WHERE code=?", code); room.state = 'closed'; }
-    const members = this.sql('SELECT m.status, m.joined, m.species, u.id, u.name, u.handle, u.avatar FROM members m JOIN users u ON u.id=m.user_id WHERE m.room=? ORDER BY m.joined, m.rowid', code)
-      .map(m => ({ id: m.id, name: m.name, handle: m.handle, avatar: m.avatar, status: m.status, species: m.species }));
+    const members = this.sql('SELECT m.status, m.joined, m.species, m.gone, u.id, u.name, u.handle, u.avatar FROM members m JOIN users u ON u.id=m.user_id WHERE m.room=? ORDER BY m.joined, m.rowid', code)
+      .map(m => ({ id: m.id, name: m.name, handle: m.handle, avatar: m.avatar, status: m.status, species: m.species, ...(m.gone ? { gone: true } : {}) }));
     const sanctuary = room.sid ? this.one('SELECT name FROM sanctuaries WHERE id=?', room.sid)?.name || null : null;
     return { code: room.code, host: room.host, minutes: room.minutes, rule: room.rule, state: room.state, start: room.start, members, now, ...(sanctuary ? { sid: room.sid, sanctuary } : {}) };
   }
   pushRoom(code, now, extra = {}) {
     const room = this.roomView(code, now);
-    if (room) for (const m of room.members) this.push(m.id, { t: 'room', room, ...extra });
+    if (room) for (const m of room.members) if (!m.gone) this.push(m.id, { t: 'room', room, ...extra });
     const sid = this.one('SELECT sid FROM rooms WHERE code=?', code)?.sid;
     if (sid) this.pushSanctuary(sid);
     return room;
   }
-  /** The room this person is in, if it is still open or running. */
+  /**
+   * The campfire this person is at: open, burning, or over and not yet left. A finished one stays
+   * with everyone round it until they leave it or light another (rooms are cleared after 2 days).
+   */
   currentRoom(userId, now) {
-    const row = this.one("SELECT r.code FROM members m JOIN rooms r ON r.code=m.room WHERE m.user_id=? AND r.state IN ('lobby','running') AND m.status IN ('joined','focusing') ORDER BY m.joined DESC LIMIT 1", userId);
+    const row = this.one("SELECT r.code FROM members m JOIN rooms r ON r.code=m.room WHERE m.user_id=? AND r.state IN ('lobby','running','done','failed') AND m.gone=0 ORDER BY m.joined DESC LIMIT 1", userId);
     if (!row) return null;
+    this.settleRoom(row.code, now);
     const room = this.roomView(row.code, now);
-    if (room.state === 'running' && now > room.start + (room.minutes + 5) * MIN) { this.settleRoom(room.code, now); return null; }
-    return room.state === 'lobby' || room.state === 'running' ? room : null;
+    return room && room.state !== 'closed' ? room : null;
+  }
+  /** This person has moved on from every campfire that is over: they stop hearing about them. */
+  leaveFinished(me, except = null) {
+    this.sql("UPDATE members SET gone=1 WHERE user_id=? AND gone=0 AND room<>? AND room IN (SELECT code FROM rooms WHERE state IN ('running','done','failed'))", me.id, except || '');
   }
   /** Close a running room once nobody is still focusing in it, or its time is long past. */
   settleRoom(code, now) {
@@ -279,6 +287,7 @@ export class Hub {
     if (left === 0 || now > room.start + (room.minutes + 5) * MIN) this.sql("UPDATE rooms SET state='done' WHERE code=?", code);
   }
   leaveLobbies(me, now, except = null) {
+    this.leaveFinished(me, except);
     for (const row of this.sql("SELECT r.code, r.host FROM members m JOIN rooms r ON r.code=m.room WHERE m.user_id=? AND r.state='lobby'", me.id)) {
       if (row.code === except) continue;
       this.sql('DELETE FROM members WHERE room=? AND user_id=?', row.code, me.id);
@@ -385,9 +394,9 @@ export class Hub {
   sanctuaryJoin(me, body, ctx) {
     this.limit('sjoin:' + me.id, 30, 3600, ctx.now);
     const row = this.one('SELECT * FROM sanctuaries WHERE code=?', cleanCode(body.code));
-    if (!row || this.blockedEitherWay(me.id, row.owner)) throw gone('No sanctuary has that code. Check it and try again.');
+    if (!row || this.blockedEitherWay(me.id, row.owner)) throw gone('No sanctuary has that code.');
     if (this.one('SELECT 1 AS ok FROM keepers WHERE sid=? AND user_id=?', row.id, me.id)) return { sanctuary: this.sanctuaryView(row.id, ctx.now) };
-    if (this.one('SELECT COUNT(*) AS n FROM keepers WHERE sid=?', row.id).n >= RULES.maxKeepers) throw bad(`That sanctuary is full. A sanctuary holds ${RULES.maxKeepers} havens.`);
+    if (this.one('SELECT COUNT(*) AS n FROM keepers WHERE sid=?', row.id).n >= RULES.maxKeepers) throw bad('That sanctuary is full.');
     if (this.countMine(me) >= RULES.maxSanctuaries) throw bad(`You can be in up to ${RULES.maxSanctuaries} sanctuaries. Leave one first.`);
     this.sql('INSERT INTO keepers(sid,user_id,joined) VALUES(?,?,?)', row.id, me.id, ctx.now);
     this.sql("DELETE FROM inbox WHERE to_id=? AND kind='sanctuary' AND data LIKE ?", me.id, `%"${row.code}"%`);
@@ -678,7 +687,7 @@ export class Hub {
     const code = cleanCode(q);
     let other = code.length === 8 ? this.one('SELECT * FROM users WHERE code=?', code) : null;
     if (!other && /^@?[A-Za-z0-9_]{3,20}$/.test(q)) other = this.one('SELECT * FROM users WHERE handle=?', q.replace(/^@/, '').toLowerCase());
-    if (!other || this.blockedEitherWay(me.id, other.id)) throw gone('No one has that code or username. Check it and try again.');
+    if (!other || this.blockedEitherWay(me.id, other.id)) throw gone('No one has that code or username.');
     const relation = other.id === me.id ? 'self' : this.areFriends(me.id, other.id) ? 'friend'
       : this.one('SELECT 1 AS ok FROM requests WHERE from_id=? AND to_id=?', me.id, other.id) ? 'outgoing'
       : this.one('SELECT 1 AS ok FROM requests WHERE from_id=? AND to_id=?', other.id, me.id) ? 'incoming' : 'none';
@@ -824,10 +833,13 @@ export class Hub {
       this.settleRoom(room.code, ctx.now);
       this.pushRoom(room.code, ctx.now);
     }
-    return { status, minutes, others };
+    return { status, minutes, others, ...(room && room.rule === 'together' && status === 'done' ? { strict: true } : {}) };
   }
 
-  /** In a "together" room one person leaving ends it for everyone. */
+  /**
+   * At a strict campfire ("the fire goes out for everyone") one person leaving ends every session
+   * round it at once. Each of them is told now, and through the inbox in case Haven is closed.
+   */
   failRoom(room, who, now) {
     if (room.rule !== 'together') return;
     this.sql("UPDATE rooms SET state='failed' WHERE code=?", room.code);
@@ -835,6 +847,8 @@ export class Hub {
       this.sql("UPDATE sessions SET status='failed', ended=? WHERE id=?", now, row.id);
       this.sql("UPDATE members SET status='left' WHERE room=? AND user_id=? AND status='focusing'", room.code, row.user_id);
       this.pushFriends(row.user_id, { t: 'presence', id: row.user_id, focusing: null });
+      const to = this.one('SELECT * FROM users WHERE id=?', row.user_id);
+      if (to && to.id !== who.id) this.deliver(to, who, 'fire-out', { code: room.code, species: row.species }, now);
     }
     this.pushRoom(room.code, now, { by: publicUser(who) });
   }
@@ -903,10 +917,10 @@ export class Hub {
     this.limit('join:' + me.id, 60, 3600, ctx.now);
     const code = cleanCode(body.code);
     const room = this.roomView(code, ctx.now);
-    if (!room || room.state === 'closed' || this.blockedEitherWay(me.id, room.host)) throw gone('No campfire has that code. Check it and try again.');
+    if (!room || room.state === 'closed' || this.blockedEitherWay(me.id, room.host)) throw gone('No campfire has that code.');
     if (room.members.some(m => m.id === me.id)) return { room };
     if (room.state !== 'lobby') throw bad('That campfire has already started.');
-    if (room.members.length >= RULES.maxRoom) throw bad(`That campfire is full. ${RULES.maxRoom} people fit round one.`);
+    if (room.members.length >= RULES.maxRoom) throw bad('That campfire is full.');
     if (this.focusing(this.activeSession(me.id), ctx.now)) throw bad('Finish your current session first.');
     this.leaveLobbies(me, ctx.now, code);
     this.sql("INSERT INTO members(room,user_id,status,joined,species) VALUES(?,?,'joined',?,?)", code, me.id, ctx.now, speciesById(body.species) ? body.species : 'clover');
@@ -928,9 +942,14 @@ export class Hub {
         this.pushRoom(code, ctx.now);
         this.push(me.id, { t: 'room', room: null });
       }
-    } else if (room.state === 'running') {
-      const row = this.one("SELECT * FROM sessions WHERE room=? AND user_id=? AND status='active'", code, me.id);
+    } else {
+      // Still focusing round it: leaving gives the session up. Once it is over for them (finished,
+      // given up, or the fire went out), anyone can go, whoever lit it too, without waiting for the rest.
+      const row = room.state === 'running' ? this.one("SELECT * FROM sessions WHERE room=? AND user_id=? AND status='active'", code, me.id) : null;
       if (row) this.sessionEnd(me, { id: row.id, status: 'failed' }, ctx);
+      this.sql('UPDATE members SET gone=1 WHERE room=? AND user_id=?', code, me.id);
+      this.push(me.id, { t: 'room', room: null });
+      this.pushRoom(code, ctx.now);
     }
     return { status: 'left' };
   }

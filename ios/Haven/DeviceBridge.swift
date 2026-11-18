@@ -25,7 +25,7 @@ final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply, ASWebAuthen
             permission(request: body["request"] as? Bool ?? false, reply: replyHandler)
         case "schedule":
             guard let id = body["id"] as? String, let at = body["at"] as? Double else { return replyHandler(nil, "Missing id or time.") }
-            if id == "away", AwayTracker.shared.recentlyLocked { return replyHandler(false, nil) }
+            if id == "away" || id == "lost", AwayTracker.shared.recentlyLocked { return replyHandler(false, nil) }
             let seconds = max(1, at / 1000 - Date().timeIntervalSince1970)
             add(id: id, title: body["title"] as? String ?? "Haven", text: body["body"] as? String ?? "",
                 trigger: UNTimeIntervalNotificationTrigger(timeInterval: seconds, repeats: false), reply: replyHandler)
@@ -118,11 +118,18 @@ final class DeviceBridge: NSObject, WKScriptMessageHandlerWithReply, ASWebAuthen
         }
     }
 
+    /// A finished session chimes like the app does; a lost one has its own falling chime.
+    static func sound(for id: String) -> UNNotificationSound {
+        if id == "session" || id == "break" { return UNNotificationSound(named: UNNotificationSoundName("chime.wav")) }
+        if id == "lost" || id.hasPrefix("lost-") { return UNNotificationSound(named: UNNotificationSoundName("wilt.wav")) }
+        return .default
+    }
+
     private func add(id: String, title: String, text: String, trigger: UNNotificationTrigger?, reply: @escaping (Any?, String?) -> Void) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = text
-        content.sound = .default
+        content.sound = DeviceBridge.sound(for: id)
         center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger)) { error in
             DispatchQueue.main.async { reply(error == nil, nil) }
         }

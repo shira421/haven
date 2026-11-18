@@ -139,11 +139,15 @@ export class Ambience {
     if (this.master) this.master.gain.setTargetAtTime(this.volume, this.ctx.currentTime, 0.05);
   }
 
-  /** Three soft bell notes when a session finishes. */
-  chime() {
+  /** Three soft bell notes rising when a session finishes. */
+  chime() { this.bell([[659.25, 0], [880, 0.16], [1318.5, 0.34]]); }
+  /** The same bell falling when a session is lost. The phone apps play both as files (scripts/sounds.mjs). */
+  wilt() { this.bell([[659.25, 0], [523.25, 0.22], [440, 0.46]]); }
+
+  bell(notes) {
     if (!this.unlock()) return;
     const ctx = this.ctx, t0 = ctx.currentTime + 0.02;
-    [[659.25, 0], [880, 0.16], [1318.5, 0.34]].forEach(([frequency, delay]) => {
+    notes.forEach(([frequency, delay]) => {
       for (const [mult, level] of [[1, 0.2], [2.01, 0.05]]) {
         const osc = ctx.createOscillator(), g = ctx.createGain();
         osc.frequency.value = frequency * mult;

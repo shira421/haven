@@ -152,7 +152,7 @@ try {
   await forward(13 * 60000, ana, ben);
   await ana.waitForSelector('#dialog[open]');
   assert.equal(await ana.locator('#dialog-title').textContent(), 'Session finished');
-  assert.match(await ana.locator('#dialog .lead').textContent(), /25 min focused. The fern is fully grown. It is in your haven\./);
+  assert.match(await ana.locator('#dialog .lead').textContent(), /25 min focused\. The fern is fully grown\.$/);
   assert.match(await ana.locator('#dialog .facts').textContent(), /Coins\+60Treats\+2/);
   assert.match(await ana.locator('#dialog .facts').textContent(), /First session\+50 coins/);
   await shot(ana, 'finished');
@@ -211,7 +211,7 @@ try {
   await ana.evaluate(id => { const s = window.__haven.app.store; s.item(id).fed -= 7 * 3600000; s.commit('care'); }, rabbit);
   await ana.locator(`.ent[data-ent="${rabbit}"]`).dispatchEvent('click');
   await ana.waitForSelector('.care-slot .care-chip');
-  assert.match(await ana.locator('.care-chip').textContent(), /Rabbit.*Loved that\. The bond grew\./);
+  assert.match(await ana.locator('.care-chip').textContent(), /Rabbit.*Loved that\./);
   assert.equal(await ana.evaluate(id => window.__haven.app.world.animals.get(id).act, rabbit), 'pet', 'it leans into the pat');
   await ana.click('.care-chip [data-action="open-care"]');
   await ana.waitForSelector('#dialog [data-action="feed"]');
@@ -294,7 +294,7 @@ try {
   await ana.waitForTimeout(300);
   assert.equal(await ana.locator('.page.focus.running').count(), 1, 'three minutes with the screen off is fine');
   assert.equal(await ana.locator('#dialog[open]').count(), 0, 'nothing is asked');
-  assert.match(await ana.locator('.page.focus').textContent(), /Lock your phone if you like/);
+  assert.match(await ana.locator('.page.focus').textContent(), /Don't leave for more than 30 seconds/);
   // A swipe out to another app takes the finger from the page (touchcancel) just before it hides.
   await ana.evaluate(() => { dispatchEvent(new Event('touchstart')); dispatchEvent(new Event('touchcancel')); });
   await hide(ana, true);
@@ -302,7 +302,7 @@ try {
   await hide(ana, false);
   await ana.waitForSelector('#dialog[open] .result-art');
   assert.equal(await ana.locator('#dialog-title').textContent(), 'The fern withered');
-  assert.match(await ana.locator('#dialog .lead').textContent(), /Haven counted (3[0-9]|40) s in another app\. Deep focus allows 30 s\. Swiped to another app\./);
+  assert.match(await ana.locator('#dialog .lead').textContent(), /(3[0-9]|40) s in another app\. The limit is 30 s\. Swiped to another app\./);
   await ana.click('#dialog [data-action="close-dialog"]');
   ok('in a phone browser a locked screen keeps the plant, and a swipe to another app for 40 s withers it');
 
@@ -356,7 +356,7 @@ try {
   await ana.click('#dialog [data-action="invite-send"]');
   await ana.keyboard.press('Escape');
   await ben.waitForSelector('#dialog [data-action="invite-accept"]', { timeout: 8000 });
-  assert.match(await ben.locator('#dialog .lead').textContent(), /Ana lit a campfire for 25 min\. If one person leaves, the fire goes out for everyone\./);
+  assert.match(await ben.locator('#dialog .lead').textContent(), /Ana lit a campfire for 25 min\. If anyone leaves, the fire goes out for everyone\./);
   await ben.click('#dialog [data-action="invite-accept"]');
   await ana.waitForFunction(() => document.querySelectorAll('.room .rows .row').length === 2, null, { timeout: 8000 });
   await shot(ana, 'room');
@@ -369,7 +369,8 @@ try {
   await ana.waitForSelector('#dialog[open]');
   await ben.waitForSelector('#dialog[open]');
   for (const p of [ana, ben]) assert.match(await p.locator('#dialog .facts').textContent(), /With friends1 finished with you/);
-  assert.match(await ana.locator('#dialog .facts').textContent(), /Coins\+68/, '60 coins, 3% for the streak and 10% for finishing with one friend');
+  assert.match(await ana.locator('#dialog .facts').textContent(), /Coins\+82/, '60 coins, 3% for the streak, 10% for finishing with one friend, and 1.2 times for the strict fire');
+  assert.match(await ana.locator('#dialog .facts').textContent(), /Strict campfire1\.2× coins/);
   await ana.click('#dialog [data-action="close-dialog"]');
   await ben.click('#dialog [data-action="close-dialog"]');
   ok('two friends start a campfire at the same moment and both finish with the bonus');
@@ -403,11 +404,15 @@ try {
   // The fire goes out for everyone: one person leaving ends it for both.
   await tab(ben, 'friends');
   await ben.click('.segmented [data-value="campfire"]');
+  // The last campfire is over but stays, showing how everyone did, until each person leaves it.
+  assert.match(await ben.locator('.room').textContent(), /Everyone is done\..*Finished/);
+  await ben.click('.room [data-action="room-leave"]');
   await ben.click('form[data-form="room-create"] button[type="submit"]');
   await ben.waitForSelector('.room');
   const code = await ben.evaluate(() => window.__haven.app.social.data.room.code);
   await ana.keyboard.press('Escape');
   await ana.click('.page.friends .segmented [data-value="campfire"]');
+  await ana.click('.room [data-action="room-leave"]');
   await ana.fill('form[data-form="room-join"] input[name="code"]', code);
   await ana.click('form[data-form="room-join"] button[type="submit"]');
   await ben.waitForFunction(() => document.querySelectorAll('.room .rows .row').length === 2, null, { timeout: 8000 });
@@ -415,10 +420,10 @@ try {
   await ana.waitForSelector('.page.focus.running', { timeout: 8000 });
   await forward(5 * 60000, ana, ben);
   await ana.click('[data-action="give-up"]');
-  assert.match(await ana.locator('#dialog .lead').textContent(), /The fire goes out for everyone round it/);
+  assert.match(await ana.locator('#dialog .lead').textContent(), /The fire goes out for everyone\./);
   await ana.click('#dialog [data-action="confirm-yes"]');
   await ben.waitForFunction(() => /withered|wandered/.test(document.querySelector('#dialog-title')?.textContent || ''), null, { timeout: 8000 });
-  assert.match(await ben.locator('#dialog .lead').textContent(), /Ana left the campfire/);
+  assert.match(await ben.locator('#dialog .lead').textContent(), /Ana left, so the fire went out/);
   ok('at a campfire, one person giving up ends it for the other, live');
   await ben.click('#dialog [data-action="close-dialog"]');
   await ana.click('#dialog [data-action="close-dialog"]');

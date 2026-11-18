@@ -13,52 +13,50 @@ const select = (action, options, current) => `<select data-change="${action}">${
 export function settingsDialog(app, section = null) {
   const { store, social } = app, s = store.state.settings, native = device.bridge();
   const notifySwitch = (kind, label, hint) => `<label class="switch-row"><span><b>${e(label)}</b>${hint ? `<small>${e(hint)}</small>` : ''}</span><input type="checkbox" data-change="notify" data-kind="${kind}" ${s.notify[kind] ? 'checked' : ''}></label>`;
-  const lockNote = native ? 'Locking the phone does not count as leaving.'
-    : device.phoneBrowser() ? 'Locking the phone is fine. Haven counts only time it can see you spent in another app, and gives you the benefit of the doubt.'
-    : 'Locking the computer counts as leaving.';
+  const lockNote = native || device.phoneBrowser() ? 'Locking the phone is fine.' : 'Locking the computer counts as leaving.';
   const me = social.account, google = social.features.google;
   // The apps from the stores have their server built in: only someone running their own server, or
   // who already changed it, sees where to change it. A wrong server would be handed the password.
   let changedServer = false;
   try { changedServer = Boolean(localStorage.getItem('haven-api')); } catch { /* storage closed */ }
   const serverField = !app.buildApi || changedServer;
-  const profile = !social.base ? '<p class="note">This copy of Haven has no server, so there is no account. Your haven is kept on this phone.</p>'
+  const profile = !social.base ? '<p class="note">No server is set, so there is no account. Your haven is on this phone.</p>'
     : social.signedIn ? `<div class="me-card">${avatar(me.avatar, 'large')}<div class="row-main"><b>${e(me.name)}</b><span>@${e(me.handle)}, code ${prettyCode(me.code)}</span></div></div>
 <div class="button-row"><button class="secondary" data-action="edit-profile">Edit profile</button><button class="secondary" data-action="change-password">${me.hasPassword === false ? 'Set a password' : 'Change password'}</button></div>
-${me.google ? `<p class="note">Google is connected, so you can also sign in with it.${me.hasPassword === false ? '' : ' <button class="linklike" data-action="disconnect-google">Disconnect</button>'}</p>` : google ? '<div class="button-row"><button class="secondary wide" data-action="connect-google">Connect Google</button></div><p class="note">Sign in with Google as well as your password, and get back in if you forget it.</p>' : ''}
+${me.google ? `<p class="note">Google is connected.${me.hasPassword === false ? '' : ' <button class="linklike" data-action="disconnect-google">Disconnect</button>'}</p>` : google ? '<div class="button-row"><button class="secondary wide" data-action="connect-google">Connect Google</button></div>' : ''}
 <p class="note">${social.data.backupAt ? `Saved to your account ${formatAgo(social.data.backupAt, social.serverNow())}.` : 'Not saved to your account yet.'} <button class="linklike" data-action="backup-now">Save now</button></p>
 <div class="button-row quiet"><button class="linklike" data-action="sign-out">Sign out</button><button class="linklike danger" data-action="delete-profile">Delete account</button></div>`
     : '<p class="note">You are signed out.</p>';
   openDialog('Settings', `<h3 class="group-title" id="set-focus">Focus</h3>
-${switchRow('Deep focus', 'deep', s.deep, `Leaving Haven during a session withers the plant. ${lockNote}`)}
-${field('Time away that is forgiven', select('allowance', ALLOWANCES, s.allowance), 'Enough to answer a message or change a song.')}
+${switchRow('Deep focus', 'deep', s.deep, `Leaving Haven loses the session. ${lockNote}`)}
+${field('Time you can leave for', select('allowance', ALLOWANCES, s.allowance))}
 ${device.phoneBrowser() ? browserLeaving(app) : ''}
-${device.canKeepAwake() ? switchRow('Keep the screen on', 'keepAwake', s.keepAwake, native ? 'While a session runs. Off lets the phone lock as usual, which is not leaving.' : 'While a session runs.') : ''}
-${switchRow('Place new plants and animals for me', 'autoPlace', s.autoPlace, 'On a free tile. You can move them later.')}
+${device.canKeepAwake() ? switchRow('Keep the screen on', 'keepAwake', s.keepAwake, 'While a session runs.') : ''}
+${switchRow('Place new plants and animals for me', 'autoPlace', s.autoPlace)}
 <h3 class="group-title">Sounds</h3>
 ${field('Background sound', select('sound', SOUNDS.map(x => [x.id, x.name]), s.sound))}
 <label class="form-field"><span>Volume</span><input type="range" min="0" max="1" step="0.05" value="${s.volume}" data-input="volume"></label>
-${switchRow('Chime when a session finishes', 'chime', s.chime)}
+${switchRow('Chime when a session ends', 'chime', s.chime)}
 ${switchRow('Vibration', 'haptics', s.haptics)}
 <h3 class="group-title" id="set-notify">Notifications</h3>
 <div id="notify-state" hidden></div>
-${native ? '' : '<p class="note">In a browser, Haven can notify you only while it is open in a tab. Reminders need the iOS or Android app.</p>'}
-${notifySwitch('done', 'A session finishes', '')}
-${notifySwitch('away', 'Come back to Haven', `If you switch apps during a session, after ${formatAway(warnAfter(s.allowance))}.`)}
-${notifySwitch('friends', 'Friend requests and invitations', native ? 'Checked about every 15 minutes while Haven is closed.' : '')}
+${native ? '' : '<p class="note">In a browser, notifications only arrive while Haven is open.</p>'}
+${notifySwitch('done', 'A session ends', '')}
+${notifySwitch('away', 'Come back to Haven', `After ${formatAway(warnAfter(s.allowance))} away.`)}
+${notifySwitch('friends', 'Friend requests and invitations', '')}
 ${notifySwitch('social', 'Cheers, nudges and gifts', '')}
-${native ? `${notifySwitch('streak', 'Streak about to end', 'At 8 pm on a day you have not focused yet.')}
-${notifySwitch('hungry', 'Animals are hungry', 'Once a day at most, never at night.')}
+${native ? `${notifySwitch('streak', 'Streak about to end', 'At 8 pm if you have not focused.')}
+${notifySwitch('hungry', 'Animals are hungry', 'At most once a day.')}
 ${switchRow('Remind me to focus every day', 'reminder-on', s.reminder.on)}${field('At', `<input type="time" value="${s.reminder.time}" data-change="reminder-time">`)}` : ''}
 <h3 class="group-title">Look</h3>
 ${field('Theme', select('theme', [['system', 'Same as the phone'], ['light', 'Light'], ['dark', 'Dark']], s.theme))}
 <h3 class="group-title" id="set-account">Account</h3>${profile}
 <h3 class="group-title">Your data</h3>
-<p class="note">${social.signedIn ? 'Your haven is kept on this phone and in your account.' : 'Your haven is kept on this phone.'} A backup file holds your sessions, coins and haven.</p>
+<p class="note">A backup file holds your haven, sessions and coins.</p>
 <div class="button-row"><button class="secondary" data-action="export">Save a backup file</button><button class="secondary" data-action="import">Open a backup file</button></div>
 ${social.signedIn ? '' : '<div class="button-row quiet"><button class="linklike danger" data-action="reset">Erase everything on this phone</button></div>'}
 <h3 class="group-title">About</h3>
-<p class="note">Haven ${e(app.version)}. Friends server: ${social.base ? ({ live: 'connected', connecting: 'connecting', offline: 'not reachable', 'signed-out': 'ready' }[social.status]) : 'not set'}. <a href="https://shira421.github.io/haven/privacy.html" target="_blank" rel="noopener">Privacy policy</a>. <a href="https://github.com/shira421/haven" target="_blank" rel="noopener">Source on GitHub</a>.</p>
+<p class="note">Haven ${e(app.version)}. Server ${social.base ? ({ live: 'connected', connecting: 'connecting', offline: 'not reachable', 'signed-out': 'ready' }[social.status]) : 'not set'}. <a href="https://shira421.github.io/haven/privacy.html" target="_blank" rel="noopener">Privacy policy</a></p>
 ${serverField ? field('Friends server address', `<input type="url" inputmode="url" value="${e(social.base || '')}" placeholder="https://" data-change="api-base">`, 'Leave as it is unless you run your own server.') : ''}`, { cls: 'settings' });
   if (section) $('#set-' + section)?.scrollIntoView({ block: 'start' });
   notifyState();
@@ -70,8 +68,8 @@ function browserLeaving(app) {
   const sec = ms => formatAway(Math.round(ms / 1000));
   const row = !leaving.idleSupported() ? ''
     : idle === 'on' ? '<p class="note">Haven is told when the screen locks.</p>'
-    : idle === 'denied' ? '<p class="note">Haven is not allowed to know when the screen locks. You can allow it in the site settings.</p>'
-    : '<div class="button-row"><button class="secondary" data-action="allow-idle">Let Haven know when the screen locks</button></div><p class="note">Optional. It makes a locked screen certain, so only another app counts.</p>';
+    : idle === 'denied' ? '<p class="note">Haven can\'t tell when the screen locks. Allow it in site settings.</p>'
+    : '<div class="button-row"><button class="secondary" data-action="allow-idle">Let Haven know when the screen locks</button></div>';
   const told = last ? `<p class="note" id="last-away">Last time away: ${sec(last.wall)}${last.slept != null ? `, phone asleep ${sec(last.slept)}` : ''}. Counted ${sec(last.counted)}. ${e(last.why)}</p>` : '';
   return row + told;
 }
@@ -82,8 +80,8 @@ async function notifyState() {
   if (!box || p === 'granted') return;
   const native = device.bridge();
   box.innerHTML = p === 'unsupported' ? '<p class="note">This browser cannot show notifications.</p>'
-    : p === 'denied' ? `<p class="notice-text">Notifications are off for Haven${native ? ' in your phone\'s settings' : ' in this browser'}, so none of these will arrive.</p>${native ? '<div class="button-row"><button class="secondary wide" data-action="notify-settings">Open notification settings</button></div>' : ''}`
-    : '<p class="notice-text">Haven is not allowed to send notifications yet.</p><div class="button-row"><button class="primary wide" data-action="allow-notify">Allow notifications</button></div>';
+    : p === 'denied' ? `<p class="notice-text">Notifications are off${native ? ' in your phone\'s settings' : ' in this browser'}.</p>${native ? '<div class="button-row"><button class="secondary wide" data-action="notify-settings">Open notification settings</button></div>' : ''}`
+    : '<p class="notice-text">Notifications are not allowed yet.</p><div class="button-row"><button class="primary wide" data-action="allow-notify">Allow notifications</button></div>';
   box.hidden = false;
 }
 
@@ -112,7 +110,7 @@ ${has ? field('Current password', '<input type="password" name="current" maxleng
 ${field('New password', '<input type="password" name="password" maxlength="128" autocomplete="new-password" required>', 'At least 8 characters.')}
 <p class="form-error" role="alert" hidden></p>
 <div class="button-row"><button class="primary wide" type="submit">Save password</button></div>
-${has ? '<p class="note">Your other phones and computers are signed out, and sign in again with the new password.</p>' : '<p class="note">With a password you can sign in with your username as well as with Google.</p>'}</form>`);
+${has ? '<p class="note">Your other devices will be signed out.</p>' : ''}</form>`);
   },
   'disconnect-google': async app => {
     if (!(await app.confirm('Disconnect Google?', 'You will sign in with your username and password only.', 'Disconnect'))) return;
@@ -121,17 +119,17 @@ ${has ? '<p class="note">Your other phones and computers are signed out, and sig
   'backup-now': async app => { try { await app.social.backup(); toast('Saved to your account.'); settingsDialog(app, 'account'); } catch (error) { toast(error.message); } },
   'sign-out': async app => {
     if (app.store.state.active) { toast('Finish or give up your session first.'); return; }
-    if (!(await app.confirm('Sign out?', 'Your haven is saved in your account and is taken off this phone. Sign in again with your username and password to get it back.', 'Sign out', { danger: false }))) return;
+    if (!(await app.confirm('Sign out?', 'Your haven stays in your account and comes back when you sign in.', 'Sign out', { danger: false }))) return;
     app.veil('Saving your haven');
     let saved = true;
     try { await app.social.sync(); } catch { saved = false; }
     await app.unveil();
-    if (!saved && !(await app.confirm('Sign out without saving?', 'Haven cannot reach your account right now. Anything you did since it was last saved would be lost.', 'Sign out anyway'))) return;
+    if (!saved && !(await app.confirm('Sign out without saving?', 'Haven can\'t reach your account. Recent changes would be lost.', 'Sign out anyway'))) return;
     await app.social.signOut();
     toast('Signed out.');
   },
   'delete-profile': async app => {
-    if (!(await app.confirm('Delete your account?', 'Your name, friends, haven and sessions are removed for good, here and on every other phone or computer. This cannot be undone.', 'Delete account'))) return;
+    if (!(await app.confirm('Delete your account?', 'Your haven, sessions and friends are deleted everywhere. This can\'t be undone.', 'Delete account'))) return;
     try { await app.social.deleteAccount(); toast('Account deleted.'); } catch (error) { toast(error.message); }
   },
   'allow-notify': async app => {
@@ -153,10 +151,10 @@ ${has ? '<p class="note">Your other phones and computers are signed out, and sig
   import: app => {
     openDialog('Open a backup', `<form data-form="import" novalidate><label class="form-field"><span>Backup file</span><input type="file" name="file" accept="application/json,.json"></label>
 ${field('Or paste a backup', '<textarea name="text" rows="4" spellcheck="false"></textarea>')}
-<p class="note">The backup is combined with what is on this phone. Nothing is lost.</p><p class="form-error" role="alert" hidden></p><div class="button-row"><button class="primary wide" type="submit">Combine backup</button></div></form>`);
+<p class="note">It is combined with what is here. Nothing is lost.</p><p class="form-error" role="alert" hidden></p><div class="button-row"><button class="primary wide" type="submit">Combine backup</button></div></form>`);
   },
   reset: async app => {
-    if (!(await app.confirm('Erase everything?', 'Your sessions, coins, plants and animals on this phone are removed for good. Save a backup file first if you might want them.', 'Erase everything'))) return;
+    if (!(await app.confirm('Erase everything?', 'Everything on this phone is deleted. Save a backup first if you might want it.', 'Erase everything'))) return;
     app.store.reset(); toast('Erased.');
   },
 };

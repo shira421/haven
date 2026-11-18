@@ -330,11 +330,13 @@ test('focusing together: everyone starts at the same moment and finishes with a 
   assert.equal((await api('POST', '/api/rooms/join', (await person('Late')).token, { code: room.code })).status, 400, 'no joining once it has started');
   tick(5000 + 25 * MIN);
   const ids = [a, b, c].map(p => room.code.toLowerCase() + p.id);
-  assert.deepEqual(await ok('POST', '/api/session/end', a.token, { id: ids[0], status: 'done' }), { status: 'done', minutes: 25, others: 2 });
+  assert.deepEqual(await ok('POST', '/api/session/end', a.token, { id: ids[0], status: 'done' }), { status: 'done', minutes: 25, others: 2, strict: true }, 'a strict campfire says so, for its 1.2x coins');
   assert.equal((await ok('POST', '/api/session/end', b.token, { id: ids[1], status: 'done' })).others, 2);
   const last = await ok('POST', '/api/session/end', c.token, { id: ids[2], status: 'done' });
   assert.equal(last.others, 2);
   assert.equal((await sa.next(m => m.t === 'room' && m.room.state === 'done')).room.members.every(m => m.status === 'done'), true);
+  assert.equal((await ok('GET', '/api/me', a.token)).room.state, 'done', 'a finished campfire stays until you leave it');
+  await ok('POST', '/api/rooms/leave', a.token, { code: room.code });
   assert.equal((await ok('GET', '/api/me', a.token)).room, null);
   assert.equal((await ok('GET', '/api/feed', a.token)).feed.filter(f => f.room === room.code).length, 3);
   sa.close(); sb.close(); sc.close();
@@ -352,10 +354,40 @@ test('together rule: one person leaving ends it for everyone, live', async () =>
   await ok('POST', '/api/rooms/leave', b.token, { code: room.code });
   const failed = await sa.next(m => m.t === 'room' && m.room.state === 'failed' && m.by);
   assert.equal(failed.by.name, 'Yui');
+  const out = await sa.next(m => m.t === 'inbox' && m.item.kind === 'fire-out');
+  assert.equal(out.item.from.name, 'Yui', 'everyone else is told, also through the inbox for a closed app');
+  assert.equal((await ok('GET', '/api/me', b.token)).inbox.filter(i => i.kind === 'fire-out').length, 0, 'not the one who left');
+  assert.equal((await ok('GET', '/api/news?since=0', a.token)).news.find(n => n.kind === 'fire-out').name, 'Yui');
   tick(45 * MIN);
   assert.equal((await ok('POST', '/api/session/end', a.token, { id: room.code.toLowerCase() + a.id, status: 'done' })).status, 'failed', 'the host cannot finish a failed room');
   assert.equal((await ok('GET', `/api/board?since=0`, a.token)).board.find(r => r.me).minutes, 0);
   sa.close();
+});
+
+test('a finished campfire: anyone can leave, whoever lit it too, while someone is still focusing', async () => {
+  const a = await person('Ida'), b = await person('Jo'), c = await person('Kit');
+  const room = (await ok('POST', '/api/rooms', a.token, { minutes: 25, rule: 'together' })).room;
+  await ok('POST', '/api/rooms/join', b.token, { code: room.code });
+  await ok('POST', '/api/rooms/join', c.token, { code: room.code });
+  await ok('POST', '/api/rooms/start', a.token, { code: room.code });
+  tick(5000 + 25 * MIN);
+  for (const p of [a, b]) await ok('POST', '/api/session/end', p.token, { id: room.code.toLowerCase() + p.id, status: 'done' });
+  // Kit has not opened Haven since. The others stay round the fire until they choose to go.
+  const seen = (await ok('GET', '/api/me', a.token)).room;
+  assert.equal(seen.state, 'running');
+  assert.deepEqual(seen.members.map(m => m.status), ['done', 'done', 'focusing']);
+  const sa = await live(a), sb = await live(b);
+  await ok('POST', '/api/rooms/leave', a.token, { code: room.code });
+  assert.equal((await sa.next(m => m.t === 'room')).room, null, 'whoever lit it can leave');
+  assert.equal((await sb.next(m => m.t === 'room')).room.members[0].gone, true, 'the others see they went');
+  assert.equal((await ok('GET', '/api/me', a.token)).room, null);
+  assert.equal((await ok('GET', `/api/rooms/${room.code}`, b.token)).room.members[0].status, 'done', 'leaving afterwards keeps the finished session');
+  const kit = await ok('POST', '/api/session/end', c.token, { id: room.code.toLowerCase() + c.id, status: 'done' });
+  assert.equal(kit.others, 2, 'Kit finishing later still counts the two who left');
+  // Lighting another campfire moves on from a finished one.
+  const next = (await ok('POST', '/api/rooms', b.token, { minutes: 30 })).room;
+  assert.equal((await ok('GET', '/api/me', b.token)).room.code, next.code);
+  sa.close(); sb.close();
 });
 
 test('gentle rule: someone leaving costs only them', async () => {

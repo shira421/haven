@@ -39,7 +39,7 @@ export function render(app) {
   const level = store.level(), side = store.side();
   const levelCard = `<div class="level"><div class="level-head"><b>Level ${level.level}</b><span>${formatMinutes(level.need - level.into)} to level ${level.level + 1}</span></div>
 <div class="meter" role="progressbar" aria-label="Progress to the next level" aria-valuemin="0" aria-valuemax="${level.need}" aria-valuenow="${level.into}"><i style="width:${Math.round(level.into / level.need * 100)}%"></i></div>
-<p class="note">Your land is ${side} by ${side} and holds ${store.capacity()} things.${side < 10 ? ` It grows at level ${level.level + (level.level % 2 === 0 ? 1 : 2)}.` : ''}</p></div>`;
+<p class="note">Land ${side} × ${side}.${side < 10 ? ` Grows at level ${level.level + (level.level % 2 === 0 ? 1 : 2)}.` : ''}</p></div>`;
   return `<section class="page journal" data-page="journal"><h1 class="page-title">Journal</h1>
 ${levelCard}
 ${segmented('journal-kind', KINDS, j.kind, 'Period')}
@@ -49,7 +49,7 @@ ${chart(p, sum)}
 ${tagBars ? `<h2 class="section-title">By tag</h2><ul class="tag-bars">${tagBars}</ul>` : ''}
 ${grown ? `<h2 class="section-title">What grew</h2><div class="grown-strip">${grown}</div>` : ''}
 <h2 class="section-title">Sessions</h2>
-${sessions ? `<ul class="rows">${sessions}</ul>` : empty(doneSessions(store.state.sessions).length ? 'No sessions in this period.' : 'No sessions yet. Your first one will show up here.', '<button class="primary" data-action="go" data-page="focus">Start a session</button>')}
+${sessions ? `<ul class="rows">${sessions}</ul>` : empty(doneSessions(store.state.sessions).length ? 'No sessions in this period.' : 'No sessions yet.', '<button class="primary" data-action="go" data-page="focus">Start a session</button>')}
 <h2 class="section-title">Achievements</h2><p class="note">${earned} of ${ACHIEVEMENTS.length} earned.</p><ul class="rows">${achievements}</ul></section>`;
 }
 
@@ -69,7 +69,7 @@ export const actions = {
   'journal-step'(app, d) { app.ui.journal.anchor = Math.min(app.now(), shiftPeriod(app.ui.journal.kind, app.ui.journal.anchor, Number(d.step))); app.render(); },
   session: (app, d) => sessionDialog(app, d.id),
   'delete-session': async (app, d) => {
-    if (!(await app.confirm('Delete this session?', 'It is removed from your journal and your totals on this phone. What it grew stays in your haven.', 'Delete'))) return;
+    if (!(await app.confirm('Delete this session?', 'It is removed from your journal. What it grew stays.', 'Delete'))) return;
     app.store.deleteSession(d.id);
     toast('Session deleted.');
   },

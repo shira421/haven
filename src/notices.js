@@ -29,7 +29,7 @@ export function syncReminders(store, now = Date.now()) {
   if (!device.canSchedule()) return;
   const n = store.state.settings.notify;
   const streak = n.streak ? streakNudge(store.state.sessions, now) : null;
-  if (streak) device.notifyAt('streak', streak.at, `Keep your ${streak.days}-day streak`, 'You have not focused today. A short session keeps the streak going.');
+  if (streak) device.notifyAt('streak', streak.at, `Keep your ${streak.days}-day streak`, 'A short session keeps it going.');
   else device.cancelNotification('streak');
   const animals = store.animals();
   const hungry = n.hungry ? hungryNudge(animals, now) : null;

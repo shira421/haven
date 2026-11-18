@@ -186,7 +186,7 @@ app.askForNotifications = askForNotifications;
 async function reportLastCrash() {
   const text = await device.lastCrash();
   if (!text) return;
-  openDialog('Haven closed unexpectedly', `<p class="lead">Sorry about that. Your haven and sessions are safe. If it keeps happening, copy the details and send them to the developer.</p>
+  openDialog('Haven closed unexpectedly', `<p class="lead">Your haven is safe. If it keeps happening, copy the details and send them to Haven support.</p>
 <div class="button-row"><button class="secondary" data-action="copy-crash">Copy details</button><button class="primary" data-action="close-dialog" autofocus>OK</button></div>`);
   app.crashText = String(text);
 }
@@ -213,7 +213,7 @@ function listen() {
     // Every change reaches this account's other devices a few seconds later.
     if (what !== 'cycle') app.social.scheduleBackup();
     if (what === 'state') applyTheme();
-    if (store.saveError && !listen.warned) { listen.warned = true; toast('This phone is not letting Haven save. Free some space, or your progress may be lost.'); }
+    if (store.saveError && !listen.warned) { listen.warned = true; toast('Haven can\'t save. Free some space on your phone.'); }
     render();
   });
 
@@ -224,8 +224,8 @@ function listen() {
     if (type === 'finished') { render(); focus.resultDialog(app, payload); if (offScreen() && store.state.settings.notify.done) notifyDone(payload); return; }
     if (type === 'failed') { render(); focus.failedDialog(app, payload); return; }
     if (type === 'cancelled') { render(); toast('Session cancelled.'); return; }
-    if (type === 'short') { render(); toast(`Under ${payload.least} min, so nothing grew this time. You focused for ${payload.minutes} min.`); return; }
-    if (type === 'break-over') { render(); toast('Break over. Start the next round when you are ready.'); return; }
+    if (type === 'short') { render(); toast(`Under ${payload.least} min, so nothing grew.`); return; }
+    if (type === 'break-over') { render(); toast('Break over.'); return; }
     if (type === 'cycle-done') { render(); toast('Pomodoro run finished.'); }
   });
 
@@ -256,7 +256,7 @@ function notifyDone({ session }) {
 function inbox(item) {
   const from = item.from.name;
   if (item.kind === 'invite') {
-    if (store.state.active || app.social.data.room) { app.social.ack([item.id]); return; }
+    if (store.state.active || app.social.roomLive() || item.kind === 'fire-out') { app.social.ack([item.id]); return; }
     if (offScreen()) news(item);
     return friends.inviteReceived(app, item);
   }
@@ -279,7 +279,12 @@ function roomChanged({ room, by }) {
   if (!room) return;
   const active = store.state.active;
   if (room.state === 'running' && !active) { app.timer.startRoom(room); return; }
-  if (room.state === 'failed' && active?.room === room.code) { app.timer.fail('friend-left', { who: by?.id === app.social.account?.id ? 'You' : by?.name }); return; }
+  if (room.state === 'failed' && active?.room === room.code) {
+    // Told now, or on opening Haven later: then who left is in the inbox.
+    const who = by || app.social.data.inbox?.find(i => i.kind === 'fire-out' && i.data?.code === room.code)?.from;
+    app.timer.fail('friend-left', { who: who?.id === app.social.account?.id ? 'You' : who?.name });
+    return;
+  }
   if (room.state === 'closed' && app.ui.page === 'friends') toast('The campfire was put out.');
 }
 
@@ -324,7 +329,7 @@ async function boot() {
     if (app.ui.pendingAdd) { const code = app.ui.pendingAdd; app.ui.pendingAdd = null; app.go('friends'); friends.addDialog(app, code); }
   };
   await app.timer.resume();
-  if (!safeStorage()) toast('This browser is not letting Haven save. Turn off private browsing to keep your haven.');
+  if (!safeStorage()) toast('This browser won\'t let Haven save. Turn off private browsing.');
   app.social.base = await discoverApi({ storage, build: BUILD_API, location });
   // Someone signed in sees their haven at once; someone who is not waits a moment to learn how they can sign in.
   if (app.social.base && !app.social.signedIn) await app.social.discoverFeatures(); else if (app.social.base) app.social.discoverFeatures().then(() => { if (gated) render(); });

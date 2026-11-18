@@ -64,7 +64,7 @@ function worldEvent(app, event) {
   if (!r.ok) return;
   if (app.store.state.settings.haptics) haptic('success');
   const bond = r.bond ? ` Bond level ${r.bond.level}. +${r.bond.coins} coins.` : '';
-  showChip(app, event.id, `Ate the treat.${bond}`);
+  showChip(app, event.id, `Yum.${bond}`);
   if (r.achievements?.length || r.bond) app.announce(r.achievements, `${app.store.nameOf(item)} ate.${bond}`);
 }
 
@@ -240,13 +240,13 @@ export function arrangePanel(app) {
   const groups = new Map();
   for (const item of stored) { const key = `${item.s}:${item.z}`; if (!groups.has(key)) groups.set(key, []); groups.get(key).push(item); }
   const tray = [...groups.values()].map(list => { const item = list[0], sp = speciesById(item.s); return `<button class="tray-item" data-action="tray" data-id="${e(item.id)}" aria-pressed="${Boolean(chosen && list.some(i => i.id === chosen.id))}" aria-label="${e(sp.name)}, ${['small', 'medium', 'large'][item.z - 1]}, ${list.length} in storage">${sprite(sp.id, { kind: sp.kind })}<span>${list.length}</span></button>`; }).join('');
-  const hint = chosen ? `${e(store.nameOf(chosen))}${chosen.from ? `, a gift from ${e(chosen.from)}` : ''}. Tap the land where it should go.`
-    : picked ? `${e(store.nameOf(picked))}. Drag it, or choose below.`
-    : stored.length ? 'Drag things to move them. Tap something in storage, then tap the land.' : 'Drag anything to move it. Tap it for more.';
+  const hint = chosen ? `${e(store.nameOf(chosen))}${chosen.from ? `, from ${e(chosen.from)}` : ''}. Tap where it goes.`
+    : picked ? `${e(store.nameOf(picked))}.`
+    : 'Drag to move things.';
   return `<div class="panel arrange"><p class="note" aria-live="polite">${hint}</p>
 ${tray ? `<div class="tray" role="group" aria-label="In storage">${tray}</div>` : ''}
 <div class="button-row">${chosen ? '<button class="secondary" data-action="place-anywhere">Place it for me</button>' : ''}${picked ? '<button class="secondary" data-action="store-item">Put in storage</button><button class="secondary danger" data-action="release-item">Let it go</button>' : ''}<button class="primary" data-action="arrange">Done</button></div>
-<p class="note">Your land holds ${store.capacity()} things. ${store.room()} more fit.${store.side() < 10 ? ` It grows at level ${store.level().level + (store.level().level % 2 === 0 ? 1 : 2)}.` : ''}</p></div>`;
+<p class="note">${store.room()} of ${store.capacity()} spaces free.${store.side() < 10 ? ` More at level ${store.level().level + (store.level().level % 2 === 0 ? 1 : 2)}.` : ''}</p></div>`;
 }
 
 // ——— Care ———
@@ -260,11 +260,11 @@ function pat(app, id, done = null) {
   if (!item) return;
   const what = done || app.world?.pet(id, 'pat') || 'pat';
   if (!done) heartAt(app, id, 0);
-  if (what === 'woke') { showChip(app, id, 'Woke up. Left alone, it goes back to sleep.'); return; }
+  if (what === 'woke') { showChip(app, id, 'Woke up.'); return; }
   const r = app.store.pet(id);
   if (app.store.state.settings.haptics && !done) haptic('light');
   const bond = r.ok && r.bond ? ` Bond level ${r.bond.level}. +${r.bond.coins} coins.` : '';
-  showChip(app, id, r.ok && r.counted ? `Loved that. The bond grew.${bond}` : 'Loved that.');
+  showChip(app, id, r.ok && r.counted ? `Loved that.${bond}` : 'Loved that.');
   if (r.ok && (r.achievements?.length || r.bond)) app.announce(r.achievements, `${app.store.nameOf(item)} loved that.${bond}`);
 }
 
@@ -283,18 +283,18 @@ const treatsLeft = app => Math.max(0, app.store.state.food - (app.world?.foodLef
  */
 function putTreat(app, u, v, forId = null) {
   const { store } = app, now = app.now(), night = isNight(now);
-  if (treatsLeft(app) < 1) { toast(store.state.food < 1 ? 'No treats left. Every finished session earns more.' : 'All your treats are down already.'); return false; }
+  if (treatsLeft(app) < 1) { toast(store.state.food < 1 ? 'No treats left. Finish a session for more.' : 'All your treats are out.'); return false; }
   const animals = store.animals(), eaters = animals.filter(i => hungerOf(i, now) !== 'full');
-  if (!eaters.length) { toast('Everyone is full. They get peckish again 6 hours after eating.'); return false; }
+  if (!eaters.length) { toast('Everyone is full.'); return false; }
   const awake = eaters.filter(i => app.world?.animals.get(i.id)?.state !== 'sleep');
-  if (!awake.length) { toast(night ? 'Everyone hungry is asleep. Tap one to wake it.' : 'Nobody can come right now.'); return false; }
+  if (!awake.length) { toast(night ? 'They are asleep. Tap one to wake it.' : 'Nobody can come right now.'); return false; }
   if (calm() || !app.world) {
     const id = forId && awake.some(i => i.id === forId) ? forId : awake.sort((a, b) => (a.fed || 0) - (b.fed || 0))[0].id;
     worldEvent(app, { type: 'ate', id });
     return true;
   }
   const f = app.world.putFood(u, v);
-  if (!f) { toast('That is plenty of treats down for now.'); return false; }
+  if (!f) { toast('That is enough treats for now.'); return false; }
   if (forId) f.for = forId;
   if (store.state.settings.haptics) haptic('light');
   return true;
@@ -329,10 +329,10 @@ export function chipHTML(app) {
 export function feedingPanel(app) {
   const { store } = app, now = app.now(), left = treatsLeft(app);
   const hungryNow = store.animals().filter(i => hungerOf(i, now) !== 'full').length;
-  const hint = !store.animals().length ? 'No animals live here yet.'
-    : store.state.food < 1 ? 'No treats left. Every finished session earns more: one, and one more for each 15 min.'
-    : !hungryNow ? 'Everyone is full. They get peckish again 6 hours after eating.'
-    : `Tap the land to put a treat down. ${hungryNow === 1 ? 'The one who is hungry comes' : `The ${hungryNow} who are hungry come`} to eat it.${isNight(now) ? ' At night, tap a sleeping animal to wake it first.' : ''}`;
+  const hint = !store.animals().length ? 'No animals yet.'
+    : store.state.food < 1 ? 'No treats left. Finish a session for more.'
+    : !hungryNow ? 'Everyone is full.'
+    : 'Tap the land to put a treat down.';
   return `<div class="panel feeding"><p class="note" aria-live="polite">${hint}</p>
 <p class="treat-count">${icon('treat')}<b>${left}</b> ${left === 1 ? 'treat' : 'treats'} left</p>
 <div class="button-row"><button class="secondary" data-action="care">Everyone's bond</button><button class="primary" data-action="feeding">Done</button></div></div>`;
@@ -361,9 +361,9 @@ function careDialog(app, id) {
 <p class="lead">${item.name || breedName ? `${e(breedName || sp.name)}. ` : ''}${moodOf(item, now, isNight(now))}. ${e(likesText(sp))}</p>
 <dl class="facts"><div><dt>Bond</dt><dd><span class="hearts" role="img" aria-label="${level} of ${CARE.levels}">${hearts}</span></dd></div>
 <div><dt>Hunger</dt><dd>${HUNGER[hunger]}</dd></div><div><dt>${item.from ? 'A gift from' : 'Moved in'}</dt><dd>${item.from ? e(item.from) : dateText(item.at)}</dd></div></dl>
-${level < CARE.levels ? `<div class="meter" role="progressbar" aria-label="Progress to the next bond level" aria-valuemin="0" aria-valuemax="20" aria-valuenow="${into}"><i style="width:${into * 5}%"></i></div><p class="note">Treats and pats grow the bond. Each new level pays coins. Pat or stroke ${e(store.nameOf(item))} on the land; a pat counts once an hour.</p>` : '<p class="note">You are as close as can be.</p>'}
+${level < CARE.levels ? `<div class="meter" role="progressbar" aria-label="Progress to the next bond level" aria-valuemin="0" aria-valuemax="20" aria-valuenow="${into}"><i style="width:${into * 5}%"></i></div><p class="note">Treats and pats grow the bond. Each level pays coins.</p>` : '<p class="note">As close as can be.</p>'}
 <div class="button-row"><button class="secondary" data-action="pet" data-id="${e(id)}">${icon('heart')}Pet</button>${feed}</div>
-<p class="note">You have ${store.state.food} ${store.state.food === 1 ? 'treat' : 'treats'}. Every finished session earns more.</p>
+<p class="note">${store.state.food} ${store.state.food === 1 ? 'treat' : 'treats'} left.</p>
 ${breed}<form data-form="rename" data-id="${e(id)}" class="inline-form">${field('Name', `<input name="name" maxlength="20" value="${e(item.name || '')}" placeholder="${e(sp.name)}" autocomplete="off">`)}<button class="secondary" type="submit">Save name</button></form>
 <div class="button-row quiet"><button class="linklike" data-action="store-this" data-id="${e(id)}">Put in storage</button><button class="linklike danger" data-action="release-this" data-id="${e(id)}">Let it go</button></div>`);
 }
@@ -376,7 +376,7 @@ function thingDialog(app, id) {
 <p class="lead">${e(sp.blurb)} ${e(fansText(sp))}</p>
 <dl class="facts"><div><dt>${item.from ? 'A gift from' : sp.kind === 'nature' ? 'Built' : 'Grown'}</dt><dd>${item.from ? e(item.from) : dateText(item.at)}</dd></div><div><dt>Size</dt><dd>${['Small', 'Medium', 'Large'][item.z - 1]}</dd></div></dl>
 <div class="button-row"><button class="secondary" data-action="store-this" data-id="${e(id)}">Put in storage</button><button class="secondary danger" data-action="release-this" data-id="${e(id)}">Let it go</button></div>
-<p class="note">To move it, close this and choose Arrange.</p>`);
+`);
 }
 
 function careList(app) {
@@ -384,9 +384,9 @@ function careList(app) {
   const animals = store.animals().sort((a, b) => (a.fed || 0) - (b.fed || 0));
   const waiting = animals.filter(i => hungerOf(i, now) !== 'full').length;
   const rows = animals.map(item => { const hunger = hungerOf(item, now); return `<li class="row"><button class="row-main pick" data-action="open-care" data-id="${e(item.id)}">${avatar(artOf(item.s, item.breed))}<span><b>${e(store.nameOf(item))}</b><small>${moodOf(item, now, night)}, bond ${bondLevel(item.bond)} of ${CARE.levels}</small></span></button><div class="row-end">${hunger === 'full' ? '<span class="minutes">Full</span>' : `<button class="secondary" data-action="feed" data-id="${e(item.id)}" data-list="1" ${store.state.food < 1 ? 'disabled' : ''}>Give a treat</button>`}</div></li>`; }).join('');
-  openDialog('Care', `<p class="lead">You have ${store.state.food} ${store.state.food === 1 ? 'treat' : 'treats'}. Every finished session earns more: one, and one more for each 15 min. Give a treat and watch it come to eat.</p>
-${rows ? `<ul class="rows">${rows}</ul>` : empty('No animals live here yet. Choose an animal to grow in your next session.')}
-${waiting ? `<div class="button-row"><button class="primary wide" data-action="feed-all" ${store.state.food < 1 ? 'disabled' : ''}>A treat for everyone who will eat</button></div>` : rows ? '<p class="note">Everyone is full. Animals get peckish after 6 hours. They never leave or come to harm if you are away.</p>' : ''}`);
+  openDialog('Care', `<p class="lead">${store.state.food} ${store.state.food === 1 ? 'treat' : 'treats'} left.</p>
+${rows ? `<ul class="rows">${rows}</ul>` : empty('No animals yet. Grow one in your next session.')}
+${waiting ? `<div class="button-row"><button class="primary wide" data-action="feed-all" ${store.state.food < 1 ? 'disabled' : ''}>Treats for everyone hungry</button></div>` : rows ? '<p class="note">Everyone is full.</p>' : ''}`);
 }
 
 export const actions = {
@@ -409,19 +409,19 @@ export const actions = {
   },
   'place-anywhere'(app) {
     const id = app.ui.edit.item, spot = app.store.placeAnywhere(id);
-    if (!spot) return toast(`Your land is full. It holds ${app.store.capacity()} things at this level.`);
+    if (!spot) return toast('Your land is full.');
     app.world?.drop(id, spot[0], spot[1]);
     app.ui.edit = { on: true, picked: null, item: null };
     app.render();
   },
   'store-item'(app) { app.store.unplace(app.ui.edit.picked); app.ui.edit = { on: true, picked: null, item: null }; app.render(); toast('Put in storage.'); },
   'release-item': app => actions['release-this'](app, { id: app.ui.edit.picked }),
-  'store-this'(app, d) { app.store.unplace(d.id); closeDialog(); toast('Put in storage. Choose Arrange to bring it back.'); },
+  'store-this'(app, d) { app.store.unplace(d.id); closeDialog(); toast('Put in storage.'); },
   'release-this': async (app, d) => {
     const item = app.store.item(d.id);
     if (!item) return;
     const sp = speciesById(item.s);
-    if (!(await app.confirm('Let it go?', `${sp.kind === 'animal' ? e(app.store.nameOf(item)) : `The ${lower(sp)}`} leaves your haven for good. The session that brought it still counts.`, 'Let it go'))) return;
+    if (!(await app.confirm('Let it go?', `${sp.kind === 'animal' ? e(app.store.nameOf(item)) : `The ${lower(sp)}`} leaves your haven for good.`, 'Let it go'))) return;
     app.store.release(d.id);
     app.ui.edit = { on: app.ui.edit.on, picked: null, item: null };
     app.render();
@@ -431,7 +431,7 @@ export const actions = {
   feed(app, d) {
     if (!app.store.item(d.id)) return;
     if (dialogOpen()) closeDialog();
-    if (treatFor(app, d.id) && !calm()) showChip(app, d.id, 'A treat is down. Watch it come and eat.');
+    if (treatFor(app, d.id) && !calm()) showChip(app, d.id, 'Treat down.');
   },
   'feed-all'(app) {
     const now = app.now(), list = app.store.animals().filter(i => hungerOf(i, now) !== 'full').sort((a, b) => (a.fed || 0) - (b.fed || 0));
@@ -439,7 +439,7 @@ export const actions = {
     if (dialogOpen()) closeDialog();
     let down = 0;
     for (const item of list) { if (treatsLeft(app) < 1 || !treatFor(app, item.id)) break; down++; }
-    if (down && !calm()) toast(`${down} ${down === 1 ? 'treat is' : 'treats are'} down. ${down < list.length ? 'Not enough treats for everyone.' : 'Watch them come and eat.'}`);
+    if (down && !calm()) toast(`${down} ${down === 1 ? 'treat' : 'treats'} down.${down < list.length ? ' Not enough for everyone.' : ''}`);
   },
   pet(app, d) { if (dialogOpen()) closeDialog(); pat(app, d.id); },
 };

@@ -74,12 +74,12 @@ public final class MainActivity extends Activity {
                     break;
                 case "schedule": {
                     String which = m.optString("id", "session");
-                    // "Come back to Haven" is only for someone who switched apps, not for a locked phone.
-                    if ("away".equals(which) && phoneLocked()) {
+                    // "Come back" and "lost" are only for someone who switched apps, not for a locked phone.
+                    if (("away".equals(which) || "lost".equals(which)) && phoneLocked()) {
                         reply(id, false, null);
                         break;
                     }
-                    Notifier.schedule(this, which, m.optLong("at"), m.optString("title", "Haven"), m.optString("body"));
+                    Notifier.schedule(this, which, m.optLong("at"), m.optString("title", "Haven"), m.optString("body"), m.optString("session", ""));
                     reply(id, true, null);
                     break;
                 }
@@ -322,7 +322,10 @@ public final class MainActivity extends Activity {
         getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putLong("at", System.currentTimeMillis()).putBoolean("locked", locked).apply();
         // The page may have asked for "come back" before the screen went dark. A locked phone is not leaving.
-        if (locked) Notifier.cancel(this, "away");
+        if (locked) {
+            Notifier.cancel(this, "away");
+            Notifier.cancel(this, "lost");
+        }
         try {
             Inbox.schedule(this);
         } catch (RuntimeException ignored) {

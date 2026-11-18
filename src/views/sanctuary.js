@@ -28,10 +28,10 @@ const TREE_PERCH = [0, 0, 0, 2.6, 3.4, 3.4];
 /** The Sanctuary tab: the sanctuaries you are in, and ways to make or join one. */
 export function tab(app) {
   const list = app.social.data.sanctuaries;
-  if (!list) return empty('Loading your sanctuaries.');
+  if (!list) return empty('Loading.');
   const cards = list.map(s => `<li class="row sanct-card"><button class="row-main pick" data-action="sanct-open" data-id="${s.id}"><span class="avatars">${s.members.slice(0, 3).map(m => avatar(m.avatar)).join('')}</span><span><b>${e(s.name)}</b><small>${s.members.length} of ${MAX} havens${s.members.some(m => m.focusing) ? `, ${s.members.filter(m => m.focusing).length} focusing` : ''}</small></span></button><div class="row-end"><button class="primary" data-action="sanct-open" data-id="${s.id}">Visit</button></div></li>`).join('');
-  return `<p class="lead">A sanctuary joins friends' havens into one land round a great tree that grows as you all focus. Animals wander from haven to haven and make friends.</p>
-${cards ? `<ul class="rows sanct-list">${cards}</ul>` : empty('You are not in a sanctuary yet. Make one and invite friends, or join one with its code.')}
+  return `<p class="lead">Join your havens into one land round a great tree that grows as you focus.</p>
+${cards ? `<ul class="rows sanct-list">${cards}</ul>` : empty('No sanctuaries yet. Make one, or join with a code.')}
 <div class="button-row"><button class="${cards ? 'secondary' : 'primary'}" data-action="sanct-new">${icon('plus')}New sanctuary</button><button class="secondary" data-action="sanct-join">Join with a code</button></div>`;
 }
 
@@ -41,7 +41,7 @@ export async function loadList(app) {
 
 /** A friend invited you. */
 export function invited(app, item) {
-  openDialog('Join a sanctuary?', `<p class="lead">${e(item.from.name)} invites you to ${e(item.data.name || 'their sanctuary')}. Your haven joins theirs round the great tree, and everyone in it can see it.</p>
+  openDialog('Join a sanctuary?', `<p class="lead">${e(item.from.name)} invited you to ${e(item.data.name || 'their sanctuary')}. Everyone in it can see your haven.</p>
 <div class="button-row"><button class="secondary" data-action="close-dialog">Not now</button><button class="primary" data-action="sanct-accept" data-code="${e(item.data.code)}" autofocus>Join</button></div>`, { close: () => app.social.ack([item.id]) });
 }
 
@@ -64,7 +64,7 @@ ${treeCard(app, s)}${fireCard(app, s)}
 <div class="sanct-tools"><button class="pill${feeding ? ' on' : ''}" data-action="sanct-feeding" aria-pressed="${feeding}">${icon('treat')}<span>${feeding ? 'Done' : `${treatsLeft(app)} ${treatsLeft(app) === 1 ? 'treat' : 'treats'}`}</span></button>
 <div class="zoom" role="group" aria-label="Zoom"><button class="pill" data-action="sanct-zoom" data-step="-1" aria-label="Zoom out" ${zoom <= 1 ? 'disabled' : ''}>−</button><button class="pill" data-action="sanct-zoom" data-step="1" aria-label="Zoom in" ${zoom >= 4 ? 'disabled' : ''}>+</button></div></div></div>
 <div class="care-slot sanct-slot" aria-live="polite">${chipHTML(app)}</div>
-<p class="note sanct-hint">${feeding ? `Tap the land to put a treat down. Hungry animals from any haven come for it. You have ${treatsLeft(app)} ${treatsLeft(app) === 1 ? 'treat' : 'treats'}.` : 'Tap an animal to pat it, or stroke it with your finger. Their people hear about it.'}</p>
+<p class="note sanct-hint">${feeding ? 'Tap the land to put a treat down.' : 'Tap an animal to pat it.'}</p>
 <h2 class="section-title">In this sanctuary</h2><ul class="rows">${members}</ul>
 ${palsList(app, s)}
 <div class="button-row quiet">${s.owner === me ? '<button class="linklike" data-action="sanct-manage">Rename or ask someone to leave</button>' : ''}<button class="linklike danger" data-action="sanct-leave">Leave the sanctuary</button></div></section>`;
@@ -77,18 +77,18 @@ function treeCard(app, s) {
   const me = app.social.account?.id, name = id => (id === me ? 'You' : s.members.find(m => m.id === id)?.name || 'Someone');
   const pct = Math.min(100, Math.round((t.minutes / t.goal) * 100));
   const top = t.top?.length ? `<p class="note">Most this week: ${t.top.map(x => `${e(name(x.id))} ${formatMinutes(x.minutes)}`).join(', ')}.</p>` : '';
-  const text = t.stage >= 5 ? 'In full bloom this week. Well done, everyone.' : `${formatMinutes(t.minutes)} of ${formatMinutes(t.goal)} focused this week. It blooms at ${formatMinutes(t.goal)}, and starts again each Monday.`;
+  const text = t.stage >= 5 ? 'In full bloom this week.' : `${formatMinutes(t.minutes)} of ${formatMinutes(t.goal)} this week. Resets on Monday.`;
   return `<div class="tree-card"><div class="row-main"><b>The great tree: ${e(treeStageName(t.stage).toLowerCase())}</b><small>${text}${t.blooms ? ` It has bloomed ${t.blooms === 1 ? 'once' : `${t.blooms} times`}.` : ''}</small></div>
 <div class="meter" role="progressbar" aria-label="The great tree's growth this week" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><i style="width:${pct}%"></i></div>${top}</div>`;
 }
 
 /** A campfire lit for this sanctuary, or a way to light one. */
 function fireCard(app, s) {
-  const f = s.campfire, me = app.social.account?.id, room = app.social.data.room;
-  if (!f) return `<div class="fire-card"><p>Focus together round a campfire. Everyone here is invited at once.</p><button class="secondary" data-action="sanct-campfire" ${room ? 'disabled' : ''}>${icon('flame')}Light a campfire</button></div>`;
+  const f = s.campfire, me = app.social.account?.id;
+  if (!f) return `<div class="fire-card"><p>Focus together. Everyone here is invited.</p><button class="secondary" data-action="sanct-campfire" ${app.social.roomLive() ? 'disabled' : ''}>${icon('flame')}Light a campfire</button></div>`;
   const host = s.members.find(m => m.id === f.host)?.name || 'Someone', round = f.members.length, mine = f.members.some(m => m.id === me);
   const left = f.state === 'running' ? Math.max(1, Math.ceil((f.start + f.minutes * 60000 - app.social.serverNow()) / 60000)) : 0;
-  const what = f.state === 'running' ? `Burning. ${round} ${round === 1 ? 'person' : 'people'} round it, ${left} min to go.` : `${f.host === me ? 'You' : e(host)} lit a campfire for ${formatMinutes(f.minutes)}. ${round} round it so far.`;
+  const what = f.state === 'running' ? `Burning. ${round} round it, ${left} min to go.` : `${f.host === me ? 'You' : e(host)} lit a campfire for ${formatMinutes(f.minutes)}. ${round} round it.`;
   const button = f.state === 'lobby' && !mine ? `<button class="primary" data-action="sanct-fire-join" data-code="${e(f.code)}">Join</button>` : mine ? `<button class="secondary" data-action="open-room">Go to it</button>` : '';
   return `<div class="fire-card lit"><p>${what}</p>${button}</div>`;
 }
@@ -99,7 +99,7 @@ function palsList(app, s) {
   const me = app.social.account?.id;
   const who = key => { const [owner, , species] = key.split(':'), m = s.members.find(x => x.id === owner), sp = speciesById(species); return { text: `${owner === me ? 'Your' : `${e(m?.name || 'Someone')}'s`} ${e(sp?.name.toLowerCase() || 'animal')}`, art: sp?.id || 'rabbit' }; };
   const rows = s.pals.slice(0, 12).map(p => { const a = who(p.a), b = who(p.b); return `<li class="row"><span class="avatars">${avatar(a.art)}${avatar(b.art)}</span><div class="row-main"><span>${a.text} and ${b.text.replace(/^Your/, 'your')}</span></div></li>`; }).join('');
-  return `<h2 class="section-title">Friendships</h2><p class="note">Animals from different havens that met here and got on. Friends look for each other.</p><ul class="rows pals">${rows}</ul>`;
+  return `<h2 class="section-title">Animal friends</h2><ul class="rows pals">${rows}</ul>`;
 }
 
 /** Treats on hand: those not already down on the land. */
@@ -190,12 +190,12 @@ function landEvent(app, event) {
 /** Put a treat down on the land, for whoever is hungry and awake to come for. */
 function putTreat(app, u, v) {
   const ui = app.ui.sanct, now = app.now();
-  if (treatsLeft(app) < 1) { toast(app.store.state.food < 1 ? 'No treats left. Every finished session earns more.' : 'All your treats are down already.'); return; }
+  if (treatsLeft(app) < 1) { toast(app.store.state.food < 1 ? 'No treats left. Finish a session for more.' : 'All your treats are out.'); return; }
   const animals = [...ui.world.animals.values()];
   const eaters = animals.filter(a => canEat(app, a.id));
   if (!eaters.length) { toast(animals.length ? 'Everyone here is full for now.' : 'No animals live here yet.'); return; }
-  if (!eaters.some(a => a.state !== 'sleep')) { toast(isNight(now) ? 'Everyone hungry is asleep. Tap one to wake it.' : 'Nobody can come right now.'); return; }
-  if (!ui.world.putFood(u, v)) { toast('That is plenty of treats down for now.'); return; }
+  if (!eaters.some(a => a.state !== 'sleep')) { toast(isNight(now) ? 'They are asleep. Tap one to wake it.' : 'Nobody can come right now.'); return; }
+  if (!ui.world.putFood(u, v)) { toast('That is enough treats for now.'); return; }
   if (app.store.state.settings.haptics) haptic('light');
   app.renderIf('sanctuary');
 }
@@ -204,8 +204,6 @@ function putTreat(app, u, v) {
 export function cared(app) {
   const pill = $('.page.sanctuary [data-action="sanct-feeding"] span');
   if (pill && !app.ui.sanct?.feeding) pill.textContent = `${treatsLeft(app)} ${treatsLeft(app) === 1 ? 'treat' : 'treats'}`;
-  const hint = $('.page.sanctuary .sanct-hint');
-  if (hint && app.ui.sanct?.feeding) hint.textContent = `Tap the land to put a treat down. Hungry animals from any haven come for it. You have ${treatsLeft(app)} ${treatsLeft(app) === 1 ? 'treat' : 'treats'}.`;
 }
 
 /** On a member's row: a way to become friends, or where that stands. */
@@ -327,7 +325,7 @@ function leaveView(app) { stop(); app.ui.sanct = null; app.ui.friendsTab = 'sanc
 
 function newDialog() {
   openDialog('Make a sanctuary', `<form data-form="sanct-new" novalidate>${field('Name', '<input name="name" maxlength="30" autocomplete="off" required>', 'Everyone in it sees this name.')}
-<p class="note">Up to ${MAX} havens can join. You can invite friends next.</p><p class="form-error" role="alert" hidden></p>
+<p class="note">Up to ${MAX} havens.</p><p class="form-error" role="alert" hidden></p>
 <div class="button-row"><button class="primary wide" type="submit">Make it</button></div></form>`);
 }
 function joinDialog() {
@@ -341,14 +339,14 @@ function inviteDialog(app) {
   const rows = friends.map(f => `<li class="row">${avatar(f.avatar)}<div class="row-main"><b>${e(f.name)}</b><span>@${e(f.handle)}</span></div><div class="row-end"><button class="secondary" data-action="sanct-invite-friend" data-id="${f.id}">Invite</button></div></li>`).join('');
   openDialog('Invite to the sanctuary', `<div class="code-box"><span>Sanctuary code</span><b>${prettyCode(s.code)}</b></div>
 <div class="button-row"><button class="secondary" data-action="sanct-copy">${icon('copy')}Copy</button><button class="secondary" data-action="sanct-share">${icon('share')}Share</button></div>
-${s.members.length >= MAX ? `<p class="note">The sanctuary is full: it holds ${MAX} havens.</p>` : rows ? `<h3 class="group-title">Your friends</h3><ul class="rows">${rows}</ul>` : '<p class="note">Friends you add on Haven can be invited from here.</p>'}`);
+${s.members.length >= MAX ? '<p class="note">The sanctuary is full.</p>' : rows ? `<h3 class="group-title">Your friends</h3><ul class="rows">${rows}</ul>` : ''}`);
 }
 function campfireDialog(app) {
   const minutes = app.store.state.settings.minutes, s = app.ui.sanct.data;
-  openDialog('Light a campfire', `<form data-form="sanct-campfire" novalidate><p class="lead">Everyone in ${e(s.name)} is invited. You start it when the people you want are round the fire.</p>
+  openDialog('Light a campfire', `<form data-form="sanct-campfire" novalidate><p class="lead">Everyone in ${e(s.name)} is invited. You start it.</p>
 ${field('Length', `<select name="minutes">${[15, 25, 30, 45, 50, 60, 90, 120].map(m => `<option value="${m}" ${m === minutes || (m === 25 && ![15, 30, 45, 50, 60, 90, 120].includes(minutes)) ? 'selected' : ''}>${formatMinutes(m)}</option>`).join('')}</select>`)}
 <fieldset class="choices"><legend>If someone leaves</legend>
-<label><input type="radio" name="rule" value="together" checked><span><b>The fire goes out for everyone</b><small>Everyone's plant withers. You hold each other to it.</small></span></label>
+<label><input type="radio" name="rule" value="together" checked><span><b>The fire goes out for everyone</b><small>1.2× coins if you all finish.</small></span></label>
 <label><input type="radio" name="rule" value="gentle"><span><b>Only they lose theirs</b><small>The rest carry on.</small></span></label></fieldset>
 <p class="form-error" role="alert" hidden></p><div class="button-row"><button class="primary wide" type="submit">${icon('flame')}Light it</button></div></form>`);
 }
@@ -381,13 +379,13 @@ export const actions = {
   'sanct-fire-join': (app, d, el) => guard(async () => {
     await app.social.roomJoin(d.code, app.store.state.settings.species);
     app.ui.friendsTab = 'campfire';
-    toast('You are round the campfire. It starts when whoever lit it is ready.');
+    toast('You joined the campfire.');
     app.go('friends');
   }, el),
   'sanct-member': (app, d) => memberDialog(app, d.id),
   'sanct-block': async (app, d) => {
     const m = app.ui.sanct?.data.members.find(x => x.id === d.id);
-    if (!(await app.confirm(`Block ${e(m?.name || 'them')}?`, 'They cannot find you or send you requests, and you will not be friends. You both stay in the sanctuary; leave it if you would rather not share it.', 'Block'))) return;
+    if (!(await app.confirm(`Block ${e(m?.name || 'them')}?`, 'They can no longer find you or send you requests. You both stay in this sanctuary.', 'Block'))) return;
     guard(async () => { await app.social.block(d.id); toast('Blocked.'); app.renderIf('sanctuary'); });
   },
   'sanct-open': (app, d) => open(app, d.id),
@@ -410,11 +408,11 @@ export const actions = {
     else { const r = await app.social.request(d.id); toast(r.status === 'friends' ? `You and ${name} are friends now.` : `Friend request sent to ${name}.`); }
     app.renderIf('sanctuary');
   }, el),
-  'sanct-copy': async app => { toast((await copyText(prettyCode(app.ui.sanct.data.code))) ? 'Code copied.' : 'Could not copy. Read the code out instead.'); },
+  'sanct-copy': async app => { toast((await copyText(prettyCode(app.ui.sanct.data.code))) ? 'Code copied.' : 'Could not copy.'); },
   'sanct-share': async app => {
     const s = app.ui.sanct.data;
     const how = await share({ title: 'Haven', text: `Join my sanctuary "${s.name}" on Haven. Open Friends, then Sanctuary, and enter the code ${prettyCode(s.code)}.` });
-    if (how === 'copied') toast('Invite copied.'); else if (how === 'failed') toast('Could not share. Read the code out instead.');
+    if (how === 'copied') toast('Invite copied.'); else if (how === 'failed') toast('Could not share.');
   },
   'sanct-zoom': (app, d) => {
     const ui = app.ui.sanct;
@@ -432,12 +430,12 @@ export const actions = {
   },
   'sanct-leave': async app => {
     const s = app.ui.sanct.data;
-    if (!(await app.confirm('Leave the sanctuary?', `Your haven leaves ${e(s.name)}. You can join again with its code while there is room.`, 'Leave'))) return;
+    if (!(await app.confirm('Leave the sanctuary?', `Your haven leaves ${e(s.name)}.`, 'Leave'))) return;
     guard(async () => { await app.social.sanctuaryLeave(s.id); toast(`You left ${s.name}.`); leaveView(app); });
   },
   'sanct-remove': async (app, d, el) => {
     const s = app.ui.sanct.data, m = s.members.find(x => x.id === d.id);
-    if (!(await app.confirm(`Ask ${e(m?.name || 'them')} to leave?`, 'Their haven is taken out of the sanctuary. They can join again with the code.', 'Ask to leave'))) return;
+    if (!(await app.confirm(`Ask ${e(m?.name || 'them')} to leave?`, 'Their haven leaves the sanctuary.', 'Ask to leave'))) return;
     guard(async () => { await app.social.sanctuaryEdit(s.id, { remove: d.id }); toast(`${m?.name || 'They'} left the sanctuary.`); changed(app, { id: s.id }); });
   },
 };
@@ -447,13 +445,13 @@ export const forms = {
     try {
       await app.social.sanctuaryCampfire(app.ui.sanct.id, Number(form.minutes.value), form.rule.value, app.store.state.settings.species);
       closeDialog();
-      toast('The campfire is lit. Everyone here is invited.');
+      toast('Campfire lit.');
       app.ui.friendsTab = 'campfire';
       app.go('friends');
     } catch (error) { formError(form, error.message); }
   }),
   'sanct-new': (app, form) => busy(form, async () => {
-    try { const s = await app.social.sanctuaryCreate(form.name.value); closeDialog(); toast(`${s.name} is ready. Invite friends to join.`); await open(app, s.id); inviteDialog(app); }
+    try { const s = await app.social.sanctuaryCreate(form.name.value); closeDialog(); toast(`${s.name} is ready.`); await open(app, s.id); inviteDialog(app); }
     catch (error) { formError(form, error.message); }
   }),
   'sanct-join': (app, form) => busy(form, async () => {

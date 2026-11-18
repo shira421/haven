@@ -80,14 +80,19 @@ export function sizeFor(minutes) {
   return minutes >= 60 ? 3 : minutes >= 25 ? 2 : 1;
 }
 
-/** Coins for a finished session. `others` is how many friends finished it with you. */
-export function coinsFor({ minutes, streak = 0, others = 0 }) {
+export const STRICT_RATE = 1.2;
+
+/**
+ * Coins for a finished session. `others` is how many friends finished it with you; `strict` is a
+ * campfire where one person leaving puts the fire out for everyone, which pays 1.2 times.
+ */
+export function coinsFor({ minutes, streak = 0, others = 0, strict = false }) {
   const m = clamp(Math.floor(minutes), 0, LIMITS.maxMinutes);
   if (m <= 0) return 0;
   const lengthBonus = m >= 120 ? 100 : m >= 90 ? 60 : m >= 50 ? 25 : m >= 25 ? 10 : 0;
   const streakRate = 1 + Math.min(Math.max(streak, 0), 10) * 0.03;
   const groupRate = 1 + Math.min(Math.max(others, 0), 5) * 0.1;
-  return Math.round((m * 2 + lengthBonus) * streakRate * groupRate);
+  return Math.round((m * 2 + lengthBonus) * streakRate * groupRate * (strict ? STRICT_RATE : 1));
 }
 
 /** Level from total focused minutes. Level n starts at 30·n·(n−1) minutes. */
@@ -165,6 +170,8 @@ export function awayVerdict({ deep, allowance, hiddenAt, now, locked = false }) 
 
 /** Seconds away put in words: "30 s", "1 min", "1.5 min". */
 export const formatAway = seconds => (seconds < 60 ? `${seconds} s` : `${Math.round(seconds / 6) / 10} min`);
+/** The same, in words for a sentence: "30 seconds", "2 minutes". */
+export const awayWords = seconds => { const m = Math.round(seconds / 6) / 10; return seconds < 60 ? `${seconds} seconds` : `${m} ${m === 1 ? 'minute' : 'minutes'}`; };
 /** When to warn someone who has left a session: after a third of the time they are allowed away. */
 export const warnAfter = allowance => Math.round(allowance / 3);
 

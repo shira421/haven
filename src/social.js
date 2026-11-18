@@ -248,11 +248,11 @@ export class Social {
   async refresh() {
     const r = await this.api('GET', `/api/me?since=${startOfDay(this.now())}`);
     this.saveAccount(r.me);
-    this.data = { ...this.data, friends: r.friends, incoming: r.incoming, outgoing: r.outgoing, inbox: r.inbox, room: r.room, today: r.me.today, backupAt: r.me.backupAt, loaded: true };
+    this.data = { ...this.data, friends: r.friends, incoming: r.incoming, outgoing: r.outgoing, inbox: r.inbox, room: this.keepRoom(r.room), today: r.me.today, backupAt: r.me.backupAt, loaded: true };
     this.emit('friends-count', r.friends.length);
     this.emit('change');
     for (const item of r.inbox) this.deliver(item);
-    if (r.room) this.emit('room', { room: r.room });
+    if (this.data.room) this.emit('room', { room: this.data.room });
     return r;
   }
   deliver(item) {
@@ -340,7 +340,7 @@ export class Social {
     // The acceptance also arrives in the inbox, which is where it is announced.
     if (m.t === 'accepted') { this.refresh().catch(() => {}); return; }
     if (m.t === 'inbox') { this.data.inbox.push(m.item); this.deliver(m.item); return; }
-    if (m.t === 'room') { this.data.room = m.room && ['lobby', 'running'].includes(m.room.state) ? m.room : null; this.emit('room', { room: m.room, by: m.by || null }); this.emit('change'); return; }
+    if (m.t === 'room') { this.data.room = this.keepRoom(m.room); this.emit('room', { room: m.room, by: m.by || null }); this.emit('change'); return; }
     if (m.t === 'feed') { if (this.data.feed) this.data.feed.unshift(m.item); this.emit('change'); return; }
     if (m.t === 'sanctuary') { this.loadSanctuaries().catch(() => {}); this.emit('sanctuary', { id: m.id }); return; }
     if (m.t === 'haven') this.emit('sanctuary', { member: m.id });
@@ -415,7 +415,17 @@ export class Social {
   roomInvite(to) { return this.api('POST', '/api/rooms/invite', { code: this.data.room.code, to }); }
   async roomStart() { const r = await this.api('POST', '/api/rooms/start', { code: this.data.room.code }); this.setRoom(r.room); return r.room; }
   roomSpecies(species) { return this.data.room ? this.api('POST', '/api/rooms/species', { code: this.data.room.code, species }).catch(() => {}) : Promise.resolve(); }
-  setRoom(room) { this.data.room = room && ['lobby', 'running'].includes(room.state) ? room : null; this.emit('change'); }
+  setRoom(room) { this.data.room = this.keepRoom(room); this.emit('change'); }
+  /** A campfire stays with you while it is open or burning, and once over until you leave it. */
+  keepRoom(room) {
+    if (!room || !['lobby', 'running', 'done', 'failed'].includes(room.state)) return null;
+    return room.members?.find(m => m.id === this.account?.id)?.gone ? null : room;
+  }
+  /** Open, or burning with you still focusing round it: you cannot start or join another. */
+  roomLive() {
+    const room = this.data.room, mine = room?.members?.find(m => m.id === this.account?.id);
+    return Boolean(room && (room.state === 'lobby' || (room.state === 'running' && mine?.status === 'focusing')));
+  }
   /** The id the server gave my session in a room. */
   roomSessionId(room) { return room.code.toLowerCase() + this.account.id; }
 }

@@ -164,7 +164,7 @@ test('a session grows where it was planted, and a full land keeps new arrivals i
   const full = store.finish();
   assert.equal(full.placedAt, null);
   assert.equal(store.stored().length, 1);
-  assert.match(store.place(full.item.id, 2, 2).error, /Your land is full\. It holds 25 things/);
+  assert.match(store.place(full.item.id, 2, 2).error, /Your land is full/);
   assert.equal(store.place('x3', 2, 2).ok, true, 'something already standing can still be moved');
 });
 
@@ -181,7 +181,7 @@ test('new spots keep their distance from what is already there', () => {
 test('nature items need a long enough session', () => {
   const { store, clock } = make();
   store.state.unlocked.push('pond');
-  assert.match(store.begin({ minutes: 25, species: 'pond', tag: 'study' }).error, /Pond takes at least 60 min/);
+  assert.match(store.begin({ minutes: 25, species: 'pond', tag: 'study' }).error, /pond takes at least 60 min/);
   assert.equal(store.begin({ minutes: 60, species: 'pond', tag: 'study' }).ok, true);
   clock.t += 60 * 60000;
   assert.equal(store.finish().item.s, 'pond');
@@ -217,7 +217,7 @@ test('feeding: treats, hunger, bond levels and their rewards', () => {
   assert.deepEqual(up.bond, { level: 1, coins: 40 });
   store.state.food = 0;
   clock.t += 21 * 3600000;
-  assert.match(store.feed(rabbit.id).error, /no treats/);
+  assert.match(store.feed(rabbit.id).error, /No treats left/);
 });
 
 test('feeding everyone goes hungriest first and stops when treats run out', () => {
