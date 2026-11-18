@@ -57,10 +57,20 @@ jobs:
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.9"
-      - name: Build Android APK
+          gradle-version: "8.14.3"
+      - name: Build Android APK, and the release build Google Play gets (signed here with a test key)
         working-directory: android
-        run: gradle :app:assembleDebug
+        run: gradle :app:assembleDebug :app:assembleRelease :app:bundleRelease
+      - name: The release build is ready for Google Play
+        run: |
+          set -e
+          aapt=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          badging=$("$aapt" dump badging android/app/build/outputs/apk/release/app-release.apk)
+          echo "$badging" | grep -E "^package:|targetSdkVersion|sdkVersion"
+          echo "$badging" | grep -q "targetSdkVersion:'36'" || { echo "::error::Google Play needs target API 36."; exit 1; }
+          v=$(node -p "require('./package.json').version")
+          echo "$badging" | grep -q "versionName='$v'" || { echo "::error::The app's version is not $v from package.json."; exit 1; }
+          if echo "$badging" | grep -q "application-debuggable"; then echo "::error::The release build is debuggable."; exit 1; fi
 
   ios:
     needs: test

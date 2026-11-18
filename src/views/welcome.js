@@ -28,16 +28,15 @@ const hero = (title, text) => `<div class="welcome-hero"><img src="./icons/icon.
 export function render(app, kind) {
   const { social, store } = app;
   if (kind === 'password') {
-    return `<section class="page welcome" data-page="welcome">${hero('Set a password', `Haven accounts now have a password, so you can sign in on any phone or computer. Choose one for <b>@${e(social.account.handle)}</b>.`)}
+    return `<section class="page welcome" data-page="welcome">${hero('Set a password', `So you can sign in anywhere as <b>@${e(social.account.handle)}</b>.`)}
 <form data-form="set-password" class="card-form" novalidate>
 <input type="text" name="handle" value="${e(social.account.handle)}" autocomplete="username" hidden>
 ${password('password', 'Password', 'At least 8 characters.', 'new-password')}
 <p class="form-error" role="alert" hidden></p>
-<button class="primary wide" type="submit">Save password</button>
-<p class="note">Your haven, friends and sessions stay as they are.</p></form></section>`;
+<button class="primary wide" type="submit">Save password</button></form></section>`;
   }
   if (kind === 'google-profile') {
-    return `<section class="page welcome" data-page="welcome">${hero('Choose a username', 'One last step. Friends find you by your username.')}
+    return `<section class="page welcome" data-page="welcome">${hero('Choose a username', 'Friends find you by it.')}
 <form data-form="google-profile" class="card-form" novalidate>
 ${field('Name', `<input name="name" maxlength="24" autocomplete="nickname" value="${e(app.ui.googleNew.name || '')}" required>`, 'What friends see.')}
 ${username('3 to 20 letters, numbers or underscores.')}
@@ -46,15 +45,14 @@ ${username('3 to 20 letters, numbers or underscores.')}
 <p class="note"><button class="linklike" data-action="google-cancel">Use a different way to sign in</button></p></section>`;
   }
   const tab = app.ui.welcomeTab || 'in', create = tab === 'up';
-  const kept = store.state.sessions.length || store.state.items.length ? '<p class="notice-text">The haven already on this phone will be kept in your account.</p>' : '';
+  const kept = store.state.sessions.length || store.state.items.length ? '<p class="notice-text">The haven on this phone moves into your account.</p>' : '';
   const google = social.features.google ? `<div class="or"><span>or</span></div><button type="button" class="secondary wide" data-action="google">Continue with Google</button>` : '';
   const form = create ? `<form data-form="sign-up" class="card-form" novalidate>
 ${field('Name', '<input name="name" maxlength="24" autocomplete="nickname" required>', 'What friends see.')}
-${username('3 to 20 letters, numbers or underscores. Friends find you by it.')}
+${username('3 to 20 letters, numbers or underscores.')}
 ${password('password', 'Password', 'At least 8 characters.', 'new-password')}
 <p class="form-error" role="alert" hidden></p>
-<button class="primary wide" type="submit">Create account</button>${google}
-<p class="note">Your name, sessions and haven are kept in your account on the Haven server, so you can sign in anywhere and friends can see them.</p></form>`
+<button class="primary wide" type="submit">Create account</button>${google}</form>`
     : `<form data-form="sign-in" class="card-form" novalidate>
 ${username('')}
 ${password('password', 'Password', '', 'current-password')}
@@ -63,7 +61,7 @@ ${password('password', 'Password', '', 'current-password')}
 <p class="note"><button type="button" class="linklike" data-action="forgot-password">Forgot your password?</button></p></form>`;
   return `<section class="page welcome" data-page="welcome">${hero('Haven', 'Focus, and grow a sanctuary of plants and animals.')}
 <div class="segmented" role="tablist" aria-label="Sign in or create an account"><button role="tab" aria-selected="${!create}" data-action="welcome-tab" data-value="in">Sign in</button><button role="tab" aria-selected="${create}" data-action="welcome-tab" data-value="up">Create account</button></div>
-${app.ui.pendingAdd ? '<p class="notice-text">Sign in or create an account to add the friend who invited you.</p>' : ''}${create ? kept : ''}${form}</section>`;
+${app.ui.pendingAdd ? '<p class="notice-text">Sign in to add the friend who invited you.</p>' : ''}${create ? kept : ''}${form}</section>`;
 }
 
 /** Signed in: say so, and open the haven. */
@@ -102,7 +100,7 @@ export async function googleReturned(app, params) {
   const error = params.get('google-error'), code = params.get('google');
   if (error) { toast(GOOGLE_ERRORS[error] || 'Signing in with Google did not work. Try again.'); return; }
   if (!code) return;
-  if (code === 'linked') { await app.social.refresh().catch(() => {}); toast('Google is connected. You can sign in with it from now on.'); return; }
+  if (code === 'linked') { await app.social.refresh().catch(() => {}); toast('Google connected.'); return; }
   if (app.social.signedIn) return;
   veil('Signing you in');
   try {
@@ -124,8 +122,8 @@ export const actions = {
   'google-cancel'(app) { app.ui.googleNew = null; app.render(); },
   'connect-google': async app => { try { toGoogle(app, await app.social.googleLinkCode()); } catch (error) { toast(error.message); } },
   'forgot-password'(app) {
-    openDialog('Forgot your password?', `<p class="lead">${app.social.features.google ? 'If you connected Google to your account, choose "Continue with Google", then set a new password in Settings.' : 'Haven has no email address for you, so it cannot send a reset link.'}</p>
-<p class="lead">If Haven is still signed in on another phone or computer, your haven is safe there. Otherwise, ask whoever runs your Haven server to clear the password for your username.</p>
+    openDialog('Forgot your password?', `${app.social.features.google ? '<p class="lead">If Google is connected, use Continue with Google, then set a new password in Settings.</p>' : ''}
+<p class="lead">If you are still signed in on another device, change it there in Settings. Otherwise, write to the support email on Haven's Google Play page.</p>
 <div class="button-row"><button class="primary wide" data-action="close-dialog">OK</button></div>`);
   },
 };
@@ -145,6 +143,6 @@ export const forms = {
   }),
   'set-password': (app, form) => busy(form, async () => {
     formError(form, '');
-    try { await app.social.setPassword(form.password.value); app.render(); toast('Password saved. Use it with your username to sign in anywhere.'); } catch (error) { formError(form, error.message); }
+    try { await app.social.setPassword(form.password.value); app.render(); toast('Password saved.'); } catch (error) { formError(form, error.message); }
   }),
 };

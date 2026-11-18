@@ -23,10 +23,14 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.window.OnBackInvokedDispatcher;
 import androidx.webkit.WebViewAssetLoader;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import org.json.JSONObject;
 
@@ -36,6 +40,9 @@ public final class MainActivity extends Activity {
     private static final String PREFS = "haven-away";
     private static final String CRASH = "haven-crash";
     private static int rendererLosses = 0;
+    /** The only page allowed to talk to the phone: Haven's own, packed inside the app. */
+    private static final String ORIGIN = "https://appassets.androidplatform.net";
+    private static final String START = ORIGIN + "/assets/index.html";
     /** True while Haven is on screen; background news checks then leave it to the app. */
     static volatile boolean inFront = false;
     private WebView webView;
@@ -43,8 +50,8 @@ public final class MainActivity extends Activity {
     private String pendingAuth = null;
     private final List<String> notifyWaiting = new ArrayList<>();
 
+    /** For web views too old for the bridge below: HavenNative.device(id, json). Answers through window.__havenReply. */
     private final class Bridge {
-        /** Called from the page as HavenNative.device(id, json). Answers through window.__havenReply. */
         @JavascriptInterface
         public void device(final String id, final String json) {
             runOnUiThread(() -> handle(id, json));
@@ -59,7 +66,7 @@ public final class MainActivity extends Activity {
             reply(id, null, "Bad request");
             return;
         }
-        android.util.Log.i("Haven", "bridge " + m.optString("action") + " " + m.optString("id", ""));
+        if (BuildConfig.DEBUG) android.util.Log.i("Haven", "bridge " + m.optString("action") + " " + m.optString("id", ""));
         try {
             switch (m.optString("action")) {
                 case "notifyPermission":
@@ -67,12 +74,12 @@ public final class MainActivity extends Activity {
                     break;
                 case "schedule": {
                     String which = m.optString("id", "session");
-                    // "Come back to Haven" is only for someone who switched apps, not for a locked phone.
-                    if ("away".equals(which) && phoneLocked()) {
+                    // "Come back" and "lost" are only for someone who switched apps, not for a locked phone.
+                    if (("away".equals(which) || "lost".equals(which)) && phoneLocked()) {
                         reply(id, false, null);
                         break;
                     }
-                    Notifier.schedule(this, which, m.optLong("at"), m.optString("title", "Haven"), m.optString("body"));
+                    Notifier.schedule(this, which, m.optLong("at"), m.optString("title", "Haven"), m.optString("body"), m.optString("session", ""));
                     reply(id, true, null);
                     break;
                 }
@@ -230,7 +237,21 @@ public final class MainActivity extends Activity {
         settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setTextZoom(100);
         webView.setOverScrollMode(WebView.OVER_SCROLL_NEVER);
-        webView.addJavascriptInterface(new Bridge(), "HavenNative");
+        // The page reaches the phone through HavenNative.postMessage, which Android hands only to
+        // Haven's own page in the main frame: no other page or frame can use it.
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            WebViewCompat.addWebMessageListener(webView, "HavenNative", Collections.singleton(ORIGIN), (view, message, origin, mainFrame, replies) -> {
+                if (!mainFrame) return;
+                try {
+                    JSONObject call = new JSONObject(String.valueOf(message.getData()));
+                    handle(call.optString("id"), call.optString("json"));
+                } catch (Exception ignored) {
+                    // Not a call from Haven.
+                }
+            });
+        } else {
+            webView.addJavascriptInterface(new Bridge(), "HavenNative");
+        }
         final WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
             .build();
@@ -260,7 +281,7 @@ public final class MainActivity extends Activity {
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 Uri uri = request.getUrl();
                 String scheme = uri.getScheme();
-                if ("https".equals(scheme) && "appassets.androidplatform.net".equals(uri.getHost())
+                if ("https".equals(scheme) && Uri.parse(ORIGIN).getHost().equals(uri.getHost())
                     && uri.getPath() != null && uri.getPath().startsWith("/assets/")) return false;
                 if ("http".equals(scheme) || "https".equals(scheme)) {
                     try {
@@ -278,7 +299,9 @@ public final class MainActivity extends Activity {
             return insets;
         });
         setContentView(webView);
-        webView.loadUrl("https://appassets.androidplatform.net/assets/index.html");
+        webView.loadUrl(START);
+        // Back: Android 16 asks for it this way; older phones call onBackPressed below.
+        if (Build.VERSION.SDK_INT >= 33) getOnBackInvokedDispatcher().registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::goBack);
     }
 
     /**
@@ -299,7 +322,10 @@ public final class MainActivity extends Activity {
         getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putLong("at", System.currentTimeMillis()).putBoolean("locked", locked).apply();
         // The page may have asked for "come back" before the screen went dark. A locked phone is not leaving.
-        if (locked) Notifier.cancel(this, "away");
+        if (locked) {
+            Notifier.cancel(this, "away");
+            Notifier.cancel(this, "lost");
+        }
         try {
             Inbox.schedule(this);
         } catch (RuntimeException ignored) {
@@ -353,6 +379,10 @@ public final class MainActivity extends Activity {
     /** Back closes an open sheet first; otherwise Haven goes to the background and keeps its state. */
     @Override
     public void onBackPressed() {
+        goBack();
+    }
+
+    private void goBack() {
         if (webView == null) { moveTaskToBack(true); return; }
         webView.evaluateJavascript("(function(){var d=document.querySelector('dialog[open]');if(d&&d.querySelector('[data-action=\"close-dialog\"]')){d.close();return true}return false})()",
             closed -> { if (!"true".equals(closed)) moveTaskToBack(true); });
@@ -361,7 +391,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         if (webView != null) {
-            webView.removeJavascriptInterface("HavenNative");
+            if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) webView.removeJavascriptInterface("HavenNative");
             webView.destroy();
             webView = null;
         }

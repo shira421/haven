@@ -26,13 +26,22 @@ public final class Inbox extends JobService {
 
     /** Remember where to check and as whom. An empty token stops the checks. */
     static void setAccount(Context context, String base, String token, JSONObject kinds) {
+        // The sign-in only ever goes to the server over https.
+        if (!base.isEmpty() && !base.startsWith("https://")) { base = ""; token = ""; }
         SharedPreferences.Editor edit = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit();
         edit.putString("base", base).putString("token", token)
             .putBoolean("friends", kinds == null || kinds.optBoolean("friends", true))
             .putBoolean("social", kinds == null || kinds.optBoolean("social", true)).apply();
         if (token.isEmpty()) context.getSystemService(JobScheduler.class).cancel(JOB);
         else schedule(context);
-        android.util.Log.i("Haven", "news check " + (token.isEmpty() ? "off" : "on"));
+        if (BuildConfig.DEBUG) android.util.Log.i("Haven", "news check " + (token.isEmpty() ? "off" : "on"));
+    }
+
+    /** Where the server is and the sign-in, or null when signed out. */
+    static String[] account(Context context) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        String base = prefs.getString("base", ""), token = prefs.getString("token", "");
+        return base.startsWith("https://") && !token.isEmpty() ? new String[] { base, token } : null;
     }
 
     /** Haven is going to the background: what was on screen until now has been seen. */
@@ -105,15 +114,16 @@ public final class Inbox extends JobService {
             switch (kind) {
                 case "request": title = "New friend request"; body = who + " wants to be friends on Haven."; break;
                 case "accepted": title = "Friend request accepted"; body = who + " accepted your request."; break;
-                case "invite": title = "Focus together?"; body = who + " invited you to focus together."; break;
+                case "invite": title = "Campfire"; body = who + " invited you to a campfire."; break;
+                case "fire-out": title = "The fire went out"; body = who + " left. Your session ended."; break;
                 case "sanctuary": title = "Join a sanctuary?"; body = who + " invited you to join their sanctuary."; break;
                 case "cheer": title = "A cheer for you"; body = who + " cheered you on."; isFriends = false; break;
                 case "nudge": title = "Time to focus?"; body = who + " is nudging you to focus."; isFriends = false; break;
                 case "gift": title = "You got a gift"; body = who + " sent you something for your haven."; isFriends = false; break;
                 default: break;
             }
-            if (title == null || (isFriends ? !friends : !social)) continue;
-            Notifier.post(context, "news-" + kind + "-" + item.optLong("created"), title, body);
+            if (title == null || (!"fire-out".equals(kind) && (isFriends ? !friends : !social))) continue;
+            Notifier.post(context, ("fire-out".equals(kind) ? "lost-" : "news-") + kind + "-" + item.optLong("created"), title, body);
         }
         prefs.edit().putLong("since", latest).apply();
     }

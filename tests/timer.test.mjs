@@ -17,7 +17,7 @@ function make({ native = false, social = {}, lockFree = false } = {}) {
     syncSessions: async () => { calls.push(['sync']); }, pushCard() {}, scheduleBackup() {},
     roomSessionId: room => room.code.toLowerCase() + 'me', ...social,
   };
-  const sound = { start() {}, stop() {}, unlock() {}, chime() { calls.push(['chime']); } };
+  const sound = { start() {}, stop() {}, unlock() {}, chime() { calls.push(['chime']); }, wilt() { calls.push(['wilt']); } };
   const timer = new Timer({ store, social: fakeSocial, sound, now: () => clock.t, native: () => native, lockFree: () => lockFree, mono: () => clock.m });
   timer.on((type, payload) => events.push([type, payload]));
   const stop = () => clearInterval(timer.interval);

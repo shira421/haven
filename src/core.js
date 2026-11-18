@@ -80,14 +80,19 @@ export function sizeFor(minutes) {
   return minutes >= 60 ? 3 : minutes >= 25 ? 2 : 1;
 }
 
-/** Coins for a finished session. `others` is how many friends finished it with you. */
-export function coinsFor({ minutes, streak = 0, others = 0 }) {
+export const STRICT_RATE = 1.2;
+
+/**
+ * Coins for a finished session. `others` is how many friends finished it with you; `strict` is a
+ * campfire where one person leaving puts the fire out for everyone, which pays 1.2 times.
+ */
+export function coinsFor({ minutes, streak = 0, others = 0, strict = false }) {
   const m = clamp(Math.floor(minutes), 0, LIMITS.maxMinutes);
   if (m <= 0) return 0;
   const lengthBonus = m >= 120 ? 100 : m >= 90 ? 60 : m >= 50 ? 25 : m >= 25 ? 10 : 0;
   const streakRate = 1 + Math.min(Math.max(streak, 0), 10) * 0.03;
   const groupRate = 1 + Math.min(Math.max(others, 0), 5) * 0.1;
-  return Math.round((m * 2 + lengthBonus) * streakRate * groupRate);
+  return Math.round((m * 2 + lengthBonus) * streakRate * groupRate * (strict ? STRICT_RATE : 1));
 }
 
 /** Level from total focused minutes. Level n starts at 30·n·(n−1) minutes. */
@@ -165,6 +170,8 @@ export function awayVerdict({ deep, allowance, hiddenAt, now, locked = false }) 
 
 /** Seconds away put in words: "30 s", "1 min", "1.5 min". */
 export const formatAway = seconds => (seconds < 60 ? `${seconds} s` : `${Math.round(seconds / 6) / 10} min`);
+/** The same, in words for a sentence: "30 seconds", "2 minutes". */
+export const awayWords = seconds => { const m = Math.round(seconds / 6) / 10; return seconds < 60 ? `${seconds} seconds` : `${m} ${m === 1 ? 'minute' : 'minutes'}`; };
 /** When to warn someone who has left a session: after a third of the time they are allowed away. */
 export const warnAfter = allowance => Math.round(allowance / 3);
 
@@ -272,8 +279,8 @@ export const ACHIEVEMENTS = [
   { id: 'night5', name: 'Late shift', text: 'Finish 5 sessions that start after 10 pm', coins: 200, test: f => f.nightSessions >= 5, of: f => [f.nightSessions, 5] },
   { id: 'friend1', name: 'First friend', text: 'Add a friend', coins: 100, test: f => f.friends >= 1 },
   { id: 'friend5', name: '5 friends', text: 'Have 5 friends on Haven', coins: 300, test: f => f.friends >= 5, of: f => [f.friends, 5] },
-  { id: 'group1', name: 'Together', text: 'Finish a session with friends', coins: 150, test: f => f.groupSessions >= 1 },
-  { id: 'group10', name: '10 together', text: 'Finish 10 sessions with friends', coins: 500, test: f => f.groupSessions >= 10, of: f => [f.groupSessions, 10] },
+  { id: 'group1', name: 'Campfire', text: 'Finish a campfire with friends', coins: 150, test: f => f.groupSessions >= 1 },
+  { id: 'group10', name: '10 campfires', text: 'Finish 10 campfires with friends', coins: 500, test: f => f.groupSessions >= 10, of: f => [f.groupSessions, 10] },
   { id: 'gift1', name: 'A gift', text: 'Send a friend a plant or an animal', coins: 100, test: f => f.gifts >= 1 },
   { id: 'collect10', name: '10 species', text: 'Unlock 10 species', coins: 200, test: f => f.species >= 10, of: f => [f.species, 10] },
   { id: 'collect25', name: '25 species', text: 'Unlock 25 species', coins: 600, test: f => f.species >= 25, of: f => [f.species, 25] },

@@ -19,7 +19,8 @@ if (typeof window !== 'undefined') {
 /** 'ios', 'android', or null in a browser. */
 export function bridge() {
   if (g.webkit?.messageHandlers?.havenDevice) return 'ios';
-  if (g.HavenNative?.device) return 'android';
+  // The Android app hands Haven's own page HavenNative.postMessage; very old web views get .device.
+  if (g.HavenNative?.postMessage || g.HavenNative?.device) return 'android';
   return null;
 }
 
@@ -36,7 +37,8 @@ export function nativeCall(action, payload = {}, timeout = 15000) {
       const id = 'd' + (++seq);
       const timer = setTimeout(() => { pending.delete(id); reject(new Error('The device did not answer.')); }, timeout);
       pending.set(id, { resolve, reject, timer });
-      g.HavenNative.device(id, JSON.stringify({ action, ...payload }));
+      const json = JSON.stringify({ action, ...payload });
+      if (g.HavenNative.postMessage) g.HavenNative.postMessage(JSON.stringify({ id, json })); else g.HavenNative.device(id, json);
     });
   }
   return Promise.reject(new Error('Not available in a browser.'));
@@ -83,8 +85,8 @@ export async function notificationPermission(request = false) {
 export const canSchedule = () => Boolean(bridge());
 
 /** Show a notification at `at` (ms). In a browser nothing is scheduled; see notifyNow. */
-export function notifyAt(id, at, title, body) {
-  return bridge() ? quiet(nativeCall('schedule', { id, at, title, body })) : Promise.resolve(null);
+export function notifyAt(id, at, title, body, session = '') {
+  return bridge() ? quiet(nativeCall('schedule', { id, at, title, body, ...(session ? { session } : {}) })) : Promise.resolve(null);
 }
 export function cancelNotification(id) {
   return bridge() ? quiet(nativeCall('cancel', { id })) : Promise.resolve(null);

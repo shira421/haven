@@ -1,7 +1,8 @@
 {
   "name": "haven",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
+  "license": "UNLICENSED",
   "type": "module",
   "description": "Haven: a focus timer that grows a sanctuary of plants and animals, with live friends.",
   "scripts": {
@@ -12,7 +13,8 @@
     "test:browser": "node tests/browser.mjs",
     "test:rig": "node tests/rig.mjs",
     "icons": "node scripts/make-icons.mjs",
-    "media": "MEDIA=1 node tests/browser.mjs"
+    "media": "MEDIA=1 node tests/browser.mjs",
+    "play-shots": "PLAY=1 node tests/browser.mjs"
   },
   "devDependencies": {
     "@resvg/resvg-js": "2.6.2",

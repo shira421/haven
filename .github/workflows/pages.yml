@@ -50,6 +50,9 @@ jobs:
           curl -fsS -o /dev/null -D - -H 'Origin: https://shira421.github.io' "$url/health" | grep -i '^access-control-allow-origin' || { echo "::error::The friends server does not allow calls from the web app."; exit 1; }
           code=$(curl -s -o /dev/null -w '%{http_code}' "$url/api/me")
           [ "$code" = 401 ] || { echo "::error::Expected the friends server to ask for sign-in (401) but got HTTP $code."; exit 1; }
+          # The routes only the tests use are closed on the live server.
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$url/test/sql")
+          [ "$code" = 404 ] || { echo "::error::The test-only routes answer on the live server (HTTP $code). TEST_CLOCK must not be set."; exit 1; }
           echo "Friends server live at $url"
       - name: Explain how to switch friends on
         if: env.CLOUDFLARE_API_TOKEN == '' || env.CLOUDFLARE_ACCOUNT_ID == ''

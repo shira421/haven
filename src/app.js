@@ -32,7 +32,7 @@ const actions = merge('actions'), forms = merge('forms'), inputs = merge('inputs
 const store = new Store({ storage: safeStorage() });
 const sound = new Ambience();
 const app = {
-  version: VERSION, store, sound, social: null, timer: null,
+  version: VERSION, buildApi: BUILD_API, store, sound, social: null, timer: null,
   now: () => Date.now(),
   ui: { page: 'focus', collection: 'plant', friendsTab: 'friends', boardPeriod: 'week', board: null, journal: { kind: 'week', anchor: Date.now() }, edit: { on: false, picked: null, item: null }, pendingAdd: null },
   render, go, confirm: confirmDialog, applyTheme, syncReminder, veil, unveil,
@@ -186,7 +186,7 @@ app.askForNotifications = askForNotifications;
 async function reportLastCrash() {
   const text = await device.lastCrash();
   if (!text) return;
-  openDialog('Haven closed unexpectedly', `<p class="lead">Sorry about that. Your haven and sessions are safe. If it keeps happening, copy the details and send them to the developer.</p>
+  openDialog('Haven closed unexpectedly', `<p class="lead">Your haven is safe. If it keeps happening, copy the details and send them to Haven support.</p>
 <div class="button-row"><button class="secondary" data-action="copy-crash">Copy details</button><button class="primary" data-action="close-dialog" autofocus>OK</button></div>`);
   app.crashText = String(text);
 }
@@ -208,24 +208,24 @@ function listen() {
     if (what === 'away') return;
     if (['session', 'sessions', 'care', 'haven', 'state'].includes(what)) remindersSoon();
     if (what === 'settings') { remindersSoon(); syncNewsAccount(app.social, store); }
-    if (what === 'care') { app.social.scheduleBackup(); if (app.ui.page === 'focus') render(); else $('#coins').textContent = store.state.coins; return; }
+    if (what === 'care') { app.social.scheduleBackup(); app.social.pushCard(); if (app.ui.page === 'focus') render(); else { $('#coins').textContent = store.state.coins; if (app.ui.page === 'sanctuary') sanctuary.cared(app); } return; }
     if (what === 'haven' || what === 'session' || what === 'collection' || what === 'sessions' || what === 'state') app.social.pushCard();
     // Every change reaches this account's other devices a few seconds later.
     if (what !== 'cycle') app.social.scheduleBackup();
     if (what === 'state') applyTheme();
-    if (store.saveError && !listen.warned) { listen.warned = true; toast('This phone is not letting Haven save. Free some space, or your progress may be lost.'); }
+    if (store.saveError && !listen.warned) { listen.warned = true; toast('Haven can\'t save. Free some space on your phone.'); }
     render();
   });
 
   app.timer.on((type, payload) => {
     if (type === 'tick') return focus.tick(app, payload);
     if (type === 'break-tick') return focus.tickBreak(app, payload);
-    if (type === 'started') { askForNotifications(); if (dialogOpen()) closeDialog(); app.ui.edit = { on: false, picked: null, item: null }; if (app.ui.page !== 'focus') go('focus'); else render(); return; }
+    if (type === 'started') { askForNotifications(); if (dialogOpen()) closeDialog(); app.ui.edit = { on: false, picked: null, item: null }; app.ui.feeding = false; if (app.ui.page !== 'focus') go('focus'); else render(); return; }
     if (type === 'finished') { render(); focus.resultDialog(app, payload); if (offScreen() && store.state.settings.notify.done) notifyDone(payload); return; }
     if (type === 'failed') { render(); focus.failedDialog(app, payload); return; }
     if (type === 'cancelled') { render(); toast('Session cancelled.'); return; }
-    if (type === 'short') { render(); toast(`Under ${payload.least} min, so nothing grew this time. You focused for ${payload.minutes} min.`); return; }
-    if (type === 'break-over') { render(); toast('Break over. Start the next round when you are ready.'); return; }
+    if (type === 'short') { render(); toast(`Under ${payload.least} min, so nothing grew.`); return; }
+    if (type === 'break-over') { render(); toast('Break over.'); return; }
     if (type === 'cycle-done') { render(); toast('Pomodoro run finished.'); }
   });
 
@@ -236,7 +236,7 @@ function listen() {
     if (type === 'friends-count') return app.announce(store.setFriendCount(payload));
     if (type === 'status' || type === 'change') {
       if (gated || welcome.gate(app)) { if (dialogOpen() && !gated) closeDialog(); render(); return; }
-      if (app.ui.page === 'friends' || (app.ui.page === 'focus' && !store.state.active)) { if (!document.activeElement?.closest?.('#view form')) render(); }
+      if (app.ui.page === 'friends' || app.ui.page === 'sanctuary' || (app.ui.page === 'focus' && !store.state.active)) { if (!document.activeElement?.closest?.('#view form')) render(); }
       else if (store.state.active?.room && app.ui.page === 'focus') render();
       return;
     }
@@ -256,7 +256,7 @@ function notifyDone({ session }) {
 function inbox(item) {
   const from = item.from.name;
   if (item.kind === 'invite') {
-    if (store.state.active || app.social.data.room) { app.social.ack([item.id]); return; }
+    if (store.state.active || app.social.roomLive() || item.kind === 'fire-out') { app.social.ack([item.id]); return; }
     if (offScreen()) news(item);
     return friends.inviteReceived(app, item);
   }
@@ -264,6 +264,7 @@ function inbox(item) {
     if (offScreen()) news(item);
     return sanctuary.invited(app, item);
   }
+  if (item.kind === 'care' && item.data?.kind === 'treat') store.fedByFriend(String(item.data.item || ''), item.created);
   if (item.kind === 'gift') {
     const got = store.receiveGift(item.data.species, from, item.id), sp = speciesById(item.data.species);
     if (got && sp) toast(`${from} sent you a ${sp.name.toLowerCase()}. ${store.state.haven.spots[got.id] ? 'It is in your haven.' : 'It is in storage.'}`);
@@ -278,8 +279,13 @@ function roomChanged({ room, by }) {
   if (!room) return;
   const active = store.state.active;
   if (room.state === 'running' && !active) { app.timer.startRoom(room); return; }
-  if (room.state === 'failed' && active?.room === room.code) { app.timer.fail('friend-left', { who: by?.id === app.social.account?.id ? 'You' : by?.name }); return; }
-  if (room.state === 'closed' && app.ui.page === 'friends') toast('The room was closed.');
+  if (room.state === 'failed' && active?.room === room.code) {
+    // Told now, or on opening Haven later: then who left is in the inbox.
+    const who = by || app.social.data.inbox?.find(i => i.kind === 'fire-out' && i.data?.code === room.code)?.from;
+    app.timer.fail('friend-left', { who: who?.id === app.social.account?.id ? 'You' : who?.name });
+    return;
+  }
+  if (room.state === 'closed' && app.ui.page === 'friends') toast('The campfire was put out.');
 }
 
 // ——— Start ———
@@ -310,6 +316,7 @@ async function boot() {
   app.timer = new Timer({ store, social: app.social, sound });
   wire();
   haven.wire(app);
+  sanctuary.wire(app);
   listen();
   const fromGoogle = googleFromAddress();
   const add = /[#&]add=([A-Za-z0-9-]{8,9})/.exec(location.hash);
@@ -322,7 +329,7 @@ async function boot() {
     if (app.ui.pendingAdd) { const code = app.ui.pendingAdd; app.ui.pendingAdd = null; app.go('friends'); friends.addDialog(app, code); }
   };
   await app.timer.resume();
-  if (!safeStorage()) toast('This browser is not letting Haven save. Turn off private browsing to keep your haven.');
+  if (!safeStorage()) toast('This browser won\'t let Haven save. Turn off private browsing.');
   app.social.base = await discoverApi({ storage, build: BUILD_API, location });
   // Someone signed in sees their haven at once; someone who is not waits a moment to learn how they can sign in.
   if (app.social.base && !app.social.signedIn) await app.social.discoverFeatures(); else if (app.social.base) app.social.discoverFeatures().then(() => { if (gated) render(); });

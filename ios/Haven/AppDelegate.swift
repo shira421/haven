@@ -61,7 +61,7 @@ final class AwayTracker {
         let now = Date().timeIntervalSince1970
         lastLock = now
         // "Come back to Haven" is for someone who switched apps. A locked phone is not leaving.
-        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["away"])
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["away", "lost"])
         let at = defaults.double(forKey: "away.at") / 1000
         if at > 0, now - at < 12 { defaults.set(true, forKey: "away.locked") }
     }

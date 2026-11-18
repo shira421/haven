@@ -2,6 +2,7 @@
 // Both are SVG text built from data, so they can be drawn for you, for a friend, or for a test.
 import { traitsOf } from './world.js';
 import { drawing, tone } from './art.js';
+import { n, E, C, P, L } from './shapes.js';
 import { speciesById, artOf } from './catalog.js';
 import { escapeHTML } from './core.js';
 
@@ -89,8 +90,22 @@ const dims = side => (Array.isArray(side) ? side : [side, side]);
 
 /** The box the land is drawn in, in drawing units: [x, y, width, height]. */
 export function landBox(side) {
-  const [U, V] = dims(side);
-  return [-(U * W) / 2 - PAD, -HEADROOM, ((U + V) * W) / 2 + PAD * 2, ((U + V) * H) / 2 + DEPTH + HEADROOM + PAD + 8];
+  const [U, V, room = 0] = dims(side);
+  const top = HEADROOM + room;
+  return [-(U * W) / 2 - PAD, -top, ((U + V) * W) / 2 + PAD * 2, ((U + V) * H) / 2 + DEPTH + top + PAD + 8];
+}
+/** How wide the great tree is drawn, in drawing units, for a clearing of `size` tiles. */
+const treeWidth = size => size * W * 0.95;
+/**
+ * A sanctuary's size as [U, V, room]: `room` is the extra sky above the land so the
+ * great tree's crown is never cut off at the top.
+ */
+export function sanctuarySide(plots, tree) {
+  const U = Math.max(...plots.map(p => p.u0 + p.size)), V = Math.max(...plots.map(p => p.v0 + p.size));
+  const commons = plots.find(p => p.commons);
+  if (!tree || !commons) return [U, V];
+  const top = ((tree.u + tree.v) * H) / 2 - treeWidth(commons.size) * (240 / 200) * 0.94;
+  return [U, V, Math.max(0, Math.ceil(-top - HEADROOM + 10))];
 }
 /**
  * Where a point on the land is in the picture, as percentages of its box.
@@ -123,7 +138,7 @@ function entity(side, t, interactive) {
   const s = speciesById(t.species), at = project(side, t.u, t.v);
   const delay = ((Math.round(t.u * 7) + Math.round(t.v * 13)) % 10) * -0.4;
   const tag = interactive && t.id ? 'button' : 'span';
-  const label = interactive && t.id ? ` data-action="ent" data-ent="${t.id}" aria-label="${escapeHTML(t.label || s.name)}"` : t.id ? ` data-ent="${t.id}"` : '';
+  const label = interactive && t.id ? ` data-action="${t.action || 'ent'}" data-ent="${t.id}" aria-label="${escapeHTML(t.label || s.name)}"` : t.id ? ` data-ent="${t.id}"` : '';
   const growing = t.stage !== undefined && t.stage < 3;
   const trait = s.kind === 'animal' ? traitsOf(s.id) : null;
   const art = t.art || artOf(t.species);
@@ -168,14 +183,14 @@ ${ground}${tufts}</svg>${order.map(t => entity(side, t, interactive)).join('')}<
  * each way, with its corner at (u0, v0). Plots sit on a grid; where the grid is not full the land
  * has a bay. Things are given in the sanctuary's own coordinates.
  */
-export function sanctuaryHTML({ plots, things = [], label = '' }) {
-  const U = Math.max(...plots.map(p => p.u0 + p.size)), V = Math.max(...plots.map(p => p.v0 + p.size));
-  const [x0, y0, w, h] = landBox([U, V]);
+export function sanctuaryHTML({ plots, things = [], label = '', tree = null }) {
+  const side = sanctuarySide(plots, tree), [U, V] = side;
+  const [x0, y0, w, h] = landBox(side);
   const at = (u, v) => [((v - u) * W) / 2, ((u + v) * H) / 2];
   const has = (u, v) => plots.some(p => u >= p.u0 && u < p.u0 + p.size && v >= p.v0 && v < p.v0 + p.size);
   let faces = '', ground = '', tufts = '';
   plots.forEach((p, i) => {
-    const grass = i % 2 ? ['#93cf71', '#8ecb6c'] : GRASS;
+    const grass = p.commons ? ['#a9d97c', '#a3d477'] : i % 2 ? ['#93cf71', '#8ecb6c'] : GRASS;
     // The two sides of soil that face the viewer, where no other plot covers them.
     const [ax, ay] = at(p.u0 + p.size, p.v0), [bx, by] = at(p.u0 + p.size, p.v0 + p.size), [cx, cy] = at(p.u0, p.v0 + p.size);
     if (!has(p.u0 + p.size + 0.5, p.v0 + 0.5)) faces += `<polygon points="${ax} ${ay} ${bx} ${by} ${bx} ${by + DEPTH} ${ax} ${ay + DEPTH}" fill="${SOIL}"/><polygon points="${ax} ${ay} ${bx} ${by} ${bx} ${by + 6} ${ax} ${ay + 6}" fill="${EDGE}"/>`;
@@ -198,28 +213,112 @@ export function sanctuaryHTML({ plots, things = [], label = '' }) {
     if (q.v0 === p.v0 + p.size && q.u0 === p.u0) for (let r = 0.5; r < p.size; r += 1.5) { const [x, y] = at(p.u0 + r, q.v0); paths += `<ellipse cx="${x}" cy="${y}" rx="7" ry="3.4" fill="#e7dcc4" opacity=".85"/>`; }
   }
   // A name sign at the back of each plot, never wider than most of its plot, so signs do not run into each other.
-  const signs = plots.map(p => { const pos = project([U, V], p.u0 + 0.35, p.v0 + p.size / 2); return `<span class="plot-sign" style="left:${pos.left.toFixed(2)}%;top:${pos.top.toFixed(2)}%;max-width:${((p.size * W * 0.8) / w * 100).toFixed(1)}%">${escapeHTML(p.name)}</span>`; }).join('');
+  const signs = plots.filter(p => !p.commons).map(p => { const pos = project(side, p.u0 + 0.35, p.v0 + p.size / 2); return `<span class="plot-sign" style="left:${pos.left.toFixed(2)}%;top:${pos.top.toFixed(2)}%;max-width:${((p.size * W * 0.8) / w * 100).toFixed(1)}%">${escapeHTML(p.name)}</span>`; }).join('');
   const order = things.filter(t => speciesById(t.species));
+  // The great tree stands in the middle of the clearing, wider and taller as the week goes on.
+  const commons = plots.find(p => p.commons);
+  let great = '';
+  if (tree && commons) {
+    const at = project(side, tree.u, tree.v), wide = treeWidth(commons.size) / w * 100;
+    great = `<div class="great-tree" data-stage="${tree.stage}" style="left:${at.left.toFixed(2)}%;top:${at.top.toFixed(2)}%;width:${wide.toFixed(2)}%;z-index:${at.depth}" role="img" aria-label="The great tree: ${escapeHTML(treeStageName(tree.stage).toLowerCase())}">${greatTreeSVG(tree.stage)}</div>`;
+  }
   return `<div class="world sanctuary-land" data-u="${U}" data-v="${V}" style="aspect-ratio:${w} / ${h}"${label ? ` role="group" aria-label="${escapeHTML(label)}"` : ''}>
-<svg class="land" viewBox="${x0} ${y0} ${w} ${h}" aria-hidden="true">${faces}${ground}${paths}${tufts}</svg>${signs}${order.map(t => entity([U, V], t, false)).join('')}</div>`;
+<svg class="land" viewBox="${x0} ${y0} ${w} ${h}" aria-hidden="true">${faces}${ground}${paths}${tufts}</svg>${signs}${great}${order.map(t => entity(side, t, Boolean(t.action))).join('')}</div>`;
 }
 
 /**
- * Lay out members' havens as plots on a near-square grid: each plot is as big as the biggest
- * haven, and each haven sits in the middle of its plot. Returns the plots and every thing in
+ * Lay out members' havens as plots on a near-square grid round a clearing in the middle, where the
+ * great tree grows (and a campfire burns while one is lit). Each plot is as big as the biggest haven,
+ * and each haven sits in the middle of its plot. Returns the plots, the clearing, and every thing in
  * sanctuary coordinates, with ids made unique per member.
  */
-export function sanctuaryLayout(members) {
-  const cols = Math.ceil(Math.sqrt(members.length)) || 1;
+export function sanctuaryLayout(members, { fire = false } = {}) {
+  const cells = members.length + 1, cols = Math.ceil(Math.sqrt(cells)), rows = Math.ceil(cells / cols);
+  const middle = Math.floor((rows - 1) / 2) * cols + Math.floor((cols - 1) / 2);
   const cards = members.map(m => ({ m, ...thingsFromCard(m.card) }));
   const size = Math.max(5, ...cards.map(c => c.side));
-  const plots = [], things = [];
-  cards.forEach(({ m, side, things: own }, i) => {
-    const u0 = Math.floor(i / cols) * size, v0 = (i % cols) * size, off = (size - side) / 2;
+  const plots = [], things = [], place = i => ({ u0: Math.floor(i / cols) * size, v0: (i % cols) * size });
+  const commons = { ...place(middle), size, commons: true, name: 'The great tree', id: 'commons' };
+  let cell = 0;
+  cards.forEach(({ m, side, things: own }) => {
+    if (cell === middle) cell++;
+    const { u0, v0 } = place(cell++), off = (size - side) / 2;
     plots.push({ u0, v0, size, name: m.name, id: m.id });
     own.forEach((t, k) => things.push({ ...t, id: `${m.id}-${k}`, owner: m.id, u: u0 + off + t.u, v: v0 + off + t.v }));
   });
-  return { plots, things, dims: [Math.max(...plots.map(p => p.u0 + p.size)), Math.max(...plots.map(p => p.v0 + p.size))] };
+  const tree = { u: commons.u0 + size / 2, v: commons.v0 + size / 2 };
+  if (fire) things.push({ id: 'campfire', species: 'campfire', size: 2, u: tree.u + 1.3, v: tree.v + 1.3, label: 'The campfire' });
+  const all = [...plots, commons];
+  return { plots: all, things, tree, commons, dims: sanctuarySide(all, tree) };
+}
+
+const TREE_STAGES = ['A seed in the ground', 'A sprout', 'A sapling', 'A young tree', 'A great tree', 'In full bloom'];
+export const treeStageName = stage => TREE_STAGES[Math.max(0, Math.min(5, stage | 0))];
+
+/** The great tree at one of its six stages, from a seed to full bloom. */
+export function greatTreeSVG(stage = 0) {
+  stage = Math.max(0, Math.min(5, stage | 0));
+  const base = 224, cx = 100, BARK = '#7c5436', DARK = tone(BARK, -0.25), LIGHT = tone(BARK, 0.16);
+  const ground = rx => E(cx, base + 2, rx, rx * 0.17, '#1f2240', ' opacity=".16"');
+  if (stage === 0) {
+    // A mound of fresh earth with a seedling just through it.
+    return `<svg viewBox="0 0 200 240" aria-hidden="true">${ground(30)}${E(cx, base - 1, 24, 7, '#8f6440')}${E(cx - 4, base - 3, 12, 3.5, '#a77950')}
+${L(`M${cx} ${base - 4}c0-6 1-10 4-13`, '#4f9a54', 2.6)}${P(`M${cx + 4} ${base - 17}c-7-1-11-5-12-10 7 0 11 4 12 10Z`, '#6fbf5a')}${P(`M${cx + 4} ${base - 17}c6-3 9-8 9-13-6 1-9 6-9 13Z`, '#5cae4c')}</svg>`;
+  }
+  // From a sapling on, everything scales with k: a wider stance, a taller trunk and a broader crown.
+  const k = [0, 0.3, 0.5, 0.7, 0.88, 1][stage];
+  const girth = stage === 1 ? 5 : 7 + 40 * k, top = base - (34 + 86 * k), wide = 52 + 132 * k, high = wide * 0.6;
+  const crownY = top - high * 0.28;
+
+  // The trunk flares at the foot, and separate roots snake out over the ground from the flare.
+  const half = girth / 2, waist = half * 0.6, flare = stage >= 2 ? half * (1.25 + 0.35 * k) : half, SHADE = tone(BARK, -0.16);
+  // Each root drops steeply off the flare, then runs low along the ground and tapers to a point.
+  const root = (side, len, thick, down = 0) => {
+    const x0 = cx + side * half * 0.5, tip = cx + side * (flare + len), mid = cx + side * (flare + len * 0.35);
+    return P(`M${n(x0)} ${n(base - thick * 1.8)}C${n(x0 + side * len * 0.3)} ${n(base - thick * 1.1)} ${n(x0 + side * len * 0.45)} ${n(base - thick * 0.7)} ${n(mid)} ${n(base - thick * 0.62)}`
+      + `S${n(tip - side * len * 0.18)} ${n(base - thick * 0.2 + down * 0.5)} ${n(tip)} ${n(base + 1 + down)}Q${n(cx + side * (flare + len * 0.45))} ${n(base + 2.4 + down * 0.5)} ${n(x0 - side * 2)} ${n(base + 2)}Z`, side > 0 ? SHADE : BARK)
+      + (side < 0 ? L(`M${n(x0 - 1.5)} ${n(base - thick * 1.5)}C${n(x0 - len * 0.18)} ${n(base - thick * 0.8)} ${n(x0 - len * 0.3)} ${n(base - thick * 0.62)} ${n(mid + len * 0.05)} ${n(base - thick * 0.52)}`, LIGHT, n(0.6 + 0.6 * k), ' opacity=".55"') : '');
+  };
+  const roots = stage < 2 ? '' : root(-1, 14 + 32 * k, 4 + 6 * k) + root(1, 16 + 34 * k, 4 + 6 * k)
+    + root(-1, 6 + 14 * k, 2.6 + 3.4 * k, 3) + root(1, 7 + 15 * k, 2.6 + 3.4 * k, 3);
+
+  const foot = base - 30 - 30 * k;
+  const trunk = P(`M${n(cx - flare)} ${n(base + 1)}C${n(cx - half * 0.8)} ${n(base - 4)} ${n(cx - waist)} ${n(base - 18 - 22 * k)} ${n(cx - waist)} ${n(foot)}`
+      + `C${n(cx - waist)} ${n(top + 30)} ${n(cx - waist * 0.9)} ${n(top + 10)} ${n(cx - waist * 0.8)} ${n(top)}H${n(cx + waist * 0.8)}`
+      + `C${n(cx + waist * 0.9)} ${n(top + 10)} ${n(cx + waist)} ${n(top + 30)} ${n(cx + waist)} ${n(foot)}C${n(cx + waist)} ${n(base - 18 - 22 * k)} ${n(cx + half * 0.8)} ${n(base - 4)} ${n(cx + flare)} ${n(base + 1)}Z`, BARK)
+    + P(`M${n(cx + waist * 0.2)} ${n(base + 1)}C${n(cx + waist * 0.25)} ${n(base - 30)} ${n(cx + waist * 0.3)} ${n(top + 18)} ${n(cx + waist * 0.32)} ${n(top)}H${n(cx + waist * 0.8)}`
+      + `C${n(cx + waist * 0.9)} ${n(top + 10)} ${n(cx + waist)} ${n(top + 30)} ${n(cx + waist)} ${n(foot)}C${n(cx + waist)} ${n(base - 18 - 22 * k)} ${n(cx + half * 0.8)} ${n(base - 4)} ${n(cx + flare)} ${n(base + 1)}Z`, DARK, ' opacity=".5"')
+    + (stage >= 3 ? L(`M${n(cx - waist * 0.5)} ${n(base - 10)}c2 -${n(30 * k)} -2 -${n(55 * k)} 1 -${n(80 * k)}`, DARK, n(1 + k), ' opacity=".45"')
+      + L(`M${n(cx - waist * 0.05)} ${n(base - 16)}c-2 -${n(24 * k)} 2 -${n(40 * k)} 0 -${n(62 * k)}`, LIGHT, n(0.8 + k * 0.8), ' opacity=".5"') : '')
+    + (stage >= 4 ? E(cx - waist * 0.25, base - 50 * k, 3.8 * k, 5.4 * k, DARK) + E(cx - waist * 0.25, base - 50 * k + 0.8, 2.6 * k, 4 * k, '#3a2618') : '');
+  const bough = (dx, dy, w) => L(`M${n(cx + dx * 0.15)} ${n(top + 8)}Q${n(cx + dx * 0.55)} ${n(top - dy * 0.3)} ${n(cx + dx)} ${n(top - dy)}`, BARK, n(w));
+  const boughs = stage < 2 ? '' : bough(-wide * 0.3, high * 0.36, girth * 0.3) + bough(wide * 0.28, high * 0.4, girth * 0.28) + bough(-wide * 0.06, high * 0.6, girth * 0.24) + bough(wide * 0.12, high * 0.62, girth * 0.2);
+
+  // The crown in three layers, back to front, each shaded below and lit above.
+  const layer = (blobs, fill) => {
+    const at = ([x, y, r]) => [cx + x * wide / 2, crownY + y * high / 2, r * wide / 2];
+    const list = blobs.map(at);
+    return list.map(([x, y, r]) => C(x + r * 0.08, y + r * 0.14, r, tone(fill, -0.18))).join('') + list.map(([x, y, r]) => C(x, y, r, fill)).join('')
+      + list.filter((_, i) => i % 2 === 0).map(([x, y, r]) => C(x - r * 0.28, y - r * 0.34, r * 0.42, tone(fill, 0.2), ' opacity=".6"')).join('');
+  };
+  const BACK = [[-0.62, 0.12, 0.34], [0.62, 0.12, 0.34], [-0.36, -0.42, 0.36], [0.36, -0.42, 0.36], [0, -0.66, 0.36], [-0.9, 0.42, 0.22], [0.9, 0.42, 0.22]];
+  const MID = [[-0.5, 0.22, 0.3], [0.5, 0.22, 0.3], [-0.2, -0.24, 0.34], [0.22, -0.26, 0.33], [0, 0.18, 0.32], [-0.8, 0.06, 0.22], [0.8, 0.06, 0.22]];
+  const FRONT = [[-0.3, 0.46, 0.24], [0.32, 0.46, 0.24], [0, -0.02, 0.26], [-0.62, 0.46, 0.18], [0.64, 0.44, 0.18]];
+  const count = stage === 1 ? 0 : stage === 2 ? 4 : stage === 3 ? 6 : 7;
+  const crown = stage === 1
+    ? P(`M${cx} ${n(top + 16)}c-17 -2 -27 -12 -29 -24 16 0 27 9 29 24Z`, '#6fbf5a') + P(`M${cx} ${n(top + 8)}c16 -5 23 -16 24 -29 -15 2 -23 12 -24 29Z`, '#5cae4c') + P(`M${cx} ${n(top + 3)}c-4 -10 -1 -17 4 -22 4 7 1 15 -4 22Z`, '#7ccb63')
+    : layer(BACK.slice(0, count), '#3f8d4c') + layer(MID.slice(0, count), '#4f9f50') + (stage >= 3 ? layer(FRONT.slice(0, stage === 3 ? 3 : 5), '#62b357') : '');
+
+  // In full bloom: blossom over the crown, a few petals drifting down, and lanterns in the boughs.
+  const flower = (x, y, c) => [0, 72, 144, 216, 288].map(a => C(x + Math.cos(a * Math.PI / 180) * 2.2, y + Math.sin(a * Math.PI / 180) * 2.2, 2, c)).join('') + C(x, y, 1.3, '#ffd36a');
+  const bloom = stage === 5 ? Array.from({ length: 26 }, (_, i) => { const a = i * 2.39996, r = Math.sqrt((i + 0.5) / 26) * 0.92; return flower(cx + Math.cos(a) * r * wide * 0.46, crownY + Math.sin(a) * r * high * 0.46, i % 3 ? '#f7b3cc' : '#fff1f5'); }).join('')
+    + [[-0.55, 0.9], [0.4, 1.05], [0.75, 0.7], [-0.2, 1.2]].map(([x, y], i) => E(cx + x * wide / 2, crownY + y * high / 2 + 20, 2.4, 1.4, '#f7b3cc', ` transform="rotate(${i * 50 - 40} ${n(cx + x * wide / 2)} ${n(crownY + y * high / 2 + 20)})"`)).join('') : '';
+  const lantern = (x, y, len) => L(`M${n(x)} ${n(y)}v${len}`, '#5a4030', 0.8) + P(`M${n(x - 3.2)} ${n(y + len + 1)}h6.4l-1 7.5h-4.4Z`, '#ffcf5a') + P(`M${n(x - 3.6)} ${n(y + len)}h7.2v1.4h-7.2Z`, '#7a4a2a');
+  const lanterns = stage === 5 ? `<g class="lanterns">${lantern(cx - wide * 0.3, top - high * 0.2, 10)}${lantern(cx + wide * 0.27, top - high * 0.22, 14)}${lantern(cx - wide * 0.05, top - high * 0.06, 8)}</g>` : '';
+  // Small things that gather round an old tree: mushrooms and flowers between the roots.
+  const shroom = (x, s) => P(`M${n(x - 1.2 * s)} ${base}v-${n(4 * s)}h${n(2.4 * s)}v${n(4 * s)}Z`, '#f3e6d4') + P(`M${n(x - 4 * s)} ${n(base - 4 * s)}a${n(4 * s)} ${n(3 * s)} 0 0 1 ${n(8 * s)} 0Z`, '#d9534f') + C(x - s, base - 5.6 * s, 0.7 * s, '#fff');
+  const undergrowth = stage >= 4 ? shroom(cx - girth * 0.9 - 6, 1) + shroom(cx + girth * 1.1 + 4, 1.2) + (stage === 5 ? shroom(cx + girth * 0.5 + 22, 0.8) : '') : '';
+  return `<svg viewBox="0 0 200 240" aria-hidden="true">${ground(26 + 70 * k)}${boughs}${trunk}${roots}<g class="crown">${crown}${bloom}</g>${lanterns}${undergrowth}</svg>`;
 }
 
 /** Everything standing in a store's haven, as things for worldHTML and the simulation. */
@@ -235,6 +334,11 @@ export function thingsFromCard(card) {
   const whole = (Array.isArray(card?.tiles) ? card.tiles : []).every(t => Array.isArray(t) && Number.isInteger(t[0]) && Number.isInteger(t[1]));
   const things = (Array.isArray(card?.tiles) ? card.tiles : []).slice(0, 100)
     .filter(t => Array.isArray(t) && Number.isFinite(t[0]) && Number.isFinite(t[1]) && t[0] >= 0 && t[1] >= 0 && t[0] <= side && t[1] <= side && speciesById(t[2]))
-    .map(([u, v, species, size, breed]) => ({ species: speciesById(species).id, art: artOf(species, typeof breed === 'string' ? breed : null), size: [1, 2, 3].includes(size) ? size : 2, u: whole ? Math.min(side - 0.4, u + 0.5) : u, v: whole ? Math.min(side - 0.4, v + 0.5) : v }));
+    .map(([u, v, species, size, breed, item, fed]) => ({
+      species: speciesById(species).id, art: artOf(species, typeof breed === 'string' ? breed : null), size: [1, 2, 3].includes(size) ? size : 2,
+      u: whole ? Math.min(side - 0.4, u + 0.5) : u, v: whole ? Math.min(side - 0.4, v + 0.5) : v,
+      // Since 1.5 a card also says which of its owner's things each one is, and when an animal last ate.
+      ...(typeof item === 'string' && /^[\w-]{1,40}$/.test(item) ? { item } : {}), ...(Number.isFinite(fed) ? { fed } : {}),
+    }));
   return { side, things };
 }

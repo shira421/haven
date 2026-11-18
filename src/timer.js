@@ -1,7 +1,7 @@
 // Runs a focus session from start to finish: the clock, leaving and coming back, finishing,
 // giving up, pomodoro breaks, and sessions shared with friends. It owns no screen; it tells
 // listeners what happened and they draw it.
-import { progress, awayVerdict, LIMITS, warnAfter, formatAway } from './core.js';
+import { progress, awayVerdict, LIMITS, warnAfter, awayWords } from './core.js';
 import { speciesById } from './catalog.js';
 import * as device from './device.js';
 import * as leaving from './leave.js';
@@ -58,7 +58,7 @@ export class Timer {
     if (!mine || mine.status !== 'focusing') return;
     const species = this.store.state.unlocked.includes(mine.species) ? mine.species : this.settings.species;
     if (this.cycle) this.store.setCycle(null);
-    const r = this.store.begin({ minutes: room.minutes, species, tag: this.settings.tag, mode: 'timer', room: room.code, id, start: room.start - this.social.offset });
+    const r = this.store.begin({ minutes: room.minutes, species, tag: this.settings.tag, mode: 'timer', room: room.code, strict: room.rule === 'together', id, start: room.start - this.social.offset });
     if (!r.ok) return;
     this.store.markRemote();
     this.afterBegin(r.active);
@@ -84,6 +84,7 @@ export class Timer {
     this.sound.stop();
     device.cancelNotification('session');
     device.cancelNotification('away');
+    device.cancelNotification('lost');
   }
 
   // ——— While it runs ———
@@ -123,7 +124,21 @@ export class Timer {
     if (this.lockFree()) this.leaveInfo = { id: active.id, ...this.leave.snapshot(at, this.mono()) };
     // The apps are paused in the background, so the warning is left with the phone to show.
     // If this was only the phone locking, the phone takes the warning back (see the native code).
-    if (active.deep && this.native()) this.warn(active, at + warnAfter(active.allowance) * 1000);
+    if (active.deep && this.native()) {
+      this.warn(active, at + warnAfter(active.allowance) * 1000);
+      this.warnLost(active, at + active.allowance * 1000);
+    }
+  }
+
+  /**
+   * The moment the session would be lost, if Haven is not back by then: the phone chimes, and
+   * Android tells the server (a strict campfire then goes out for everyone at once). Withdrawn by
+   * the phone if this was only the screen locking, and here when Haven is back in time.
+   */
+  warnLost(active, at) {
+    if (!this.settings.notify.done || (active.planned && at >= this.endOf(active))) return;
+    const species = speciesById(active.species);
+    device.notifyAt('lost', at, lostTitle(species), active.room ? 'You left the campfire.' : 'You left Haven for too long.', active.remote || active.room ? active.id : '');
   }
 
   leftForApp(active) { return this.leaveInfo?.id === active.id && this.leaveInfo.way === 'gesture'; }
@@ -136,7 +151,7 @@ export class Timer {
     const what = species.kind === 'animal' ? `the ${species.name.toLowerCase()} will leave` : species.kind === 'nature' ? `your ${species.name.toLowerCase()} will be left unfinished` : `your ${species.name.toLowerCase()} will wither`;
     const left = active.allowance - warnAfter(active.allowance);
     const title = 'Come back to Haven';
-    const body = `You left a session. Come back within ${formatAway(left)} or ${what}.`;
+    const body = `Within ${awayWords(left)}, or ${what}.`;
     if (at === 'now') device.notifyNow(title, body, 'away'); else device.notifyAt('away', at, title, body);
   }
 
@@ -145,6 +160,7 @@ export class Timer {
     const active = this.active;
     this.shownAt = this.now();
     device.cancelNotification('away');
+    device.cancelNotification('lost');
     this.warned = false;
     if (!active) { this.tick(); return; }
     const leftAt = active.hiddenAt || null;
@@ -187,15 +203,16 @@ export class Timer {
     if (!active || this.completing) return;
     this.completing = true;
     try {
-      let others = 0;
+      let others = 0, strict = false;
       if (active.room) {
         const answer = await this.social.sessionEnded(active.id, 'done');
         if (this.active?.id !== active.id) return;
         if (answer?.status === 'failed') return this.fail('friend-left');
         const room = this.social.data.room;
         others = answer?.status === 'done' ? answer.others : room ? room.members.filter(m => m.id !== this.social.account?.id && ['focusing', 'done'].includes(m.status)).length : 0;
+        strict = answer?.status === 'done' ? Boolean(answer.strict) : Boolean(active.strict);
       }
-      const result = this.store.finish({ others });
+      const result = this.store.finish({ others, strict });
       if (!result.ok) return;
       this.halt();
       if (result.short) {
@@ -223,6 +240,11 @@ export class Timer {
     if (this.cycle) { this.store.setCycle(null); device.cancelNotification('break'); clearInterval(this.interval); this.interval = null; }
     if (this.settings.haptics) device.haptic('warning');
     if (active.remote || active.room) this.social.sessionEnded(active.id, 'failed');
+    // Lost while looking: the falling chime. Lost while away because someone else left the
+    // campfire: a notification that chimes the same, now.
+    const looking = typeof document === 'undefined' || document.visibilityState !== 'hidden';
+    if (looking && this.settings.chime) this.sound.wilt();
+    if (!looking && reason === 'friend-left' && this.settings.notify.done) device.notifyNow(lostTitle(speciesById(active.species)), `${extra.who || 'Someone'} left the campfire. The fire went out.`, 'lost');
     this.emit('failed', { session: r.session, reason, ...extra });
   }
 
@@ -281,4 +303,10 @@ export class Timer {
     this.store.setCycle(null);
     this.emit('cycle-done');
   }
+}
+
+/** The title of the notification for a lost session. */
+function lostTitle(species) {
+  const name = species.name.toLowerCase();
+  return species.kind === 'animal' ? `The ${name} left` : species.kind === 'nature' ? `Your ${name} was left unfinished` : `Your ${name} withered`;
 }

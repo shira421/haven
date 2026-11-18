@@ -10,7 +10,9 @@ import { startHub } from './hub-server.mjs';
 
 const chrome = process.env.CHROME_PATH || ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser'].find(p => existsSync(p));
 if (!chrome) throw new Error('No Chrome found. Set CHROME_PATH.');
-const MEDIA = process.env.MEDIA === '1', shots = MEDIA ? 'docs/media/' : 'tests/output/';
+// MEDIA=1 writes the README screenshots; PLAY=1 writes Google Play's phone screenshots (1080 x 1920).
+const PLAY = process.env.PLAY === '1', MEDIA = process.env.MEDIA === '1' || PLAY;
+const shots = PLAY ? 'docs/play/' : MEDIA ? 'docs/media/' : 'tests/output/';
 await mkdir(shots, { recursive: true });
 
 const server = createStaticServer();
@@ -25,11 +27,12 @@ await setServer(START - Date.now());
 
 async function setServer(ms) { offset = ms; await fetch('http://127.0.0.1:8787/test/clock', { method: 'POST', body: JSON.stringify({ offset }) }); }
 async function person(name, scheme = 'light') {
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, colorScheme: scheme, hasTouch: true });
+  const context = await browser.newContext({ viewport: PLAY ? { width: 360, height: 640 } : { width: 390, height: 844 }, deviceScaleFactor: PLAY ? 3 : 2, colorScheme: scheme, hasTouch: true });
   const page = await context.newPage();
   await page.clock.install({ time: START });
-  // Wrong passwords are typed on purpose here; the browser logs each refused request by itself.
-  page.on('console', m => { if (m.type() === 'error' && !/status of (400|401|403) /.test(m.text())) errors.push(`${name}: ${m.text()}`); });
+  // Wrong passwords are typed on purpose here, and two devices of one account can save at the same
+  // moment (409, then joined and saved again). The browser logs each refused request by itself.
+  page.on('console', m => { if (m.type() === 'error' && !/status of (400|401|403|409) /.test(m.text())) errors.push(`${name}: ${m.text()}`); });
   page.on('pageerror', e => errors.push(`${name}: ${e.message}`));
   await page.goto('http://localhost:4173/');
   await page.waitForSelector('.page.welcome');
@@ -61,8 +64,16 @@ const ok = name => console.log(`ok ${++step} - ${name}`);
 const tab = (page, name) => page.click(`.tabs [data-page="${name}"]`);
 /** Wait until the toast says something that matches. */
 const toastSays = (page, pattern) => page.waitForFunction(source => new RegExp(source).test(document.querySelector('#toast.visible')?.textContent || ''), pattern.source, { timeout: 8000 });
-const KEEP = ['session', 'friends', 'room', 'journal', 'sanctuary'];
-const shot = (page, name) => (MEDIA && KEEP.includes(name) ? page.screenshot({ path: `${shots}${name}.png` }) : Promise.resolve());
+const KEEP = PLAY ? ['session', 'care', 'collection', 'friends', 'room', 'journal', 'sanctuary'] : ['session', 'friends', 'room', 'journal', 'sanctuary'];
+const shot = async (page, name) => {
+  if (!MEDIA || !KEEP.includes(name)) return;
+  // Store screenshots: no passing message, and the page from its top.
+  const clean = PLAY ? await page.addStyleTag({ content: '#toast{display:none!important}' }) : null;
+  if (PLAY && !(await page.locator('#dialog[open]').count())) await page.evaluate(() => { window.scrollTo(0, 0); document.querySelector('.main, main')?.scrollTo?.(0, 0); });
+  if (PLAY && name === 'sanctuary') await page.evaluate(() => document.querySelector('.sanct-stage')?.scrollIntoView({ block: 'start' }));
+  await page.screenshot({ path: `${shots}${name}.png` });
+  if (clean) await clean.evaluate(el => el.remove());
+};
 async function noOverflow(page, where) {
   const wide = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.ok(wide <= 1, `${where}: the page scrolls sideways by ${wide}px`);
@@ -141,7 +152,7 @@ try {
   await forward(13 * 60000, ana, ben);
   await ana.waitForSelector('#dialog[open]');
   assert.equal(await ana.locator('#dialog-title').textContent(), 'Session finished');
-  assert.match(await ana.locator('#dialog .lead').textContent(), /25 min focused. The fern is fully grown. It is in your haven\./);
+  assert.match(await ana.locator('#dialog .lead').textContent(), /25 min focused\. The fern is fully grown\.$/);
   assert.match(await ana.locator('#dialog .facts').textContent(), /Coins\+60Treats\+2/);
   assert.match(await ana.locator('#dialog .facts').textContent(), /First session\+50 coins/);
   await shot(ana, 'finished');
@@ -196,20 +207,35 @@ try {
   await shot(ana, 'haven');
   ok('an animal moves in, roams the haven and hops as it goes');
 
-  // Seven hours later the rabbit is peckish.
+  // Seven hours later the rabbit is peckish. A tap pats it, and a card says how it took it.
   await ana.evaluate(id => { const s = window.__haven.app.store; s.item(id).fed -= 7 * 3600000; s.commit('care'); }, rabbit);
   await ana.locator(`.ent[data-ent="${rabbit}"]`).dispatchEvent('click');
+  await ana.waitForSelector('.care-slot .care-chip');
+  assert.match(await ana.locator('.care-chip').textContent(), /Rabbit.*Loved that\./);
+  assert.equal(await ana.evaluate(id => window.__haven.app.world.animals.get(id).act, rabbit), 'pet', 'it leans into the pat');
+  await ana.click('.care-chip [data-action="open-care"]');
   await ana.waitForSelector('#dialog [data-action="feed"]');
   assert.match(await ana.locator('#dialog .lead').textContent(), /Peckish\. Likes burrow, clover, tall grass and daisy\./);
+  // A treat goes down on the land; the rabbit comes over and eats it.
   const coinsThen = Number(await ana.locator('#coins').textContent());
   await ana.click('#dialog [data-action="feed"]');
-  await toastSays(ana, /Rabbit ate\. Earned: First meal\. \+50 coins\./);
-  assert.equal(await ana.evaluate(id => window.__haven.app.world.animals.get(id).doing, rabbit), 'eat', 'the rabbit in the haven stops to eat');
+  assert.equal(await ana.locator('#dialog[open]').count(), 0, 'the sheet closes to watch');
+  await ana.waitForSelector('.world.interactive .treat');
+  assert.equal(await ana.evaluate(() => window.__haven.app.store.state.food), 7, 'the treat is not used until eaten');
+  await until(ana, id => window.__haven.app.world.animals.get(id).doing === 'eat', 15000, rabbit);
+  await until(ana, () => /Rabbit ate/.test(document.querySelector('#toast')?.textContent || ''));
+  assert.match(await ana.locator('#toast').textContent(), /Rabbit ate\. Earned: First meal\. \+50 coins\./);
+  assert.equal(await ana.locator('.world.interactive .treat').count(), 0, 'the treat is gone');
   assert.equal(Number(await ana.locator('#coins').textContent()), coinsThen + 50);
+  // Full now: the treat button says so, and the sheet offers no food.
+  await ana.click('[data-action="feeding"]');
+  assert.match(await ana.locator('.panel.feeding').textContent(), /Everyone is full/);
+  await ana.click('.panel.feeding [data-action="feeding"]');
+  await ana.locator(`.ent[data-ent="${rabbit}"]`).dispatchEvent('click');
+  await ana.click('.care-chip [data-action="open-care"]');
+  await ana.waitForSelector('#dialog .facts');
   assert.match(await ana.locator('#dialog .facts').textContent(), /HungerFull/);
   assert.equal(await ana.locator('#dialog [data-action="feed"]').count(), 0, 'a full animal is not offered food');
-  await ana.click('#dialog [data-action="pet"]');
-  await toastSays(ana, /Rabbit liked that/);
   await ana.fill('#dialog form[data-form="rename"] input', 'Mochi');
   await ana.click('#dialog form[data-form="rename"] button');
   assert.equal(await ana.locator('#dialog-title').textContent(), 'Mochi');
@@ -217,7 +243,7 @@ try {
   await ana.keyboard.press('Escape');
   assert.equal(await ana.locator(`.ent[data-ent="${rabbit}"]`).getAttribute('aria-label'), 'Mochi');
   assert.deepEqual(await ana.evaluate(id => { const i = window.__haven.app.store.item(id); return [i.bond, window.__haven.app.store.state.food]; }, rabbit), [5, 6]);
-  ok('an animal can be fed, petted and named, and its bond grows');
+  ok('a tap pats an animal; a treat put down is fetched and eaten; it can be named, and its bond grows');
 
   await tab(ana, 'collection');
   await ana.click('.species-card[data-id="daisy"]');
@@ -268,7 +294,7 @@ try {
   await ana.waitForTimeout(300);
   assert.equal(await ana.locator('.page.focus.running').count(), 1, 'three minutes with the screen off is fine');
   assert.equal(await ana.locator('#dialog[open]').count(), 0, 'nothing is asked');
-  assert.match(await ana.locator('.page.focus').textContent(), /Lock your phone if you like/);
+  assert.match(await ana.locator('.page.focus').textContent(), /Don't leave for more than 30 seconds/);
   // A swipe out to another app takes the finger from the page (touchcancel) just before it hides.
   await ana.evaluate(() => { dispatchEvent(new Event('touchstart')); dispatchEvent(new Event('touchcancel')); });
   await hide(ana, true);
@@ -276,7 +302,7 @@ try {
   await hide(ana, false);
   await ana.waitForSelector('#dialog[open] .result-art');
   assert.equal(await ana.locator('#dialog-title').textContent(), 'The fern withered');
-  assert.match(await ana.locator('#dialog .lead').textContent(), /Haven counted (3[0-9]|40) s in another app\. Deep focus allows 30 s\. Swiped to another app\./);
+  assert.match(await ana.locator('#dialog .lead').textContent(), /(3[0-9]|40) s in another app\. The limit is 30 s\. Swiped to another app\./);
   await ana.click('#dialog [data-action="close-dialog"]');
   ok('in a phone browser a locked screen keeps the plant, and a swipe to another app for 40 s withers it');
 
@@ -321,8 +347,8 @@ try {
   assert.equal(await ana.locator('.row.friend.focusing').count(), 0);
   ok('a friend sees a session start and finish as it happens, and a cheer arrives');
 
-  // Focusing together
-  await ana.click('.segmented [data-value="together"]');
+  // A campfire: focusing together
+  await ana.click('.segmented [data-value="campfire"]');
   await ana.selectOption('form[data-form="room-create"] select[name="minutes"]', '25');
   await ana.click('form[data-form="room-create"] button[type="submit"]');
   await ana.waitForSelector('.room [data-action="room-invite"]');
@@ -330,7 +356,7 @@ try {
   await ana.click('#dialog [data-action="invite-send"]');
   await ana.keyboard.press('Escape');
   await ben.waitForSelector('#dialog [data-action="invite-accept"]', { timeout: 8000 });
-  assert.match(await ben.locator('#dialog .lead').textContent(), /Ana invites you to focus for 25 min\. If one person leaves, it ends for everyone\./);
+  assert.match(await ben.locator('#dialog .lead').textContent(), /Ana lit a campfire for 25 min\. If anyone leaves, the fire goes out for everyone\./);
   await ben.click('#dialog [data-action="invite-accept"]');
   await ana.waitForFunction(() => document.querySelectorAll('.room .rows .row').length === 2, null, { timeout: 8000 });
   await shot(ana, 'room');
@@ -343,10 +369,11 @@ try {
   await ana.waitForSelector('#dialog[open]');
   await ben.waitForSelector('#dialog[open]');
   for (const p of [ana, ben]) assert.match(await p.locator('#dialog .facts').textContent(), /With friends1 finished with you/);
-  assert.match(await ana.locator('#dialog .facts').textContent(), /Coins\+68/, '60 coins, 3% for the streak and 10% for finishing with one friend');
+  assert.match(await ana.locator('#dialog .facts').textContent(), /Coins\+82/, '60 coins, 3% for the streak, 10% for finishing with one friend, and 1.2 times for the strict fire');
+  assert.match(await ana.locator('#dialog .facts').textContent(), /Strict campfire1\.2× coins/);
   await ana.click('#dialog [data-action="close-dialog"]');
   await ben.click('#dialog [data-action="close-dialog"]');
-  ok('two friends start a room at the same moment and both finish with the bonus');
+  ok('two friends start a campfire at the same moment and both finish with the bonus');
 
   await tab(ana, 'friends');
   await ana.click('.segmented [data-value="board"]');
@@ -356,7 +383,7 @@ try {
   assert.equal(await ana.locator('ol.rows').textContent(), '1You3 sessions1 h 15 min2Ben2 sessions50 min');
   await ana.click('.page.friends .segmented [data-value="activity"]');
   await ana.waitForSelector('.page.friends ul.rows .row');
-  assert.match(await ana.locator('.page.friends ul.rows').textContent(), /with friends, grew a/);
+  assert.match(await ana.locator('.page.friends ul.rows').textContent(), /at a campfire, grew a/);
   ok('the board ranks friends and the feed lists what they grew');
 
   await forward(6000, ana, ben); // a haven is shared a few seconds after it changes
@@ -374,14 +401,22 @@ try {
   await ben.waitForFunction(() => window.__haven.app.store.state.items.some(i => i.from === 'Ana'), null, { timeout: 8000 });
   ok('a friend can be visited, and a gift lands in their haven');
 
-  // Together rule: one person leaving ends it for both.
+  // The fire goes out for everyone: one person leaving ends it for both.
   await tab(ben, 'friends');
-  await ben.click('.segmented [data-value="together"]');
+  await ben.click('.segmented [data-value="campfire"]');
+  // The last campfire is over but stays, showing how everyone did, until each person leaves it.
+  assert.match(await ben.locator('.room').textContent(), /Everyone is done\..*Finished/);
+  await ben.click('.room [data-action="room-leave"]');
+  await ben.waitForFunction(() => !window.__haven.app.social.data.room && document.querySelector('form[data-form="room-create"]'));
   await ben.click('form[data-form="room-create"] button[type="submit"]');
   await ben.waitForSelector('.room');
   const code = await ben.evaluate(() => window.__haven.app.social.data.room.code);
   await ana.keyboard.press('Escape');
-  await ana.click('.page.friends .segmented [data-value="together"]');
+  await ana.click('.page.friends .segmented [data-value="campfire"]');
+  await ana.click('.room [data-action="room-leave"]');
+  // Leaving redraws the tab: type the code only once it has.
+  await ana.waitForFunction(() => !window.__haven.app.social.data.room && document.querySelector('form[data-form="room-join"]'));
+  await ana.waitForTimeout(300);
   await ana.fill('form[data-form="room-join"] input[name="code"]', code);
   await ana.click('form[data-form="room-join"] button[type="submit"]');
   await ben.waitForFunction(() => document.querySelectorAll('.room .rows .row').length === 2, null, { timeout: 8000 });
@@ -389,11 +424,11 @@ try {
   await ana.waitForSelector('.page.focus.running', { timeout: 8000 });
   await forward(5 * 60000, ana, ben);
   await ana.click('[data-action="give-up"]');
-  assert.match(await ana.locator('#dialog .lead').textContent(), /ends for everyone in the room/);
+  assert.match(await ana.locator('#dialog .lead').textContent(), /The fire goes out for everyone\./);
   await ana.click('#dialog [data-action="confirm-yes"]');
   await ben.waitForFunction(() => /withered|wandered/.test(document.querySelector('#dialog-title')?.textContent || ''), null, { timeout: 8000 });
-  assert.match(await ben.locator('#dialog .lead').textContent(), /Ana left the room/);
-  ok('in a together room, one person giving up ends it for the other, live');
+  assert.match(await ben.locator('#dialog .lead').textContent(), /Ana left, so the fire went out/);
+  ok('at a campfire, one person giving up ends it for the other, live');
   await ben.click('#dialog [data-action="close-dialog"]');
   await ana.click('#dialog [data-action="close-dialog"]');
 
@@ -441,6 +476,11 @@ try {
   await tab(phone2, 'friends');
   await phone2.waitForSelector('.me-card .live.live', { timeout: 10000 });
   assert.equal(await phone2.evaluate(() => window.__haven.app.store.state.sessions.length), await ana.evaluate(() => window.__haven.app.store.state.sessions.length));
+  // The whole haven comes across as it is: coins, treats and where everything stands.
+  const look = page => page.evaluate(() => { const st = window.__haven.app.store.state; return { coins: st.coins, food: st.food, spots: st.haven.spots, unlocked: st.unlocked.length }; });
+  const [mine, there] = [await look(ana), await look(phone2)];
+  assert.ok(mine.coins > 0 && Object.keys(mine.spots).length > 0, 'the first phone has coins and a laid-out haven');
+  assert.deepEqual(there, mine, 'a phone signing in gets the same coins, treats and layout');
   assert.match(await phone2.locator('.row.friend').textContent(), /Ben/);
   ok('another device signs in with the username and password and the haven comes with it');
 
@@ -525,11 +565,38 @@ try {
   const placesBefore = await ana.evaluate(() => [...document.querySelectorAll('.sanctuary-land .ent.animal')].map(el => el.style.left + el.style.top).join());
   // Animals rest now and then, so give them up to 20 s to set off.
   await until(ana, before => [...document.querySelectorAll('.sanctuary-land .ent.animal')].map(el => el.style.left + el.style.top).join() !== before, 20000, placesBefore);
+  // The great tree stands in the middle and its card counts the week; a tap on an animal pats it.
+  assert.equal(await ana.locator('.sanctuary-land .great-tree').count(), 1);
+  assert.match(await ana.locator('.tree-card').textContent(), /The great tree/);
+  assert.match(await ana.locator('[data-action="sanct-feeding"]').textContent(), /treat/);
+  await ana.locator('.sanctuary-land .ent.animal').first().dispatchEvent('click');
+  await until(ana, '.page.sanctuary .sanct-slot .care-chip');
+  // Someone who joins with the code and is not a friend yet can be added from their row.
+  const cy = await person('Cy');
+  await signUp(cy, 'Cy', 'cy_e2e');
+  const sanctCode = await ana.evaluate(() => window.__haven.app.ui.sanct.data.code);
+  await tab(cy, 'friends');
+  await cy.click('.segmented [data-value="sanctuary"]');
+  await cy.click('[data-action="sanct-join"]');
+  await cy.fill('form[data-form="sanct-join"] input[name="code"]', sanctCode);
+  await cy.click('form[data-form="sanct-join"] button[type="submit"]');
+  await until(cy, '.page.sanctuary .sanctuary-land');
+  await until(ana, '.page.sanctuary [data-action="sanct-befriend"]');
+  assert.equal(await ana.locator('.page.sanctuary [data-action="sanct-befriend"]').count(), 1, 'only Cy, who is not a friend yet');
+  const viewBefore = await ana.evaluate(() => document.querySelector('.sanct-scroll').scrollLeft);
+  await ana.click('.page.sanctuary [data-action="sanct-befriend"]');
+  await until(ana, () => /Request sent/.test(document.querySelector('.page.sanctuary .rows').textContent));
+  assert.ok(Math.abs(await ana.evaluate(() => document.querySelector('.sanct-scroll').scrollLeft) - viewBefore) < 4, 'the view stays where it was');
+  await until(cy, '.page.sanctuary [data-action="sanct-befriend"][data-accept]');
+  await cy.click('.page.sanctuary [data-action="sanct-befriend"][data-accept]');
+  await until(ana, () => !document.querySelector('.page.sanctuary .row-end .minutes'));
+  assert.ok(await cy.evaluate(() => window.__haven.app.social.data.friends.some(f => f.handle === 'ana_e2e')));
+  await cy.close();
   await noOverflow(ana, 'sanctuary');
   await shot(ana, 'sanctuary');
   await ana.click('[data-action="sanct-back"]');
   await ana.waitForSelector('.page.friends .sanct-card');
-  ok('a sanctuary joins two havens into one land, after a loading screen, and its animals move');
+  ok('a sanctuary joins havens into one land around a great tree, after a loading screen; its animals move and can be patted, and members can become friends');
   await tab(ana, 'focus');
 
   await ana.reload();
@@ -540,7 +607,7 @@ try {
   // The smallest phones: every Friends section, and the five section buttons each in one piece.
   await ana.setViewportSize({ width: 320, height: 640 });
   await tab(ana, 'friends');
-  for (const section of ['friends', 'together', 'sanctuary', 'board', 'activity']) { await ana.click(`.segmented [data-value="${section}"]`); await noOverflow(ana, `friends, ${section}, at 320px`); }
+  for (const section of ['friends', 'campfire', 'sanctuary', 'board', 'activity']) { await ana.click(`.segmented [data-value="${section}"]`); await noOverflow(ana, `friends, ${section}, at 320px`); }
   const squeezed = await ana.evaluate(() => [...document.querySelectorAll('.segmented button')].filter(b => b.scrollWidth > b.clientWidth + 1).map(b => b.textContent));
   assert.deepEqual(squeezed, [], 'no section name is cut off at 320px');
   await ana.click('.segmented [data-value="friends"]');

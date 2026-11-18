@@ -12,6 +12,7 @@ const engine = process.argv[2] === 'webkit' ? 'webkit' : 'chromium';
 const chrome = process.env.CHROME_PATH || ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser'].find(existsSync);
 const server = createStaticServer();
 await new Promise(resolve => server.listen(4176, '127.0.0.1', resolve));
+setTimeout(() => { console.error(`not ok - ${engine}: still running after 3 minutes`); process.exit(1); }, 180000).unref();
 const browser = engine === 'webkit' ? await webkit.launch() : await chromium.launch({ executablePath: chrome, headless: true });
 const page = await browser.newPage({ viewport: { width: 600, height: 500 } });
 const errors = [];
@@ -93,6 +94,8 @@ try {
   console.error(`not ok - ${error.message}`);
   process.exitCode = 1;
 } finally {
-  await browser.close();
+  // A browser that does not close (it happens on busy CI machines) must not hang the run.
+  await Promise.race([browser.close(), new Promise(r => setTimeout(r, 10000))]);
   server.close();
+  setTimeout(() => process.exit(), 100);
 }

@@ -100,7 +100,7 @@ export function migrate(raw, now = Date.now()) {
       minutes: clamp(Math.floor(num(s.minutes, 0)), 0, LIMITS.maxMinutes), status: s.status,
       species: speciesById(s.species) ? current(s.species) : 'clover', tag: typeof s.tag === 'string' ? s.tag : 'other',
       mode: ['timer', 'stopwatch', 'pomodoro'].includes(s.mode) ? s.mode : 'timer', coins: Math.max(0, Math.floor(num(s.coins, 0))),
-      ...(s.others ? { others: clamp(Math.floor(num(s.others, 0)), 0, 7) } : {}), ...(typeof s.room === 'string' ? { room: s.room } : {}),
+      ...(s.others ? { others: clamp(Math.floor(num(s.others, 0)), 0, 7) } : {}), ...(s.strict === true ? { strict: true } : {}), ...(typeof s.room === 'string' ? { room: s.room } : {}),
       ...(typeof s.note === 'string' && s.note ? { note: s.note.slice(0, 200) } : {}), ...(typeof s.reason === 'string' ? { reason: s.reason } : {}),
       ...(s.synced ? { synced: true } : {}),
     }))
@@ -145,13 +145,27 @@ export function migrate(raw, now = Date.now()) {
   return state;
 }
 
+/** A haven nothing has happened in yet: a new install, or a phone just signed out. */
+export function isPristine(state) {
+  return !state.sessions.length && !state.items.length && !state.coins && !Object.keys(state.achieved).length && !state.active;
+}
+
 /**
- * Join the state on this device with a backup from another one. Nothing earned is lost:
- * sessions, plants, animals, unlocks and achievements are combined; the newer copy decides the rest.
+ * Join the state on this device with a copy from somewhere it shares no saved history with: the
+ * account on a phone that has just signed in, or a backup file. Nothing earned is lost: sessions,
+ * plants, animals, unlocks and achievements are combined.
+ * - A haven nothing has happened in yet (a new phone) takes the other copy as it is.
+ * - Two copies of the same haven (they share sessions or plants) keep the newer one's coins, treats,
+ *   layout and settings, since adding them would count the same coins twice.
+ * - Two different havens being joined (one kept from before signing in) add their coins and treats.
  */
 export function mergeStates(local, remote, now = Date.now()) {
   const a = migrate(local, now), b = migrate(remote, now);
+  if (isPristine(a)) return migrate({ ...structuredClone(b), active: a.active, cycle: a.cycle, updated: now }, now);
+  if (isPristine(b)) return migrate({ ...structuredClone(a), updated: now }, now);
   const [newer, older] = a.updated >= b.updated ? [a, b] : [b, a];
+  const ids = st => new Set([...st.sessions.map(x => x.id), ...st.items.map(x => x.id)]);
+  const olderIds = ids(older), shared = [...ids(newer)].some(id => olderIds.has(id));
   const out = structuredClone(newer);
   const sessions = new Map(older.sessions.map(s => [s.id, s]));
   for (const s of newer.sessions) sessions.set(s.id, s);
@@ -159,12 +173,20 @@ export function mergeStates(local, remote, now = Date.now()) {
   const items = new Map(older.items.map(i => [i.id, i]));
   for (const i of newer.items) items.set(i.id, i);
   out.items = [...items.values()].sort((x, y) => x.at - y.at);
+  // Something only the older copy had keeps its place, so joining never empties a haven.
+  for (const [id, at] of Object.entries(older.haven.spots)) if (!newer.items.some(i => i.id === id) && !out.haven.spots[id]) out.haven.spots[id] = at;
   out.unlocked = [...new Set([...newer.unlocked, ...older.unlocked])];
   out.achieved = { ...older.achieved, ...newer.achieved };
   for (const [id, t] of Object.entries(older.achieved)) out.achieved[id] = Math.min(t, out.achieved[id] ?? t);
+  if (!shared) {
+    out.coins = a.coins + b.coins;
+    out.food = clamp(a.food + b.food, 0, 9999);
+  }
   out.social = { friends: Math.max(a.social.friends, b.social.friends), giftsSent: Math.max(a.social.giftsSent, b.social.giftsSent) };
   out.care = { feeds: Math.max(a.care.feeds, b.care.feeds) };
+  out.created = Math.min(a.created, b.created);
   out.active = a.active; // a running session belongs to this device
+  out.cycle = a.cycle;
   out.updated = now;
   return migrate(out, now);
 }
@@ -253,13 +275,13 @@ export class Store {
   // ——— Sessions ———
 
   /** Start a session. `minutes` 0 means a stopwatch. */
-  begin({ minutes, species, tag, mode = 'timer', deep = this.state.settings.deep, room = null, round = null, start = this.now(), id = newId('s') }) {
+  begin({ minutes, species, tag, mode = 'timer', deep = this.state.settings.deep, room = null, strict = false, round = null, start = this.now(), id = newId('s') }) {
     if (this.state.active) return { ok: false, error: 'A session is already running.' };
     if (!speciesById(species) || !this.state.unlocked.includes(species)) return { ok: false, error: 'Choose a plant or an animal you have unlocked.' };
     const planned = mode === 'stopwatch' ? 0 : clamp(Math.round(minutes), 1, LIMITS.maxMinutes);
     const least = speciesById(species).minMinutes || 0;
-    if (planned && planned < least) return { ok: false, error: `${speciesById(species).name} takes at least ${least} min. Choose a longer session.` };
-    this.state.active = { id, start, planned, species, tag: this.state.tags.some(t => t.id === tag) ? tag : this.state.tags[0].id, mode, deep: Boolean(deep), allowance: this.state.settings.allowance, ...(room ? { room } : {}), ...(round ? { round } : {}), ...(this.room() ? { spot: this.suggestSpot(id) } : {}) };
+    if (planned && planned < least) return { ok: false, error: `A ${speciesById(species).name.toLowerCase()} takes at least ${least} min.` };
+    this.state.active = { id, start, planned, species, tag: this.state.tags.some(t => t.id === tag) ? tag : this.state.tags[0].id, mode, deep: Boolean(deep), allowance: this.state.settings.allowance, ...(room ? { room } : {}), ...(room && strict ? { strict: true } : {}), ...(round ? { round } : {}), ...(this.room() ? { spot: this.suggestSpot(id) } : {}) };
     this.commit('session');
     return { ok: true, active: this.state.active };
   }
@@ -303,7 +325,7 @@ export class Store {
   }
 
   /** The session ran its course. Adds the plant or animal, coins, and anything newly earned. */
-  finish({ others = 0, end = this.now() } = {}) {
+  finish({ others = 0, strict = false, end = this.now() } = {}) {
     const active = this.state.active;
     if (!active) return { ok: false, error: 'No session is running.' };
     const p = progress(active, end);
@@ -317,8 +339,8 @@ export class Store {
     }
     const before = this.level().level;
     const streakBefore = this.streak().current;
-    const coins = coinsFor({ minutes, streak: streakBefore, others });
-    const session = { id: active.id, start: active.start, end: active.planned ? active.start + active.planned * 60000 : end, planned: active.planned, minutes, status: 'done', species: active.species, tag: active.tag, mode: active.mode, coins, ...(others ? { others } : {}), ...(active.room ? { room: active.room } : {}) };
+    const coins = coinsFor({ minutes, streak: streakBefore, others, strict });
+    const session = { id: active.id, start: active.start, end: active.planned ? active.start + active.planned * 60000 : end, planned: active.planned, minutes, status: 'done', species: active.species, tag: active.tag, mode: active.mode, coins, ...(others ? { others } : {}), ...(strict ? { strict: true } : {}), ...(active.room ? { room: active.room } : {}) };
     this.state.sessions.push(session);
     const item = this.newItem(newId('i'), active.species, sizeFor(minutes), session.end);
     this.state.coins += coins;
@@ -448,7 +470,7 @@ export class Store {
     if (!this.item(itemId)) return { ok: false, error: 'That item is not yours.' };
     if (!Number.isFinite(u) || !Number.isFinite(v)) return { ok: false, error: 'That spot is outside your land.' };
     const spots = this.state.haven.spots;
-    if (!spots[itemId] && !this.room()) return { ok: false, error: `Your land is full. It holds ${this.capacity()} things at this level. Put something in storage first.` };
+    if (!spots[itemId] && !this.room()) return { ok: false, error: 'Your land is full. Put something in storage first.' };
     spots[itemId] = this.onLand(u, v).map(n => Math.round(n * 100) / 100);
     const earned = this.recordAchievements();
     this.commit('haven');
@@ -496,8 +518,8 @@ export class Store {
     const item = this.item(itemId), now = this.now();
     if (!item || speciesById(item.s).kind !== 'animal') return { ok: false, error: 'Only animals eat.' };
     const hunger = hungerOf(item, now);
-    if (hunger === 'full') return { ok: false, error: 'It is full. Try again later.' };
-    if (this.state.food < 1) return { ok: false, error: 'You have no treats. Every finished session earns some.' };
+    if (hunger === 'full') return { ok: false, error: 'It is full.' };
+    if (this.state.food < 1) return { ok: false, error: 'No treats left. Finish a session for more.' };
     this.state.food -= 1;
     this.state.care.feeds += 1;
     item.fed = now;
@@ -518,6 +540,30 @@ export class Store {
     }
     if (fed.length) this.commit('care');
     return { ok: fed.length > 0, fed, bonds, achievements: earned, left: list.length - fed.length, now };
+  }
+  /**
+   * A treat given to someone else's animal in a sanctuary: it comes out of your treats. It counts
+   * toward the care you have given, but the bond is between an animal and its own person.
+   */
+  giveTreat() {
+    if (this.state.food < 1) return { ok: false, error: 'No treats left. Finish a session for more.' };
+    this.state.food -= 1;
+    this.state.care.feeds += 1;
+    const earned = this.recordAchievements();
+    this.commit('care');
+    return { ok: true, achievements: earned };
+  }
+  /**
+   * Someone in a sanctuary gave one of your animals a treat. It is fed; the bond does not change.
+   * Safe to run twice (each of your devices hears about it).
+   */
+  fedByFriend(itemId, at) {
+    const item = this.item(itemId);
+    if (!item || speciesById(item.s).kind !== 'animal' || !Number.isFinite(at)) return false;
+    if ((item.fed || 0) >= at) return false;
+    item.fed = Math.min(at, this.now());
+    this.commit('care');
+    return true;
   }
   /** A pat. It counts toward the bond once an hour. */
   pet(itemId) {
@@ -556,7 +602,10 @@ export class Store {
     const side = this.side(), tiles = [];
     for (const [id, [u, v]] of Object.entries(this.state.haven.spots)) {
       const item = this.item(id);
-      if (item && tiles.length < 100) tiles.push(item.breed && item.breed !== 'mixed' ? [u, v, item.s, item.z, item.breed] : [u, v, item.s, item.z]);
+      if (!item || tiles.length >= 100) continue;
+      // Animals also say which they are and when they last ate, so people in a sanctuary can give them a treat.
+      if (speciesById(item.s).kind === 'animal') tiles.push([u, v, item.s, item.z, item.breed && item.breed !== 'mixed' ? item.breed : 0, item.id, item.fed || item.at]);
+      else tiles.push([u, v, item.s, item.z]);
     }
     const streak = this.streak();
     return { level: this.level().level, minutes: this.totalMinutes(), sessions: doneSessions(this.state.sessions).length, streak: streak.current, best: streak.best, species: this.state.unlocked.length, of: SPECIES.length, side, tiles };

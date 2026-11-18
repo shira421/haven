@@ -9,14 +9,18 @@
     <!-- Lets the end-of-session notification arrive on time where the phone allows exact alarms -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
     <!-- From Android 13, exact timing for alarms is asked for this way. Without it Android may hold
-         a notification back for minutes, too late for "come back to Haven" or the end of a session. -->
+         a notification back for minutes, too late for "come back to Haven" or the end of a session.
+         Google Play allows it for timer apps and asks for a declaration (see PLAY.md). If it is ever
+         refused, remove this line: Notifier falls back to alarms that may arrive a little late. -->
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <!-- Puts the daily reminder back after the phone restarts, and keeps the friends check scheduled -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="Haven"
         android:supportsRtl="true"
@@ -26,7 +30,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:configChanges="orientation|screenSize|keyboardHidden|uiMode"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode"
             android:screenOrientation="portrait">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

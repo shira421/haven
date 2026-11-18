@@ -11,7 +11,9 @@ const APK = process.argv[2] || 'android/app/build/outputs/apk/debug/app-debug.ap
 const PKG = 'com.shira421.haven';
 const OUT = 'tests/output/';
 mkdirSync(OUT, { recursive: true });
-const adb = (...args) => execFileSync('adb', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).trim();
+// Every phone command has a time limit: one that never returns (a screen dump that waits for the
+// screen to settle) would otherwise hang the whole run.
+const adb = (...args) => execFileSync('adb', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 45000, killSignal: 'SIGKILL' }).trim();
 const shell = cmd => adb('shell', cmd);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let step = 0;
@@ -27,8 +29,11 @@ const home = () => shell('input keyevent KEYCODE_HOME');
 /** Tap a button on a system screen (a permission prompt) by its text. */
 async function tapText(pattern, tries = 10) {
   for (let i = 0; i < tries; i++) {
-    shell('uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || true');
-    const xml = shell('cat /sdcard/ui.xml 2>/dev/null || true');
+    let xml = '';
+    try {
+      shell('rm -f /sdcard/ui.xml; timeout 20 uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || true');
+      xml = shell('cat /sdcard/ui.xml 2>/dev/null || true');
+    } catch { /* the dump got stuck: try again */ }
     const node = [...xml.matchAll(/<node [^>]*>/g)].map(m => m[0]).find(n => pattern.test((/text="([^"]*)"/.exec(n) || [])[1] || ''));
     const b = node && /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(node);
     if (b) { shell(`input tap ${(Number(b[1]) + Number(b[3])) >> 1} ${(Number(b[2]) + Number(b[4])) >> 1}`); return true; }
@@ -40,6 +45,17 @@ async function tapText(pattern, tries = 10) {
 let device, page, attachedPid = '';
 /** Connect to the app's web view (again, after the app was stopped or restarted). */
 async function attach() {
+  // Android can replace the web view just after it was reached (an activity brought back from a
+  // notification). Then reach the new one.
+  for (let tries = 0; ; tries++) {
+    try { return await attachOnce(); } catch (error) {
+      if (tries >= 2 || !/closed/i.test(String(error?.message))) throw error;
+      page = null;
+      await sleep(3000);
+    }
+  }
+}
+async function attachOnce() {
   for (let i = 0; i < 30 && !pid(); i++) await sleep(1000);
   assert.ok(pid(), 'the app is running');
   device ??= (await android.devices())[0];
@@ -92,6 +108,8 @@ try {
   await attach();
   noCrash('on opening');
   shot('opened');
+  // The app first finds its server, then shows the sign-in screen.
+  await page.waitForFunction(() => window.__haven.state().gate === 'welcome', null, { timeout: 30000 }).catch(() => {});
   assert.equal(await js(() => window.__haven.state().gate), 'welcome', 'Haven opens on the sign-in screen');
   await createAccount();
   noCrash('after creating an account');
@@ -99,7 +117,7 @@ try {
 
   // The first session asks to send notifications, through Android's own prompt.
   await page.click('[data-action="start"]');
-  const asked = await tapText(/^Allow$/i);
+  const asked = await tapText(/^Allow$/i, 25); // a slow emulator can take a while to show it
   assert.ok(asked, 'Android asked for permission to send notifications');
   await sleep(1500);
   assert.match(shell(`dumpsys package ${PKG} | grep POST_NOTIFICATIONS`), /granted=true/);
@@ -113,7 +131,8 @@ try {
   await sleep(1500);
   assert.ok(posted('Test now'), 'a notification shows at once');
   home();
-  await sleep(8000);
+  // Set 4 s ahead; a busy emulator can deliver an exact alarm a little late.
+  for (let i = 0; i < 20 && !posted('Test later'); i++) await sleep(1000);
   assert.ok(posted('Test later'), 'a notification set for later arrives while Haven is in the background');
   noCrash('while notifications arrived');
   front();
@@ -131,7 +150,9 @@ try {
   shell('cmd statusbar expand-notifications');
   await sleep(1500);
   assert.ok(await tapText(/^Tap me$/), 'the notification can be tapped');
-  await sleep(4000);
+  // Haven starts from cold here, which takes a while on a busy emulator.
+  const inFront = () => /com\.shira421\.haven/.test(shell('dumpsys activity activities | grep -i "ResumedActivity" | head -3'));
+  for (let i = 0; i < 20 && !inFront(); i++) await sleep(1000);
   assert.match(shell('dumpsys activity activities | grep -i "ResumedActivity" | head -3'), /com\.shira421\.haven/, 'Haven is in front');
   await attach();
   noCrash('after tapping a notification');

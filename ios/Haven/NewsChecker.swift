@@ -63,12 +63,12 @@ final class NewsChecker {
                 latest = max(latest, created)
                 guard let words = NewsChecker.words(item) else { continue }
                 let (title, body, isFriends) = words
-                if (isFriends && !friends) || (!isFriends && !social) { continue }
+                if item["kind"] as? String != "fire-out", (isFriends && !friends) || (!isFriends && !social) { continue }
                 let content = UNMutableNotificationContent()
                 content.title = title
                 content.body = body
-                content.sound = .default
                 let kind = item["kind"] as? String ?? "news"
+                content.sound = DeviceBridge.sound(for: kind == "fire-out" ? "lost" : kind)
                 UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "news-\(kind)-\(Int64(created))", content: content, trigger: nil))
             }
             self.defaults.set(latest, forKey: "news.since")
@@ -84,7 +84,8 @@ final class NewsChecker {
         switch item["kind"] as? String {
         case "request": return ("New friend request", "\(who) wants to be friends on Haven.", true)
         case "accepted": return ("Friend request accepted", "\(who) accepted your request.", true)
-        case "invite": return ("Focus together?", "\(who) invited you to focus together.", true)
+        case "invite": return ("Campfire", "\(who) invited you to a campfire.", true)
+        case "fire-out": return ("The fire went out", "\(who) left. Your session ended.", true)
         case "sanctuary": return ("Join a sanctuary?", "\(who) invited you to join their sanctuary.", true)
         case "cheer": return ("A cheer for you", "\(who) cheered you on.", false)
         case "nudge": return ("Time to focus?", "\(who) is nudging you to focus.", false)

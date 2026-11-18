@@ -19,7 +19,7 @@ export function render(app) {
   const owned = list.filter(sp => store.state.unlocked.includes(sp.id)).length;
   const cards = list.map(sp => { const st = status(app, sp); return `<button class="species-card ${st.how}" data-action="species" data-id="${sp.id}">${sprite(sp.id, { kind: sp.kind })}<b>${e(sp.name)}</b><small>${st.how === 'owned' ? '' : st.how === 'locked' ? icon('lock') : ''}${e(st.text)}</small></button>`; }).join('');
   return `<section class="page collection" data-page="collection"><h1 class="page-title">Collection</h1>
-<p class="lead">${owned} of ${list.length} ${kind === 'plant' ? 'plants' : kind === 'animal' ? 'animals' : 'nature items'} unlocked. You have ${store.state.coins} coins.${kind === 'nature' ? ' Nature is built with longer sessions, and animals come to use it.' : ''}</p>
+<p class="lead">${owned} of ${list.length} ${kind === 'plant' ? 'plants' : kind === 'animal' ? 'animals' : 'nature items'} unlocked. ${store.state.coins} coins.</p>
 ${segmented('collection-tab', KINDS.map(([id, label]) => [id, label]), kind, 'Plants, animals or nature')}
 <div class="species-grid">${cards}</div></section>`;
 }
@@ -57,7 +57,7 @@ ${st.how === 'owned' && !(social.signedIn && social.data.friends.length) ? '<p c
 function giftDialog(app, id) {
   const { store, social } = app, sp = speciesById(id), price = store.giftPrice(id);
   const rows = social.data.friends.map(f => `<li class="row"><button class="row-main pick" data-action="gift-send" data-id="${id}" data-to="${f.id}">${avatar(f.avatar)}<span><b>${e(f.name)}</b><small>@${e(f.handle)}</small></span></button></li>`).join('');
-  openDialog(`Send a ${sp.name.toLowerCase()}`, `<p class="lead">Costs ${price} coins. You have ${store.state.coins}. It arrives ready to place in their haven.</p><ul class="rows">${rows}</ul>`);
+  openDialog(`Send a ${sp.name.toLowerCase()}`, `<p class="lead">${price} coins. You have ${store.state.coins}.</p><ul class="rows">${rows}</ul>`);
 }
 
 export const actions = {

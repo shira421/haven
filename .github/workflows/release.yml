@@ -91,7 +91,7 @@ jobs:
           java-version: "17"
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: "8.9"
+          gradle-version: "8.14.3"
       # With the keystore secrets every build has the same signature, so updates install over
       # the old app and keep its data. Without them each build gets a fresh debug key.
       - name: Use the release keystore (only when its secrets are set)
@@ -99,15 +99,32 @@ jobs:
         run: |
           echo "$ANDROID_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/haven.keystore"
           echo "HAVEN_KEYSTORE_FILE=$RUNNER_TEMP/haven.keystore" >> "$GITHUB_ENV"
-      - name: Build Android APK
+      # With the keystore: a release APK for GitHub and the bundle (AAB) for Google Play, both signed
+      # with it. Without it: a debug APK, as before, and no bundle.
+      - name: Build Android APK (and the Google Play bundle when the keystore is set)
         working-directory: android
-        run: gradle :app:assembleDebug
-      - run: cp android/app/build/outputs/apk/debug/app-debug.apk Haven-Android.apk
+        run: |
+          if [ -n "${HAVEN_KEYSTORE_FILE:-}" ]; then
+            gradle :app:assembleRelease :app:bundleRelease
+            cp app/build/outputs/apk/release/app-release.apk ../Haven-Android.apk
+            cp app/build/outputs/bundle/release/app-release.aab ../Haven-Android.aab
+          else
+            echo "::warning::No keystore secrets: building a debug APK. Google Play needs the keystore (see PLAY.md)."
+            gradle :app:assembleDebug
+            cp app/build/outputs/apk/debug/app-debug.apk ../Haven-Android.apk
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: android-apk
           path: Haven-Android.apk
           retention-days: 14
+      # For uploading to Google Play by hand, or through play.yml. Not put in the public release.
+      - uses: actions/upload-artifact@v4
+        if: hashFiles('Haven-Android.aab') != ''
+        with:
+          name: android-play-bundle
+          path: Haven-Android.aab
+          retention-days: 30
 
   ios:
     needs: web
@@ -201,11 +218,11 @@ jobs:
         run: |
           mkdir -p out
           cp artifacts/Haven-Android.apk artifacts/Haven-iOS-unsigned.ipa out/
-          (cd artifacts && zip -qr ../out/Haven-WebApp.zip . -x '*.apk' '*.ipa' '*.png' '*.log')
+          (cd artifacts && zip -qr ../out/Haven-WebApp.zip . -x '*.apk' '*.aab' '*.ipa' '*.png' '*.log')
           SIZE=$(stat -c %s out/Haven-iOS-unsigned.ipa)
           node -e "
             const fs=require('fs');const v=process.env.VERSION;const icon='https://shira421.github.io/haven/icons/icon-512.png';
-            fs.writeFileSync('out/altstore-source.json',JSON.stringify({name:'Haven',identifier:'com.shira421.haven.source',subtitle:'Focus timer with friends',iconURL:icon,website:'https://github.com/shira421/haven',apps:[{name:'Haven',bundleIdentifier:'com.shira421.haven',developerName:'shira421',subtitle:'Focus timer with friends',localizedDescription:'Focus for a set time and a plant grows or an animal moves in to your haven. See friends focus live, grow together in a room, cheer each other on and send gifts.',iconURL:icon,tintColor:'#f6b73c',versions:[{version:v,buildVersion:process.env.GITHUB_RUN_NUMBER,date:new Date().toISOString(),localizedDescription:'Build '+process.env.GITHUB_SHA.slice(0,7),downloadURL:'https://github.com/shira421/haven/releases/download/latest-build/Haven-iOS-unsigned.ipa',size:Number(process.argv[1]),minOSVersion:'16.0'}],appPermissions:{entitlements:[],privacy:{}}}],news:[]},null,2));
+            fs.writeFileSync('out/altstore-source.json',JSON.stringify({name:'Haven',identifier:'com.shira421.haven.source',subtitle:'Focus timer with friends',iconURL:icon,website:'https://github.com/shira421/haven',apps:[{name:'Haven',bundleIdentifier:'com.shira421.haven',developerName:'shira421',subtitle:'Focus timer with friends',localizedDescription:'Focus for a set time and a plant grows or an animal moves in to your haven. See friends focus live, sit round a campfire together, share a sanctuary, cheer each other on and send gifts.',iconURL:icon,tintColor:'#f6b73c',versions:[{version:v,buildVersion:process.env.GITHUB_RUN_NUMBER,date:new Date().toISOString(),localizedDescription:'Build '+process.env.GITHUB_SHA.slice(0,7),downloadURL:'https://github.com/shira421/haven/releases/download/latest-build/Haven-iOS-unsigned.ipa',size:Number(process.argv[1]),minOSVersion:'16.0'}],appPermissions:{entitlements:[],privacy:{}}}],news:[]},null,2));
           " "$SIZE"
           (cd out && sha256sum * > SHA256SUMS.txt)
           ls -la out

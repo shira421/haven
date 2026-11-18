@@ -18,6 +18,7 @@ test('coins grow with length, streak and friends, and never for nothing', () => 
   assert.equal(coinsFor({ minutes: 25, streak: 10 }), 78);
   assert.equal(coinsFor({ minutes: 25, streak: 400 }), 78, 'streak bonus is capped');
   assert.equal(coinsFor({ minutes: 25, others: 2 }), 72);
+  assert.equal(coinsFor({ minutes: 25, others: 2, strict: true }), 86, 'a strict campfire pays 1.2 times');
   assert.equal(coinsFor({ minutes: 25, others: 50 }), 90, 'group bonus is capped');
   assert.equal(coinsFor({ minutes: 9999 }), coinsFor({ minutes: LIMITS.maxMinutes }), 'minutes are capped');
 });

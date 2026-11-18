@@ -164,7 +164,7 @@ test('a session grows where it was planted, and a full land keeps new arrivals i
   const full = store.finish();
   assert.equal(full.placedAt, null);
   assert.equal(store.stored().length, 1);
-  assert.match(store.place(full.item.id, 2, 2).error, /Your land is full\. It holds 25 things/);
+  assert.match(store.place(full.item.id, 2, 2).error, /Your land is full/);
   assert.equal(store.place('x3', 2, 2).ok, true, 'something already standing can still be moved');
 });
 
@@ -181,7 +181,7 @@ test('new spots keep their distance from what is already there', () => {
 test('nature items need a long enough session', () => {
   const { store, clock } = make();
   store.state.unlocked.push('pond');
-  assert.match(store.begin({ minutes: 25, species: 'pond', tag: 'study' }).error, /Pond takes at least 60 min/);
+  assert.match(store.begin({ minutes: 25, species: 'pond', tag: 'study' }).error, /pond takes at least 60 min/);
   assert.equal(store.begin({ minutes: 60, species: 'pond', tag: 'study' }).ok, true);
   clock.t += 60 * 60000;
   assert.equal(store.finish().item.s, 'pond');
@@ -217,7 +217,7 @@ test('feeding: treats, hunger, bond levels and their rewards', () => {
   assert.deepEqual(up.bond, { level: 1, coins: 40 });
   store.state.food = 0;
   clock.t += 21 * 3600000;
-  assert.match(store.feed(rabbit.id).error, /no treats/);
+  assert.match(store.feed(rabbit.id).error, /No treats left/);
 });
 
 test('feeding everyone goes hungriest first and stops when treats run out', () => {
@@ -335,9 +335,37 @@ test('merging two devices loses nothing that was earned', () => {
   assert.equal(merged.sessions.length, 2);
   assert.equal(merged.items.length, 2);
   assert.ok(merged.unlocked.includes('daisy'));
-  assert.equal(merged.coins, b.store.state.coins, 'the newer copy decides the balance');
+  assert.equal(merged.coins, a.store.state.coins + b.store.state.coins, 'two separate havens: both balances');
   assert.ok(merged.achieved.first <= b.store.state.achieved.first);
   assert.equal(mergeStates(merged, merged, T0).sessions.length, 2, 'merging twice changes nothing');
+});
+
+test('a new phone signing in takes the account as it is', () => {
+  const a = make();
+  run(a.store, a.clock, 25);
+  a.store.state.coins = 740;
+  a.store.state.food = 12;
+  const fresh = freshState(T0 + 9 * 3600000); // newer than the account's copy
+  const merged = mergeStates(fresh, a.store.exportState(), T0 + 9 * 3600000);
+  assert.equal(merged.coins, 740);
+  assert.equal(merged.food, 12);
+  assert.deepEqual(merged.haven.spots, a.store.state.haven.spots);
+  assert.deepEqual(merged.settings, a.store.state.settings);
+  assert.equal(mergeStates(a.store.exportState(), freshState(T0), T0).coins, 740, 'and the other way round');
+});
+
+test('two different havens joined add their coins; two copies of one do not', () => {
+  const a = make(), b = make();
+  run(a.store, a.clock, 25);
+  b.clock.t = T0 + 3600000;
+  run(b.store, b.clock, 25);
+  a.store.state.coins = 300; b.store.state.coins = 200;
+  assert.equal(mergeStates(a.store.exportState(), b.store.exportState(), T0 + 7200000).coins, 500, 'different havens');
+  const copy = structuredClone(a.store.exportState());
+  copy.coins = 250; copy.updated += 1000;
+  assert.equal(mergeStates(a.store.exportState(), copy, T0 + 7200000).coins, 250, 'the same haven: the newer copy');
+  const joined = mergeStates(a.store.exportState(), b.store.exportState(), T0 + 7200000);
+  assert.equal(Object.keys(joined.haven.spots).length, 2, 'both havens\' things keep their places');
 });
 
 test('what friends can see holds no private data', () => {

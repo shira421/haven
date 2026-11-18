@@ -86,6 +86,13 @@ test('two devices of one account stay in step through the server', async () => {
   const B = make(); // "add another device"
   await B.social.sync();
   assert.equal(B.store.state.items.length, 1, 'B brings over what A grew');
+  // A new phone has nothing of its own: it takes the account's haven as it is, coins and layout included.
+  assert.ok(A.store.state.coins > 0);
+  assert.equal(B.store.state.coins, A.store.state.coins, 'the coins come across');
+  assert.equal(B.store.state.food, A.store.state.food);
+  assert.deepEqual(B.store.state.haven.spots, A.store.state.haven.spots, 'everything stands where it stood');
+  await A.social.sync();
+  assert.ok(A.store.state.coins > 0, 'the first phone keeps its coins too');
 
   // A moves its plant; B hears about it straight away.
   const id = A.store.state.items[0].id;
