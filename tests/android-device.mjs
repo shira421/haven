@@ -126,7 +126,8 @@ try {
   await sleep(1500);
   assert.ok(posted('Test now'), 'a notification shows at once');
   home();
-  await sleep(8000);
+  // Set 4 s ahead; a busy emulator can deliver an exact alarm a little late.
+  for (let i = 0; i < 20 && !posted('Test later'); i++) await sleep(1000);
   assert.ok(posted('Test later'), 'a notification set for later arrives while Haven is in the background');
   noCrash('while notifications arrived');
   front();
