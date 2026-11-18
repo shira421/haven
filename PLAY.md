@@ -146,3 +146,32 @@ Everything is unlocked by focusing. There is nothing to buy and no ads.
 3. Upload it by hand in Play Console, or from GitHub:
    - Once: in Google Cloud, make a service account and a JSON key for it. In Play Console, **Users and permissions**, invite the service account's email with permission to release to testing tracks (and production if you want). Put the JSON in the `PLAY_SERVICE_ACCOUNT_JSON` secret.
    - Then: Actions, **Google Play**, **Run workflow**, pick the track. After you approve it in the `google-play` environment, it builds from `main` and uploads a **draft** release, which you check and roll out in Play Console.
+
+## 9. Making the code private
+
+The code side is done: `LICENSE` now says all rights reserved, `package.json` is marked private, the web bundle carries a copyright line and is minified with no source maps, Settings no longer links to the source, and the privacy policy no longer calls Haven open source. Anyone can still save the JavaScript their browser runs. That is true of every website, and the server's code stays private either way.
+
+What changes on GitHub when the repository goes private, on the free plan:
+
+| | Public (now) | Private on GitHub Free | Private on GitHub Pro (US$4 a month) |
+| --- | --- | --- | --- |
+| The website on GitHub Pages (web app, privacy policy, account deletion page) | Works | **Stops** | Works, still public |
+| Branch protection and rulesets on `main` | Works | **Not enforced** | Works |
+| Secret scanning and push protection | Free | **Not available** | Not available |
+| Actions minutes | Unlimited | 2,000 a month | 3,000 a month |
+| `latest-build` downloads and the AltStore source | Anyone | Only you, signed in | Only you, signed in |
+
+macOS jobs count 10 times. One push to a pull request here uses about 100 minutes (the iOS build is about 80 of them), and a merge to `main` about 100 more, so a month of normal work fits in Pro's 3,000 but not always in Free's 2,000. When minutes run out, workflows stop until the next month unless you set a spending limit above $0.
+
+The privacy policy and deletion page must stay reachable, or Google Play will reject updates. So pick one before switching:
+
+1. **Simplest: GitHub Pro.** Upgrade at github.com/settings/billing. Nothing else changes: the same addresses, the same workflows.
+2. **Free: move the website.** For example to Cloudflare Pages, which you already use for the server. The address changes, so the privacy policy and deletion links in Play Console, the privacy link in Settings and `SITE` in `src/social.js` all change with it. Ask Claude to do this one.
+
+Then switch:
+
+1. Settings, General, Danger Zone, **Change repository visibility**, Private.
+2. Check the next **Deploy web app and friends server** run still publishes the site, and open the privacy page.
+3. Under Settings, Actions, consider running the iOS job only on `main` to save minutes, and look at Billing, **Spending limit**.
+4. Insights, Forks: forks made while it was public stay public. Without a licence they give nobody the right to reuse the code, but they exist.
+5. The `latest-build` release stops being a public download. Android people get Haven from Google Play.

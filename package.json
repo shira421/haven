@@ -2,6 +2,7 @@
   "name": "haven",
   "version": "1.5.0",
   "private": true,
+  "license": "UNLICENSED",
   "type": "module",
   "description": "Haven: a focus timer that grows a sanctuary of plants and animals, with live friends.",
   "scripts": {

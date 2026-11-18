@@ -146,8 +146,8 @@ function petted(app, id, done = null) {
   if (!done) heartAt(ui.world, id, 0);
   if (!what) return;
   if (app.store.state.settings.haptics && !done) haptic('light');
-  if (what === 'woke') { showChip(app, id, 'Woke up. Left alone, it goes back to sleep.'); return; }
-  if (a.mine) { const r = a.item ? app.store.pet(a.item) : { ok: false }; showChip(app, id, r.ok && r.counted ? 'Loved that. The bond grew.' : 'Loved that.'); return; }
+  if (what === 'woke') { showChip(app, id, 'Woke up.'); return; }
+  if (a.mine) { if (a.item) app.store.pet(a.item); showChip(app, id, 'Loved that.'); return; }
   showChip(app, id, `Loved that. ${a.ownerName} will hear about it.`);
   if (a.item) app.social.sanctuaryCare(ui.id, a.owner, a.item, a.species, 'pet').catch(() => {});
 }

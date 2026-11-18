@@ -1,5 +1,7 @@
 # Haven (vibe coded)
 
+Private source. Copyright (c) 2026 shira421, all rights reserved (see [LICENSE](LICENSE)).
+
 A focus timer that grows a living sanctuary. Set a time, stay with it, and a plant grows, an animal moves in, or a pond gets dug in your haven. Leave early and it is lost. The animals are not ornaments: they wander, visit the plants and places they like, greet each other, sleep at night, and get hungry. Friends see each other focus live, sit round a campfire to focus together, share a sanctuary, cheer each other on and send gifts.
 
 One web app runs everywhere: in a browser, installed from the browser on iPhone and Android, and inside small native apps for iOS and Android. Everything is unlocked for everyone. There is nothing to buy.
@@ -25,10 +27,10 @@ One web app runs everywhere: in a browser, installed from the browser on iPhone 
 - **Arrange freely.** Drag anything anywhere on the land. The land grows with your level, from room for 25 things to room for 100.
 - **Friends, live.** Add people by code, username or invite link. See who is focusing right now and for how long. Cheer or nudge them. Visit their haven. Send them a plant, an animal or a piece of nature.
 - **Sanctuaries.** Make a group of up to eight havens and they are joined into one land around a clearing. Everyone's animals wander from haven to haven, and animals from different havens become pals. A great tree in the middle grows through the week as everyone focuses, and blooms when the group reaches its goal. Put treats down for anyone's animals and pat them; their people hear about it. Add anyone in it as a friend, or report or block them.
-- **Campfire.** Light a campfire and invite friends, or light one in a sanctuary for everyone there to join, and everyone starts at the same moment. Choose whether one person leaving puts the fire out for everyone or only costs them. Finishing together earns more coins.
+- **Campfire.** Light a campfire and invite friends, or light one in a sanctuary for everyone there to join, and everyone starts at the same moment. Choose whether one person leaving puts the fire out for everyone at once (finishing pays 1.2× coins) or only costs them. Finishing together earns more coins. A finished campfire stays, showing how everyone did, until each person leaves it.
 - **Board and activity.** Rank yourself and your friends for today, the week, the month or all time, and see what everyone grew.
 - **Journal.** Day, week, month and year views with a chart, time by tag, best hour, streaks, every session, and 29 achievements.
-- **Sounds.** Rain, stream, wind, night crickets, campfire, brown and white noise, made on the device, so they work offline.
+- **Sounds.** Rain, stream, wind, night crickets, campfire, brown and white noise, made on the device, so they work offline. A chime when a session finishes and a falling one when it is lost; in the phone apps these come as notifications too, with the screen off.
 - **Notifications.** A session finishing, a reminder to come back, friend requests and acceptances, invitations, cheers, nudges and gifts, a streak about to end, hungry animals, and a daily reminder. Each can be switched off. Haven asks for permission at your first session, and Settings says if notifications are off and takes you to turn them on. While Haven is closed, the apps check for friends' news about every 15 minutes.
 - **An account that goes with you.** Haven opens on a sign-in screen: create an account with a username and a password, or continue with Google where the server offers it. Sign in on any phone or computer and your haven is there. What you grow, move, feed, buy or let go on one device reaches the others within seconds when they are open, and on opening otherwise. Nothing is lost when both changed at once.
 - **Yours to keep.** Works offline. Light and dark. Backup file, server backup.

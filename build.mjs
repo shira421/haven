@@ -10,7 +10,7 @@ if (api && !/^https:\/\/[a-z0-9.-]+(:\d+)?(\/.*)?$/i.test(api)) throw new Error(
 await rm('dist', { recursive: true, force: true });
 await mkdir('dist/fonts', { recursive: true });
 await build({
-  entryPoints: ['src/app.js'], bundle: true, format: 'iife', target: ['es2022', 'safari16'], outfile: 'dist/app.js', minify: true, sourcemap: false,
+  entryPoints: ['src/app.js'], bundle: true, format: 'iife', target: ['es2022', 'safari16'], outfile: 'dist/app.js', minify: true, sourcemap: false, legalComments: 'none', banner: { js: '/*! Haven. Copyright (c) 2026 shira421. All rights reserved. */' },
   define: { __HAVEN_API__: JSON.stringify(api), __HAVEN_VERSION__: JSON.stringify(pkg.version) }, logLevel: 'info',
 });
 await build({ entryPoints: ['src/style.css'], bundle: true, external: ['./fonts/*'], outfile: 'dist/app.css', minify: true, logLevel: 'info' });

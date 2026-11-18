@@ -2,6 +2,7 @@
 // Both are SVG text built from data, so they can be drawn for you, for a friend, or for a test.
 import { traitsOf } from './world.js';
 import { drawing, tone } from './art.js';
+import { n, E, C, P, L } from './shapes.js';
 import { speciesById, artOf } from './catalog.js';
 import { escapeHTML } from './core.js';
 
@@ -257,17 +258,67 @@ export const treeStageName = stage => TREE_STAGES[Math.max(0, Math.min(5, stage 
 /** The great tree at one of its six stages, from a seed to full bloom. */
 export function greatTreeSVG(stage = 0) {
   stage = Math.max(0, Math.min(5, stage | 0));
-  const leaf = ['#6fbf5a', '#5cae4c', '#4f9c43', '#7ccb63'], ground = '<ellipse cx="100" cy="226" rx="64" ry="11" fill="#14152b" opacity=".14"/>';
-  if (stage === 0) return `<svg viewBox="0 0 200 240" aria-hidden="true">${ground}<ellipse cx="100" cy="222" rx="26" ry="7" fill="#9c6b44"/><ellipse cx="100" cy="219" rx="9" ry="5" fill="#c58b55"/><path d="M100 218c0-6 2-10 6-12" stroke="#5cae4c" stroke-width="3" fill="none" stroke-linecap="round"/></svg>`;
-  if (stage === 1) return `<svg viewBox="0 0 200 240" aria-hidden="true">${ground}<ellipse cx="100" cy="222" rx="24" ry="6" fill="#9c6b44"/><path d="M100 222V186" stroke="#7a5236" stroke-width="5" stroke-linecap="round"/><path d="M100 196c-14-2-22-10-24-20 13 0 22 7 24 20Z" fill="${leaf[0]}"/><path d="M100 188c13-4 19-13 20-24-12 2-19 10-20 24Z" fill="${leaf[1]}"/></svg>`;
-  // From a sapling on: a trunk that thickens and a crown of leaf clusters that widens with each stage.
-  const k = [0, 0, 0.5, 0.7, 0.88, 1][stage], trunkTop = 222 - 150 * k, girth = 6 + 16 * k;
-  const crown = [[0, -38], [-34, -14], [34, -14], [-20, -52], [22, -54], [0, -70], [-46, -40], [46, -40], [0, -8]];
-  const blobs = crown.slice(0, stage === 2 ? 4 : stage === 3 ? 6 : 9).map(([dx, dy], i) => `<circle cx="${(100 + dx * k).toFixed(1)}" cy="${(trunkTop + 30 + dy * k).toFixed(1)}" r="${(30 * k + 6).toFixed(1)}" fill="${leaf[i % 4]}"/>`).join('');
-  const roots = k > 0.6 ? `<path d="M${100 - girth} 222c-10 2-18 4-24 3M${100 + girth} 222c10 2 18 4 24 3" stroke="#6b4630" stroke-width="${(girth / 2.4).toFixed(1)}" fill="none" stroke-linecap="round"/>` : '';
-  const bloom = stage === 5 ? Array.from({ length: 22 }, (_, i) => { const a = i * 2.4, r = 14 + (i * 37) % 56; return `<circle cx="${(100 + Math.cos(a) * r * k * 1.15).toFixed(1)}" cy="${(trunkTop + 18 + Math.sin(a) * r * k * 0.8).toFixed(1)}" r="${i % 3 ? 4.2 : 5.4}" fill="${i % 4 ? '#f7a8c4' : '#ffd36a'}" stroke="#fff" stroke-width="1"/>`; }).join('') : '';
-  const lanterns = stage === 5 ? `<g class="lanterns"><circle cx="${100 - 40 * k}" cy="${trunkTop + 62}" r="5" fill="#ffd36a"/><circle cx="${100 + 44 * k}" cy="${trunkTop + 58}" r="5" fill="#ffd36a"/></g>` : '';
-  return `<svg viewBox="0 0 200 240" aria-hidden="true">${ground}${roots}<path d="M${100 - girth / 2} 224L${100 - girth / 3} ${trunkTop + 30}h${(girth * 2) / 3}L${100 + girth / 2} 224Z" fill="#7a5236"/><g class="crown">${blobs}${bloom}</g>${lanterns}</svg>`;
+  const base = 224, cx = 100, BARK = '#7c5436', DARK = tone(BARK, -0.25), LIGHT = tone(BARK, 0.16);
+  const ground = rx => E(cx, base + 2, rx, rx * 0.17, '#1f2240', ' opacity=".16"');
+  if (stage === 0) {
+    // A mound of fresh earth with a seedling just through it.
+    return `<svg viewBox="0 0 200 240" aria-hidden="true">${ground(30)}${E(cx, base - 1, 24, 7, '#8f6440')}${E(cx - 4, base - 3, 12, 3.5, '#a77950')}
+${L(`M${cx} ${base - 4}c0-6 1-10 4-13`, '#4f9a54', 2.6)}${P(`M${cx + 4} ${base - 17}c-7-1-11-5-12-10 7 0 11 4 12 10Z`, '#6fbf5a')}${P(`M${cx + 4} ${base - 17}c6-3 9-8 9-13-6 1-9 6-9 13Z`, '#5cae4c')}</svg>`;
+  }
+  // From a sapling on, everything scales with k: a wider stance, a taller trunk and a broader crown.
+  const k = [0, 0.3, 0.5, 0.7, 0.88, 1][stage];
+  const girth = stage === 1 ? 5 : 7 + 40 * k, top = base - (34 + 86 * k), wide = 52 + 132 * k, high = wide * 0.6;
+  const crownY = top - high * 0.28;
+
+  // The trunk flares at the foot, and separate roots snake out over the ground from the flare.
+  const half = girth / 2, waist = half * 0.6, flare = stage >= 2 ? half * (1.25 + 0.35 * k) : half, SHADE = tone(BARK, -0.16);
+  // Each root drops steeply off the flare, then runs low along the ground and tapers to a point.
+  const root = (side, len, thick, down = 0) => {
+    const x0 = cx + side * half * 0.5, tip = cx + side * (flare + len), mid = cx + side * (flare + len * 0.35);
+    return P(`M${n(x0)} ${n(base - thick * 1.8)}C${n(x0 + side * len * 0.3)} ${n(base - thick * 1.1)} ${n(x0 + side * len * 0.45)} ${n(base - thick * 0.7)} ${n(mid)} ${n(base - thick * 0.62)}`
+      + `S${n(tip - side * len * 0.18)} ${n(base - thick * 0.2 + down * 0.5)} ${n(tip)} ${n(base + 1 + down)}Q${n(cx + side * (flare + len * 0.45))} ${n(base + 2.4 + down * 0.5)} ${n(x0 - side * 2)} ${n(base + 2)}Z`, side > 0 ? SHADE : BARK)
+      + (side < 0 ? L(`M${n(x0 - 1.5)} ${n(base - thick * 1.5)}C${n(x0 - len * 0.18)} ${n(base - thick * 0.8)} ${n(x0 - len * 0.3)} ${n(base - thick * 0.62)} ${n(mid + len * 0.05)} ${n(base - thick * 0.52)}`, LIGHT, n(0.6 + 0.6 * k), ' opacity=".55"') : '');
+  };
+  const roots = stage < 2 ? '' : root(-1, 14 + 32 * k, 4 + 6 * k) + root(1, 16 + 34 * k, 4 + 6 * k)
+    + root(-1, 6 + 14 * k, 2.6 + 3.4 * k, 3) + root(1, 7 + 15 * k, 2.6 + 3.4 * k, 3);
+
+  const foot = base - 30 - 30 * k;
+  const trunk = P(`M${n(cx - flare)} ${n(base + 1)}C${n(cx - half * 0.8)} ${n(base - 4)} ${n(cx - waist)} ${n(base - 18 - 22 * k)} ${n(cx - waist)} ${n(foot)}`
+      + `C${n(cx - waist)} ${n(top + 30)} ${n(cx - waist * 0.9)} ${n(top + 10)} ${n(cx - waist * 0.8)} ${n(top)}H${n(cx + waist * 0.8)}`
+      + `C${n(cx + waist * 0.9)} ${n(top + 10)} ${n(cx + waist)} ${n(top + 30)} ${n(cx + waist)} ${n(foot)}C${n(cx + waist)} ${n(base - 18 - 22 * k)} ${n(cx + half * 0.8)} ${n(base - 4)} ${n(cx + flare)} ${n(base + 1)}Z`, BARK)
+    + P(`M${n(cx + waist * 0.2)} ${n(base + 1)}C${n(cx + waist * 0.25)} ${n(base - 30)} ${n(cx + waist * 0.3)} ${n(top + 18)} ${n(cx + waist * 0.32)} ${n(top)}H${n(cx + waist * 0.8)}`
+      + `C${n(cx + waist * 0.9)} ${n(top + 10)} ${n(cx + waist)} ${n(top + 30)} ${n(cx + waist)} ${n(foot)}C${n(cx + waist)} ${n(base - 18 - 22 * k)} ${n(cx + half * 0.8)} ${n(base - 4)} ${n(cx + flare)} ${n(base + 1)}Z`, DARK, ' opacity=".5"')
+    + (stage >= 3 ? L(`M${n(cx - waist * 0.5)} ${n(base - 10)}c2 -${n(30 * k)} -2 -${n(55 * k)} 1 -${n(80 * k)}`, DARK, n(1 + k), ' opacity=".45"')
+      + L(`M${n(cx - waist * 0.05)} ${n(base - 16)}c-2 -${n(24 * k)} 2 -${n(40 * k)} 0 -${n(62 * k)}`, LIGHT, n(0.8 + k * 0.8), ' opacity=".5"') : '')
+    + (stage >= 4 ? E(cx - waist * 0.25, base - 50 * k, 3.8 * k, 5.4 * k, DARK) + E(cx - waist * 0.25, base - 50 * k + 0.8, 2.6 * k, 4 * k, '#3a2618') : '');
+  const bough = (dx, dy, w) => L(`M${n(cx + dx * 0.15)} ${n(top + 8)}Q${n(cx + dx * 0.55)} ${n(top - dy * 0.3)} ${n(cx + dx)} ${n(top - dy)}`, BARK, n(w));
+  const boughs = stage < 2 ? '' : bough(-wide * 0.3, high * 0.36, girth * 0.3) + bough(wide * 0.28, high * 0.4, girth * 0.28) + bough(-wide * 0.06, high * 0.6, girth * 0.24) + bough(wide * 0.12, high * 0.62, girth * 0.2);
+
+  // The crown in three layers, back to front, each shaded below and lit above.
+  const layer = (blobs, fill) => {
+    const at = ([x, y, r]) => [cx + x * wide / 2, crownY + y * high / 2, r * wide / 2];
+    const list = blobs.map(at);
+    return list.map(([x, y, r]) => C(x + r * 0.08, y + r * 0.14, r, tone(fill, -0.18))).join('') + list.map(([x, y, r]) => C(x, y, r, fill)).join('')
+      + list.filter((_, i) => i % 2 === 0).map(([x, y, r]) => C(x - r * 0.28, y - r * 0.34, r * 0.42, tone(fill, 0.2), ' opacity=".6"')).join('');
+  };
+  const BACK = [[-0.62, 0.12, 0.34], [0.62, 0.12, 0.34], [-0.36, -0.42, 0.36], [0.36, -0.42, 0.36], [0, -0.66, 0.36], [-0.9, 0.42, 0.22], [0.9, 0.42, 0.22]];
+  const MID = [[-0.5, 0.22, 0.3], [0.5, 0.22, 0.3], [-0.2, -0.24, 0.34], [0.22, -0.26, 0.33], [0, 0.18, 0.32], [-0.8, 0.06, 0.22], [0.8, 0.06, 0.22]];
+  const FRONT = [[-0.3, 0.46, 0.24], [0.32, 0.46, 0.24], [0, -0.02, 0.26], [-0.62, 0.46, 0.18], [0.64, 0.44, 0.18]];
+  const count = stage === 1 ? 0 : stage === 2 ? 4 : stage === 3 ? 6 : 7;
+  const crown = stage === 1
+    ? P(`M${cx} ${n(top + 16)}c-17 -2 -27 -12 -29 -24 16 0 27 9 29 24Z`, '#6fbf5a') + P(`M${cx} ${n(top + 8)}c16 -5 23 -16 24 -29 -15 2 -23 12 -24 29Z`, '#5cae4c') + P(`M${cx} ${n(top + 3)}c-4 -10 -1 -17 4 -22 4 7 1 15 -4 22Z`, '#7ccb63')
+    : layer(BACK.slice(0, count), '#3f8d4c') + layer(MID.slice(0, count), '#4f9f50') + (stage >= 3 ? layer(FRONT.slice(0, stage === 3 ? 3 : 5), '#62b357') : '');
+
+  // In full bloom: blossom over the crown, a few petals drifting down, and lanterns in the boughs.
+  const flower = (x, y, c) => [0, 72, 144, 216, 288].map(a => C(x + Math.cos(a * Math.PI / 180) * 2.2, y + Math.sin(a * Math.PI / 180) * 2.2, 2, c)).join('') + C(x, y, 1.3, '#ffd36a');
+  const bloom = stage === 5 ? Array.from({ length: 26 }, (_, i) => { const a = i * 2.39996, r = Math.sqrt((i + 0.5) / 26) * 0.92; return flower(cx + Math.cos(a) * r * wide * 0.46, crownY + Math.sin(a) * r * high * 0.46, i % 3 ? '#f7b3cc' : '#fff1f5'); }).join('')
+    + [[-0.55, 0.9], [0.4, 1.05], [0.75, 0.7], [-0.2, 1.2]].map(([x, y], i) => E(cx + x * wide / 2, crownY + y * high / 2 + 20, 2.4, 1.4, '#f7b3cc', ` transform="rotate(${i * 50 - 40} ${n(cx + x * wide / 2)} ${n(crownY + y * high / 2 + 20)})"`)).join('') : '';
+  const lantern = (x, y, len) => L(`M${n(x)} ${n(y)}v${len}`, '#5a4030', 0.8) + P(`M${n(x - 3.2)} ${n(y + len + 1)}h6.4l-1 7.5h-4.4Z`, '#ffcf5a') + P(`M${n(x - 3.6)} ${n(y + len)}h7.2v1.4h-7.2Z`, '#7a4a2a');
+  const lanterns = stage === 5 ? `<g class="lanterns">${lantern(cx - wide * 0.3, top - high * 0.2, 10)}${lantern(cx + wide * 0.27, top - high * 0.22, 14)}${lantern(cx - wide * 0.05, top - high * 0.06, 8)}</g>` : '';
+  // Small things that gather round an old tree: mushrooms and flowers between the roots.
+  const shroom = (x, s) => P(`M${n(x - 1.2 * s)} ${base}v-${n(4 * s)}h${n(2.4 * s)}v${n(4 * s)}Z`, '#f3e6d4') + P(`M${n(x - 4 * s)} ${n(base - 4 * s)}a${n(4 * s)} ${n(3 * s)} 0 0 1 ${n(8 * s)} 0Z`, '#d9534f') + C(x - s, base - 5.6 * s, 0.7 * s, '#fff');
+  const undergrowth = stage >= 4 ? shroom(cx - girth * 0.9 - 6, 1) + shroom(cx + girth * 1.1 + 4, 1.2) + (stage === 5 ? shroom(cx + girth * 0.5 + 22, 0.8) : '') : '';
+  return `<svg viewBox="0 0 200 240" aria-hidden="true">${ground(26 + 70 * k)}${boughs}${trunk}${roots}<g class="crown">${crown}${bloom}</g>${lanterns}${undergrowth}</svg>`;
 }
 
 /** Everything standing in a store's haven, as things for worldHTML and the simulation. */

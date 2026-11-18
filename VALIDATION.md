@@ -41,6 +41,9 @@ For 1.3.0, a sweep of every screen and dialog at 320, 390, 768 and 1280 px in li
 - The privacy policy and account deletion page in light and dark; deleting an account on the page against the local server, with a wrong password refused first.
 - The release build: CI builds it with target API 36, checks it is not debuggable and that its version matches `package.json`. The Android 14 to 16 emulator runs use the new bridge (`addWebMessageListener`) and the new back handling.
 - Not yet tried: an upload to Google Play, and the release build on a real phone.
+- A campfire that is over: whoever lit it can leave while another member has not opened Haven since, the others see them go, and the late member still counts them when finishing (`tests/hub.test.mjs`). In Chrome, the finished campfire shows who finished and can be left.
+- A strict campfire going out: the other member is told live and gets a `fire-out` inbox item; the finished one pays 1.2× (`tests/core.test.mjs`, the browser test's 82 coins).
+- The chime and falling chime files are valid 22 kHz WAV files. Not yet heard on a real phone, and the lost-session report from Android's alarm has not run on an emulator.
 
 ## Checked on Android emulators on every pull request
 

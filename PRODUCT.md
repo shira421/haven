@@ -19,7 +19,7 @@ People who study or work in focused blocks and want a reason to stay off their p
 | Come back | A third of the way through the allowance (10 s of 30 s), a notification asks you to come back before the session is lost. Not sent when the phone was only locked. |
 | Lock is not leaving | The screen may turn off during a session, as it normally would. "Keep the screen on" is off unless you turn it on. The apps tell a locked phone from a switched app themselves. A phone's browser is told only "hidden" either way, and a locked screen must never cost a session, so it judges on return from what the leaving left behind and counts only time plainly spent in another app: time the phone slept never counts (the browser's monotonic clock stops in sleep), a swipe to another app is seen in the touch it cancels, and on Chrome for Android Haven can be allowed to know when the screen locks (Idle Detection). Anything it cannot tell is taken as a locked screen. Settings shows how the last absence was judged. It sends a come-back notification only after a swipe out. On a computer's browser, leaving counts as before. |
 | Tags | Up to 12, each with a colour, shown in the journal. |
-| Sounds | Seven background sounds and a finishing chime, generated on the device. |
+| Sounds | Seven background sounds, a finishing chime and a falling chime for a lost session, generated on the device. The phone apps play the same two as notification sounds (`scripts/sounds.mjs` makes the files). |
 | Session survives a restart | A running session is stored and resumes, or is judged by how long Haven was closed. |
 
 ### The living haven
@@ -69,13 +69,13 @@ People who study or work in focused blocks and want a reason to stay off their p
 | Cheer and nudge | Delivered at once, or when the friend is next online. |
 | Gifts | Send a plant, animal or nature item you have unlocked. It arrives in their haven. |
 | Visit | See a friend's haven and totals. |
-| Campfire | Up to 8 people. Lit from Friends, or for a whole sanctuary at once. Start together on the server's clock. "The fire goes out for everyone" or "leaving costs only them". |
+| Campfire | Up to 8 people. Lit from Friends, or for a whole sanctuary at once. Start together on the server's clock. "The fire goes out for everyone" (one person leaving ends every session at once, each person is chimed, and finishing pays 1.2× coins) or "leaving costs only them". Once over, a campfire stays with each person, showing who finished, until they leave it; anyone can leave then, whoever lit it too. |
 | Board | You and your friends for today, week, month and all time. |
 | Activity | What you and your friends grew in the last 14 days. |
 | Recovery | On Android, if the system stops the page inside the app, Haven reloads it instead of closing. If Haven does close unexpectedly, it says so the next time it opens and offers the details to copy for a bug report. A running session is kept either way. |
 | Other devices | Signing in with the username and password (or Google) on another phone or computer brings the haven with it, behind a loading screen. One-time device codes are gone. Signing out saves the haven to the account and takes it off the device. After signing in every change on one device reaches the others: within seconds when they are open, otherwise when they open. Changes made on two devices at once are joined, not overwritten. |
 | Sanctuaries | Up to 8 havens, joined into one land around a clearing with a great tree, with stepping stones where two meet, and animals cross freely between them. The tree grows with the week's focus (2 h per haven, at least 4 h) and blooms; it starts again each Monday. Treats and pats for anyone's animals, and their people are told. Animals from different havens become pals. Each member can be added as a friend, reported or blocked. A loading screen while the land is fetched and joined. |
-| Notifications | Asked for once, at the first session. Settings shows when they are off, with a way to turn them on. Session finished, come back, friend requests and acceptances, campfire and sanctuary invitations, care from sanctuary members, pals and the tree in bloom, cheers, nudges and gifts, streak about to end (8 pm), hungry animals (by day), daily reminder. Each can be switched off in Settings. |
+| Notifications | Asked for once, at the first session. Settings shows when they are off, with a way to turn them on. Session finished, session lost (phone apps, at the moment it is lost), the campfire going out, come back, friend requests and acceptances, campfire and sanctuary invitations, care from sanctuary members, pals and the tree in bloom, cheers, nudges and gifts, streak about to end (8 pm), hungry animals (by day), daily reminder. Each can be switched off in Settings. |
 | Backup | To the server when signed in, or as a file. |
 
 ### How Forest's paid features map
