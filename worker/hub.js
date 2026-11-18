@@ -1019,7 +1019,7 @@ export class Hub {
     // Haven before 1.5.1 could save a new phone's empty coin count over the account's when it
     // signed in, and every other device then took it. Such a version can still read the haven
     // but no longer save it.
-    if (!savesSafely(ctx.version)) throw new ApiError(426, 'Update Haven to keep your haven in sync. Your haven is still on this device.');
+    if (!savesSafely(body.app)) throw new ApiError(426, 'Update Haven to keep your haven in sync. Your haven is still on this device.');
     this.limit('state:' + me.id, 600, 3600, ctx.now);
     if (!body.state || typeof body.state !== 'object' || Array.isArray(body.state)) throw bad('The backup is empty.');
     const text = JSON.stringify(body.state);
@@ -1105,7 +1105,7 @@ export class Hub {
    * @returns {Promise<{status: number, body: object}>}
    */
   async handle(call) {
-    const ctx = { now: call.now, ip: call.ip || 'unknown', version: call.version || null, tokenHash: null };
+    const ctx = { now: call.now, ip: call.ip || 'unknown', tokenHash: null };
     const route = `${call.method} ${call.path}`;
     // Everything that awaits happens here, before the database is touched, so a check and the write
     // that depends on it can never be separated by another request.

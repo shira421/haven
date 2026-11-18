@@ -9,7 +9,7 @@ import { Hub, ApiError } from './hub.js';
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
-  'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Haven-Version',
+  'Access-Control-Allow-Headers': 'Authorization, Content-Type',
   'Access-Control-Max-Age': '86400',
 };
 const MAX_BODY = 800000;
@@ -122,7 +122,6 @@ export class HubObject extends DurableObject {
       body,
       token: auth.startsWith('Bearer ') ? auth.slice(7).trim() : null,
       ip: request.headers.get('CF-Connecting-IP') || 'local',
-      version: request.headers.get('X-Haven-Version'),
       now,
     });
     return json(result.status, result.body);

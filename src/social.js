@@ -64,8 +64,7 @@ export class Social {
     try {
       res = await this.fetch(this.base + path, {
         method,
-        // The server lets only versions that save safely write the haven (see statePut).
-        headers: { 'X-Haven-Version': this.version, ...(this.account ? { Authorization: 'Bearer ' + this.account.token } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+        headers: { ...(this.account ? { Authorization: 'Bearer ' + this.account.token } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
         body: body ? JSON.stringify(body) : undefined,
         signal: AbortSignal.timeout(12000),
       });
@@ -240,7 +239,8 @@ export class Social {
       const mine = this.store.exportState();
       if (remote.state && comparable(mine) === comparable(remote.state)) { this.saveSync(rev, mine); this.data.backupAt = remote.at; return remote.at; }
       try {
-        const r = await this.api('PUT', '/api/state', { state: mine, base: rev });
+        // The server lets only versions that save safely write the haven (see statePut).
+        const r = await this.api('PUT', '/api/state', { state: mine, base: rev, app: this.version });
         this.saveSync(r.rev, mine);
         this.data.backupAt = r.at;
         this.emit('change');
