@@ -25,10 +25,10 @@ export async function startHub({ port, testClock = true, persist = false, google
   });
   const url = (await mf.ready).toString().replace(/\/$/, '');
   /** One API call: returns {status, body}. */
-  async function call(method, path, { token, body, now, ip } = {}) {
+  async function call(method, path, { token, body, now, ip, version = 'dev' } = {}) {
     const res = await mf.dispatchFetch('http://hub' + path, {
       method,
-      headers: { ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}), ...(now ? { 'x-haven-now': String(now) } : {}), ...(ip ? { 'CF-Connecting-IP': ip } : {}) },
+      headers: { ...(version ? { 'X-Haven-Version': version } : {}), ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}), ...(now ? { 'x-haven-now': String(now) } : {}), ...(ip ? { 'CF-Connecting-IP': ip } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
     return { status: res.status, body: await res.json() };

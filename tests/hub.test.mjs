@@ -364,6 +364,21 @@ test('together rule: one person leaving ends it for everyone, live', async () =>
   sa.close();
 });
 
+test('only a version that saves safely can save the haven; any version can read it', async () => {
+  const a = await person('Lou');
+  const put = version => hub.call('PUT', '/api/state', { token: a.token, version, body: { state: { coins: 5 } } });
+  for (const old of [null, '1.4.0', '1.5.0', 'banana']) {
+    const r = await put(old);
+    assert.equal(r.status, 426, `${old} is refused`);
+    assert.match(r.body.error, /Update Haven/);
+  }
+  assert.equal((await put('1.5.1')).status, 200);
+  assert.equal((await put('1.10.0')).status, 200, 'versions compare by number, not as text');
+  const read = await hub.call('GET', '/api/state', { token: a.token, version: null });
+  assert.equal(read.status, 200);
+  assert.equal(read.body.state.coins, 5);
+});
+
 test('a finished campfire: anyone can leave, whoever lit it too, while someone is still focusing', async () => {
   const a = await person('Ida'), b = await person('Jo'), c = await person('Kit');
   const room = (await ok('POST', '/api/rooms', a.token, { minutes: 25, rule: 'together' })).room;

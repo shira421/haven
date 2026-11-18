@@ -148,10 +148,10 @@ export class World {
         continue;
       }
       const a = this.animals.get(p.id);
-      if (a) { [a.u, a.v] = this.fit(a.u, a.v); continue; }
+      if (a) { [a.u, a.v] = this.fit(a.u, a.v); a.owner = p.owner ?? null; continue; }
       const insect = traitsOf(p.species).insect;
       this.animals.set(p.id, {
-        id: p.id, species: p.species, u: p.u, v: p.v, vu: 0, vv: 0, face: 1, state: 'idle', act: 'idle', doing: null, until: this.t + this.rand(0.3, 3),
+        id: p.id, species: p.species, owner: p.owner ?? null, u: p.u, v: p.v, vu: 0, vv: 0, face: 1, state: 'idle', act: 'idle', doing: null, until: this.t + this.rand(0.3, 3),
         tu: p.u, tv: p.v, next: 'idle', thing: null, over: null, buddy: null, cool: 0, lift: insect ? INSECT_HEIGHT : 0, liftTo: null, wob: 0, tilt: 0,
         flying: Boolean(insect), wet: false, air: false, hop: null, rest: 0, rush: 0, deadline: 0, phase: this.rand(0, 6.28), emote: null, emoteUntil: 0, moving: false,
       });
@@ -333,10 +333,13 @@ export class World {
     }
     const r = this.random();
     if (!hungry && a.cool <= this.t && others.length && r < 0.2) {
-      // Say hello to whoever is nearest, or go and find a friend.
+      // Say hello to whoever is nearest, or go and find a friend. In a sanctuary, an animal from
+      // another haven it has not met is worth crossing the land for: that is how they make friends.
       const pal = others.find(x => this.arePals(a.id, x.id) && this.near(a, x) < 8);
-      const o = pal && this.random() < 0.7 ? pal : others.reduce((best, x) => (this.near(a, x) < this.near(a, best) ? x : best));
-      if (this.near(a, o) < (o === pal ? 8 : 4)) {
+      const stranger = a.owner ? others.filter(x => x.owner && x.owner !== a.owner && !this.arePals(a.id, x.id) && this.near(a, x) < 12)
+        .reduce((best, x) => (!best || this.near(a, x) < this.near(a, best) ? x : best), null) : null;
+      const o = pal && this.random() < 0.7 ? pal : stranger && this.random() < 0.8 ? stranger : others.reduce((best, x) => (this.near(a, x) < this.near(a, best) ? x : best));
+      if (this.near(a, o) < (o === pal ? 8 : o === stranger ? 12 : 4)) {
         const mu = (a.u + o.u) / 2, mv = (a.v + o.v) / 2;
         this.release(o);
         a.buddy = o.id; o.buddy = a.id; a.cool = o.cool = this.t + 24;

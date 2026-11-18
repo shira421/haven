@@ -3,7 +3,7 @@
 // person's open connections, and a way to ask whether someone is connected; worker.js supplies those.
 import { speciesById } from '../src/catalog.js';
 
-export const VERSION = '1.5.0';
+export const VERSION = '1.5.1';
 const MIN = 60000;
 export const RULES = {
   maxFriends: 200,
@@ -82,6 +82,17 @@ const AFTER_COLUMNS = [
 ];
 
 /** Monday 00:00 UTC of the week holding `now`. */
+/** The oldest version of the app allowed to save a haven (see statePut). "dev" is an unbuilt copy. */
+export const SAVES_FROM = '1.5.1';
+export function savesSafely(version) {
+  if (version === 'dev') return true;
+  const v = /^(\d+)\.(\d+)\.(\d+)/.exec(version || '');
+  if (!v) return false;
+  const [a, b] = [v.slice(1).map(Number), SAVES_FROM.split('.').map(Number)];
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
+  return true;
+}
+
 export function weekStart(now) {
   const d = new Date(now), day = (d.getUTCDay() + 6) % 7;
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - day * 86400000;
@@ -1005,6 +1016,10 @@ export class Hub {
    * Every other device that is open hears about the new revision at once.
    */
   statePut(me, body, ctx) {
+    // Haven before 1.5.1 could save a new phone's empty coin count over the account's when it
+    // signed in, and every other device then took it. Such a version can still read the haven
+    // but no longer save it.
+    if (!savesSafely(ctx.version)) throw new ApiError(426, 'Update Haven to keep your haven in sync. Your haven is still on this device.');
     this.limit('state:' + me.id, 600, 3600, ctx.now);
     if (!body.state || typeof body.state !== 'object' || Array.isArray(body.state)) throw bad('The backup is empty.');
     const text = JSON.stringify(body.state);
@@ -1090,7 +1105,7 @@ export class Hub {
    * @returns {Promise<{status: number, body: object}>}
    */
   async handle(call) {
-    const ctx = { now: call.now, ip: call.ip || 'unknown', tokenHash: null };
+    const ctx = { now: call.now, ip: call.ip || 'unknown', version: call.version || null, tokenHash: null };
     const route = `${call.method} ${call.path}`;
     // Everything that awaits happens here, before the database is touched, so a check and the write
     // that depends on it can never be separated by another request.
