@@ -55,7 +55,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: "8.14.3"
       - name: Build Android APK, and the release build Google Play gets (signed here with a test key)
