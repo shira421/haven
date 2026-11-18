@@ -312,7 +312,7 @@ async function boot() {
   initDialog();
   applyTheme();
   const storage = safeStorage() || { getItem: () => null, setItem() {}, removeItem() {} };
-  app.social = new Social({ store, storage, base: null });
+  app.social = new Social({ store, storage, base: null, version: VERSION });
   app.timer = new Timer({ store, social: app.social, sound });
   wire();
   haven.wire(app);

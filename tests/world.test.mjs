@@ -283,3 +283,15 @@ test('at night a tap wakes a sleeping animal, and left alone it yawns and goes b
   assert.equal(ate, 'b');
   assert.equal(a.state, 'sleep', 'the sleeper slept through it');
 });
+
+test('in a sanctuary, animals from different havens seek each other out and meet', () => {
+  const met = owners => {
+    const world = new World({ side: 14, random: seeded(5) });
+    world.sync([{ ...thing('a', 'dog', 2, 2), owner: owners[0] }, { ...thing('b', 'cat', 11, 11), owner: owners[1] }]);
+    let seen = false;
+    run(world, 240, {}, w => { if (w.events.some(e => e.type === 'meet')) seen = true; w.events.length = 0; });
+    return seen;
+  };
+  assert.ok(met(['ana', 'mei']), 'two havens 13 tiles apart meet within four minutes');
+  assert.equal(met(['ana', 'ana']), false, 'one haven\'s own animals that far apart are not drawn together');
+});

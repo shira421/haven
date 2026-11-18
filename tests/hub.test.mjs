@@ -364,6 +364,21 @@ test('together rule: one person leaving ends it for everyone, live', async () =>
   sa.close();
 });
 
+test('only a version that saves safely can save the haven; any version can read it', async () => {
+  const a = await person('Lou');
+  const put = app => hub.call('PUT', '/api/state', { token: a.token, body: { state: { coins: 5 }, ...(app ? { app } : {}) } });
+  for (const old of [null, '1.4.0', '1.5.0', 'banana']) {
+    const r = await put(old);
+    assert.equal(r.status, 426, `${old} is refused`);
+    assert.match(r.body.error, /Update Haven/);
+  }
+  assert.equal((await put('1.5.1')).status, 200);
+  assert.equal((await put('1.10.0')).status, 200, 'versions compare by number, not as text');
+  const read = await hub.call('GET', '/api/state', { token: a.token });
+  assert.equal(read.status, 200);
+  assert.equal(read.body.state.coins, 5);
+});
+
 test('a finished campfire: anyone can leave, whoever lit it too, while someone is still focusing', async () => {
   const a = await person('Ida'), b = await person('Jo'), c = await person('Kit');
   const room = (await ok('POST', '/api/rooms', a.token, { minutes: 25, rule: 'together' })).room;
@@ -465,16 +480,16 @@ test('signing in on another device with the username and password, and backing u
   assert.equal((await login(a.handle, PASS, '10.9.1.1')).status, 200);
   assert.equal((await ok('GET', '/api/state', claimed.token)).state, null);
   const state = { v: 1, coins: 120, sessions: [{ id: 's1' }] };
-  const put = await ok('PUT', '/api/state', a.token, { state });
+  const put = await ok('PUT', '/api/state', a.token, { state, app: 'dev' });
   assert.equal(put.at, T);
   assert.deepEqual((await ok('GET', '/api/state', claimed.token)).state, state);
   // Saves carry the revision they were based on, so two devices cannot overwrite each other.
   assert.equal(put.rev, 1);
   assert.equal((await ok('GET', '/api/state', claimed.token)).rev, 1);
-  assert.equal((await api('PUT', '/api/state', claimed.token, { state, base: 0 })).status, 409, 'a save based on an old copy is refused');
-  assert.equal((await ok('PUT', '/api/state', claimed.token, { state, base: 1 })).rev, 2);
+  assert.equal((await api('PUT', '/api/state', claimed.token, { state, base: 0, app: 'dev' })).status, 409, 'a save based on an old copy is refused');
+  assert.equal((await ok('PUT', '/api/state', claimed.token, { state, base: 1, app: 'dev' })).rev, 2);
   assert.equal((await ok('GET', '/api/me', a.token)).me.backupAt, T);
-  assert.equal((await api('PUT', '/api/state', a.token, { state: { big: 'x'.repeat(610000) } })).status, 413);
+  assert.equal((await api('PUT', '/api/state', a.token, { state: { big: 'x'.repeat(610000) }, app: 'dev' })).status, 413);
   await ok('POST', '/api/logout', claimed.token);
   assert.equal((await api('GET', '/api/me', claimed.token)).status, 401);
   assert.equal((await api('GET', '/api/me', a.token)).status, 200, 'the other device stays signed in');

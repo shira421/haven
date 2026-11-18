@@ -363,7 +363,11 @@ test('two different havens joined add their coins; two copies of one do not', ()
   assert.equal(mergeStates(a.store.exportState(), b.store.exportState(), T0 + 7200000).coins, 500, 'different havens');
   const copy = structuredClone(a.store.exportState());
   copy.coins = 250; copy.updated += 1000;
-  assert.equal(mergeStates(a.store.exportState(), copy, T0 + 7200000).coins, 250, 'the same haven: the newer copy');
+  assert.equal(mergeStates(a.store.exportState(), copy, T0 + 7200000).coins, 300, 'the same haven: the higher count, not twice');
+  // An old phone opened today is the newer copy, with fewer coins: it must not take any away.
+  const stale = structuredClone(a.store.exportState());
+  stale.coins = 0; stale.updated = T0 + 9e9;
+  assert.equal(mergeStates(stale, a.store.exportState(), T0 + 9e9).coins, 300);
   const joined = mergeStates(a.store.exportState(), b.store.exportState(), T0 + 7200000);
   assert.equal(Object.keys(joined.haven.spots).length, 2, 'both havens\' things keep their places');
 });

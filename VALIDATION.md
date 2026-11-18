@@ -34,6 +34,11 @@ Every plant, animal and nature item at full size and through its growth stages. 
 
 For 1.3.0, a sweep of every screen and dialog at 320, 390, 768 and 1280 px in light and dark, with long names, a full sanctuary of nine havens, a new person with nothing grown, the phone apps' settings, and a sanctuary that loads slowly or fails, checked by eye and for anything running off the screen. Also the new animals (giraffe, elephant), the seven dog breeds and the two new plants on a sheet; a haven holding all of them, including a shiba saved by 1.2; the breed picker; the notification settings; the sanctuary list, its loading screen and a sanctuary of two havens in light and dark.
 
+## Checked for 1.5.1
+
+- A report from a tester: coins went to 0 on an iPad after signing in on a phone. Haven 1.4's joining on the new phone kept the newer copy's coins, which was the empty phone's 0, and saved it; the iPad then took that as a change. Reproduced the flow in Chrome with two devices on 1.5.1: the phone gets the account's 334 coins and the iPad keeps them. The server now refuses saves from before 1.5.1 (`tests/hub.test.mjs`).
+- Animals from two havens 13 tiles apart now seek each other out and meet (`tests/world.test.mjs`).
+
 ## Checked for 1.5.0
 
 - Two devices of one account: a second device that signs in takes the account's coins, treats and layout as they are, and both settle after one save each. Covered by `tests/sync.test.mjs`, `tests/store.test.mjs` and the browser test.

@@ -34,8 +34,8 @@ export const inviteLink = code => `${SITE}#add=${code}`;
 export const prettyCode = code => (code && code.length === 8 ? `${code.slice(0, 4)}-${code.slice(4)}` : code || '');
 
 export class Social {
-  constructor({ store, storage, base = null, now = () => Date.now(), fetchImpl = (...a) => fetch(...a), WebSocketImpl = globalThis.WebSocket }) {
-    this.store = store; this.storage = storage; this.base = base; this.now = now; this.fetch = fetchImpl; this.WS = WebSocketImpl;
+  constructor({ store, storage, base = null, version = 'dev', now = () => Date.now(), fetchImpl = (...a) => fetch(...a), WebSocketImpl = globalThis.WebSocket }) {
+    this.store = store; this.storage = storage; this.base = base; this.version = version; this.now = now; this.fetch = fetchImpl; this.WS = WebSocketImpl;
     this.listeners = new Set();
     this.account = null;
     try { const a = JSON.parse(storage.getItem(ACCOUNT_KEY) || 'null'); if (a?.id && a?.token) this.account = a; } catch { /* no profile */ }
@@ -96,6 +96,7 @@ export class Social {
   }
   forget() {
     this.account = null;
+    this.cardShared = false;
     // The last copy agreed with the server is kept: signing in again as the same person then joins
     // what changed meanwhile instead of starting over. It is ignored for anyone else.
     try { this.storage.removeItem(ACCOUNT_KEY); } catch { /* storage closed */ }
@@ -209,8 +210,13 @@ export class Social {
     if (!this.account || !this.base) return Promise.resolve(null);
     if (this.syncing) { this.syncAgain = true; return this.syncing; }
     this.syncing = (async () => {
-      try { let at; do { this.syncAgain = false; at = await this.syncOnce(); } while (this.syncAgain && this.account); return at; }
-      finally { this.syncing = null; }
+      try {
+        let at; do { this.syncAgain = false; at = await this.syncOnce(); } while (this.syncAgain && this.account);
+        // Share the haven once each time Haven starts, so friends and sanctuaries see it as this
+        // version draws it (a card shared by Haven before 1.5 cannot make animal friends).
+        if (!this.cardShared && this.account) { this.cardShared = true; this.pushCard(); }
+        return at;
+      } finally { this.syncing = null; }
     })();
     return this.syncing;
   }
@@ -233,7 +239,8 @@ export class Social {
       const mine = this.store.exportState();
       if (remote.state && comparable(mine) === comparable(remote.state)) { this.saveSync(rev, mine); this.data.backupAt = remote.at; return remote.at; }
       try {
-        const r = await this.api('PUT', '/api/state', { state: mine, base: rev });
+        // The server lets only versions that save safely write the haven (see statePut).
+        const r = await this.api('PUT', '/api/state', { state: mine, base: rev, app: this.version });
         this.saveSync(r.rev, mine);
         this.data.backupAt = r.at;
         this.emit('change');

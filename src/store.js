@@ -155,8 +155,9 @@ export function isPristine(state) {
  * account on a phone that has just signed in, or a backup file. Nothing earned is lost: sessions,
  * plants, animals, unlocks and achievements are combined.
  * - A haven nothing has happened in yet (a new phone) takes the other copy as it is.
- * - Two copies of the same haven (they share sessions or plants) keep the newer one's coins, treats,
- *   layout and settings, since adding them would count the same coins twice.
+ * - Two copies of the same haven (they share sessions or plants) keep the higher coins and treats,
+ *   since adding them would count the same coins twice, and "newer" only means opened more lately:
+ *   an old phone opened today must not take coins away. Layout and settings come from the newer.
  * - Two different havens being joined (one kept from before signing in) add their coins and treats.
  */
 export function mergeStates(local, remote, now = Date.now()) {
@@ -181,6 +182,9 @@ export function mergeStates(local, remote, now = Date.now()) {
   if (!shared) {
     out.coins = a.coins + b.coins;
     out.food = clamp(a.food + b.food, 0, 9999);
+  } else {
+    out.coins = Math.max(a.coins, b.coins);
+    out.food = Math.max(a.food, b.food);
   }
   out.social = { friends: Math.max(a.social.friends, b.social.friends), giftsSent: Math.max(a.social.giftsSent, b.social.giftsSent) };
   out.care = { feeds: Math.max(a.care.feeds, b.care.feeds) };

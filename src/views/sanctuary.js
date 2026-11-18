@@ -95,7 +95,8 @@ function fireCard(app, s) {
 
 /** Animals from different havens that have become friends here. */
 function palsList(app, s) {
-  if (!s.pals?.length) return '';
+  // Shown once there are animals from two havens, so people know how friends are made.
+  if (!s.pals?.length) return s.members.length > 1 ? '<h2 class="section-title">Animal friends</h2><p class="note">Animals from different havens become friends when they meet here.</p>' : '';
   const me = app.social.account?.id;
   const who = key => { const [owner, , species] = key.split(':'), m = s.members.find(x => x.id === owner), sp = speciesById(species); return { text: `${owner === me ? 'Your' : `${e(m?.name || 'Someone')}'s`} ${e(sp?.name.toLowerCase() || 'animal')}`, art: sp?.id || 'rabbit' }; };
   const rows = s.pals.slice(0, 12).map(p => { const a = who(p.a), b = who(p.b); return `<li class="row"><span class="avatars">${avatar(a.art)}${avatar(b.art)}</span><div class="row-main"><span>${a.text} and ${b.text.replace(/^Your/, 'your')}</span></div></li>`; }).join('');
