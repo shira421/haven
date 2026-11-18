@@ -11,7 +11,9 @@ const APK = process.argv[2] || 'android/app/build/outputs/apk/debug/app-debug.ap
 const PKG = 'com.shira421.haven';
 const OUT = 'tests/output/';
 mkdirSync(OUT, { recursive: true });
-const adb = (...args) => execFileSync('adb', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).trim();
+// Every phone command has a time limit: one that never returns (a screen dump that waits for the
+// screen to settle) would otherwise hang the whole run.
+const adb = (...args) => execFileSync('adb', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 45000, killSignal: 'SIGKILL' }).trim();
 const shell = cmd => adb('shell', cmd);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let step = 0;
@@ -27,8 +29,11 @@ const home = () => shell('input keyevent KEYCODE_HOME');
 /** Tap a button on a system screen (a permission prompt) by its text. */
 async function tapText(pattern, tries = 10) {
   for (let i = 0; i < tries; i++) {
-    shell('uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || true');
-    const xml = shell('cat /sdcard/ui.xml 2>/dev/null || true');
+    let xml = '';
+    try {
+      shell('rm -f /sdcard/ui.xml; timeout 20 uiautomator dump /sdcard/ui.xml >/dev/null 2>&1 || true');
+      xml = shell('cat /sdcard/ui.xml 2>/dev/null || true');
+    } catch { /* the dump got stuck: try again */ }
     const node = [...xml.matchAll(/<node [^>]*>/g)].map(m => m[0]).find(n => pattern.test((/text="([^"]*)"/.exec(n) || [])[1] || ''));
     const b = node && /bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/.exec(node);
     if (b) { shell(`input tap ${(Number(b[1]) + Number(b[3])) >> 1} ${(Number(b[2]) + Number(b[4])) >> 1}`); return true; }
