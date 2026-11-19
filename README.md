@@ -1,7 +1,5 @@
 # Haven (vibe coded)
 
-Private source. Copyright (c) 2026 shira421, all rights reserved (see [LICENSE](LICENSE)).
-
 A focus timer that grows a living sanctuary. Set a time, stay with it, and a plant grows, an animal moves in, or a pond gets dug in your haven. Leave early and it is lost. The animals are not ornaments: they wander, visit the plants and places they like, greet each other, sleep at night, and get hungry. Friends see each other focus live, sit round a campfire to focus together, share a sanctuary, cheer each other on and send gifts.
 
 One web app runs everywhere: in a browser, installed from the browser on iPhone and Android, and inside small native apps for iOS and Android. Everything is unlocked for everyone. There is nothing to buy.
